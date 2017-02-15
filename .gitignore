@@ -1,3 +1,8 @@
+# ignore output files
+pong_networks_*/
+*_human_samples/
+old_codes/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
