@@ -34,28 +34,6 @@ def get_action_index(readout_t, is_random=False, n_actions=-1):
         action_index = egreedy(readout_t, n_actions)
     return action_index
 
-def add_human_experiences(D, good_only=False, samp_num='001', name='pong'):
-    good_str = ''
-    if good_only:
-        good_str = '-good'
-    data = pickle.load(open(name + '_human_samples/' + samp_num + '/' + name + good_str + '-dqn-all.pkl', 'rb'))
-    terminals = data['D.terminal']
-    actions = data['D.actions']
-    rewards = data['D.rewards']
-    h5file = tables.openFile(name + '_human_samples/' + samp_num + '/' + name + good_str + '-dqn-images-all.h5', mode='r')
-    imgs = h5file.root.images[:]
-    h5file.close()
-    print "\tMemory size={}".format(D.size)
-    print "\tAdding {} human experiences...".format(data['D.size'])
-    for i in range(data['D.size']):
-        s = imgs[i]
-        a = actions[i]
-        r = rewards[i]
-        t = terminals[i]
-        D.add_sample(s, a, r, t)
-    print "\tMemory size={}".format(D.size)
-
-
 def plot_conv_weights(weights, name, channels_all=True, folder=''):
     """
     Plots convolutional filters
@@ -181,7 +159,7 @@ def prime_powers(n):
     :src: https://github.com/grishasergei/conviz/blob/master/utils.py
     """
     factors = set()
-    for x in xrange(1, int(sqrt(n)) + 1):
+    for x in range(1, int(sqrt(n)) + 1):
         if n % x == 0:
             factors.add(int(x))
             factors.add(int(n // x))
@@ -203,7 +181,7 @@ def empty_dir(path):
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
         except Exception as e:
-            print 'Warning: {}'.format(e)
+            print ('Warning: {}'.format(e))
 
 
 def create_dir(path):

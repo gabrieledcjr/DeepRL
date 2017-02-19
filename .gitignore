@@ -1,5 +1,5 @@
 # ignore output files
-pong_networks_*/
+*_networks_*/
 *_human_samples/
 old_codes/
 

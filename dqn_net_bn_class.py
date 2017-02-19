@@ -98,7 +98,11 @@ class DqnNetClass(Network):
 
         # cost of q network
         with tf.name_scope("Entropy") as scope:
-            self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.action_output, self.actions))
+            self.cross_entropy = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(
+                    _sentinel=None,
+                    labels=self.actions,
+                    logits=self.action_output))
             ce_summ = tf.summary.scalar("cross_entropy", self.cross_entropy)
         self.parameters = [
             self.W_conv1, self.h_conv1_bn.scale, self.h_conv1_bn.beta,
@@ -160,12 +164,12 @@ class DqnNetClass(Network):
 
         if checkpoint and checkpoint.model_checkpoint_path:
             saver.restore(self.sess, checkpoint.model_checkpoint_path)
-            print "Successfully loaded:", checkpoint.model_checkpoint_path
+            print ("Successfully loaded:", checkpoint.model_checkpoint_path)
             has_checkpoint = True
         return has_checkpoint
 
     def save(self, step=-1):
-        print colored('Saving checkpoint...', 'blue')
+        print (colored('Saving checkpoint...', 'blue'))
         if step < 0:
             self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn')
         else:
@@ -211,7 +215,7 @@ class DqnNetClass(Network):
         conv_weights = self.sess.run([tf.get_collection('conv_weights')])
         for i, c in enumerate(conv_weights[0]):
             plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
-        print colored('Successfully saved checkpoint!', 'green')
+        print (colored('Successfully saved checkpoint!', 'green'))
 
     def init_verbosity(self):
         with tf.name_scope("Summary_Conv1") as scope:

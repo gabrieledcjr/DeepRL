@@ -219,7 +219,7 @@ class DqnNet(Network):
 
     def build_loss(self, error_clip, n_actions):
         with tf.name_scope("Cost") as scope:
-            predictions = tf.reduce_sum(tf.mul(self.q_value, self.actions), reduction_indices=1)
+            predictions = tf.reduce_sum(tf.multiply(self.q_value, self.actions), reduction_indices=1)
             #delta = self.q_values_t - predictions
             #clipped_error = tf.select(
             #    tf.abs(delta) < 1.0,
@@ -227,7 +227,8 @@ class DqnNet(Network):
             #    tf.abs(delta) - 0.5, name='clipped_error'
             #)
             max_action_values = tf.reduce_max(self.t_q_value, 1)
-            targets = tf.stop_gradient(self.rewards + (self.gamma * max_action_values * (1 - self.terminals)))
+            clipped_rewards = tf.clip_by_value(self.rewards, -1, 1)
+            targets = tf.stop_gradient(clipped_rewards + (self.gamma * max_action_values * (1 - self.terminals)))
             difference = tf.abs(targets - predictions)
             if error_clip >= 0:
                 quadratic_part = tf.clip_by_value(difference, 0, error_clip)
@@ -255,7 +256,7 @@ class DqnNet(Network):
         )
         if self.update_counter % self.copy_interval == 0:
             if not self.slow:
-                print colored('Update target network', 'green')
+                print (colored('Update target network', 'green'))
             self.update_target_network()
         self.update_counter += 1
         return summary[0]
@@ -274,7 +275,7 @@ class DqnNet(Network):
 
         if checkpoint and checkpoint.model_checkpoint_path:
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
-            print colored('Successfully loaded:{}'.format(checkpoint.model_checkpoint_path), 'green')
+            print (colored('Successfully loaded:{}'.format(checkpoint.model_checkpoint_path), 'green'))
             sleep(.2)
             has_checkpoint = True
             data = pickle.load(open(self.folder + '/' + self.name + '-net-variables.pkl', 'rb'))
@@ -283,16 +284,16 @@ class DqnNet(Network):
         return has_checkpoint
 
     def save(self, step=-1):
-        print colored('Saving checkpoint...', 'blue')
+        print (colored('Saving checkpoint...', 'blue'))
         if step < 0:
             self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn')
         else:
             self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn', global_step=step)
             data = {'update_counter': self.update_counter}
             pickle.dump(data, open(self.folder + '/' + self.name + '-net-variables.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-        print colored('Successfully saved checkpoint!', 'green')
+        print (colored('Successfully saved checkpoint!', 'green'))
 
-        print colored('Saving parameters as csv files...', 'blue')
+        print (colored('Saving parameters as csv files...', 'blue'))
         W1_val = self.W_conv1.eval()
         np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
         b1_val = self.b_conv1.eval()
@@ -317,13 +318,13 @@ class DqnNet(Network):
         np.savetxt(self.folder + '/fc2_weights.csv', Wfc2_val.flatten())
         bfc2_val = self.b_fc2.eval()
         np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
-        print colored('Successfully saved parameters!', 'green')
+        print (colored('Successfully saved parameters!', 'green'))
 
-        print colored('Saving convolutional weights as images...', 'blue')
+        print (colored('Saving convolutional weights as images...', 'blue'))
         conv_weights = self.sess.run([tf.get_collection('conv_weights')])
         for i, c in enumerate(conv_weights[0]):
             plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
-        print colored('Successfully saved convolutional weights!', 'green')
+        print (colored('Successfully saved convolutional weights!', 'green'))
 
     def init_verbosity(self):
         with tf.name_scope("Summary_Conv1") as scope:
@@ -355,9 +356,9 @@ class DqnNet(Network):
         checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
         if checkpoint_transfer_from and checkpoint_transfer_from.model_checkpoint_path:
             saver_transfer_from.restore(self.sess, checkpoint_transfer_from.model_checkpoint_path)
-            print colored("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green")
+            print (colored("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green"))
 
             for v in tf.global_variables():
                 self.sess.run(v)
-                print colored("{}: LOADED".format(v.op.name), "green")
+                print (colored("{}: LOADED".format(v.op.name), "green"))
                 sleep(.2)

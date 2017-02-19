@@ -7,6 +7,7 @@ from pygame.locals import *
 from sys import exit
 import random
 import cv2
+from time import sleep
 from termcolor import colored
 
 position = 5, 325
@@ -46,15 +47,16 @@ class GameState:
         self.game = game
         if self.game == 'pong':
             self._env = gym.make('PongDeterministic-v3')
-            print colored("PongDeterministic-v3", "green")
+            print (colored("PongDeterministic-v3", "green"))
         elif self.game == 'breakout':
             self._env = gym.make('BreakoutDeterministic-v3')
-            print colored("BreakoutDeterministic-v3", "green")
+            print (colored("BreakoutDeterministic-v3", "green"))
         self._env.frameskip = frame_skip
         self.lives = self._env.ale.lives()
-        print colored("lives: {}".format(self.lives), "green")
-        print colored("frameskip: {}".format(self._env.frameskip), "green")
-        print colored("repeat_action_probability: {}".format(self._env.ale.getFloat('repeat_action_probability')), "green")
+        print (colored("lives: {}".format(self.lives), "green"))
+        print (colored("frameskip: {}".format(self._env.frameskip), "green"))
+        #print (colored("repeat_action_probability: {}".format(self._env.ale.getFloat('repeat_action_probability')), "green"))
+        sleep(2)
 
         self._human_demo = human_demo
         if self._human_demo:

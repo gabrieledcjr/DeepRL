@@ -17,12 +17,12 @@ except ImportError:
     import pickle
 
 # Breakout
-# GAME = 'breakout' # the name of the game being played for log files
-# ACTIONS = 4 # number of valid actions
+GAME = 'breakout' # the name of the game being played for log files
+ACTIONS = 4 # number of valid actions
 
 # Pong
-GAME = 'pong' # the name of the game being played for log files
-ACTIONS = 3 # number of valid actions
+# GAME = 'pong' # the name of the game being played for log files
+# ACTIONS = 3 # number of valid actions
 
 GAMMA = 0.99 # decay rate of past observations
 OBSERVE = 50000 # timesteps to observe before training
@@ -93,6 +93,7 @@ def trainNetwork(D, file_num=''):
 
         a_t[action_index] = 1
         observation, r_t, terminal = game_state.frame_step(action_index, gui=False, random_restart=True)
+        print ("reward: ", r_t)
         observation = cv2.cvtColor(cv2.resize(observation, (RESIZED_HEIGHT, RESIZED_WIDTH)), cv2.COLOR_BGR2GRAY)
         #terminal = True if terminal or r_t==-1 else False
         terminal = True if terminal or (time.time() > timeout_start + timeout) else False
@@ -142,9 +143,9 @@ def trainNetwork(D, file_num=''):
             'D.size':D.size}
     images = D.imgs
     pickle.dump(data, open('{}_human_samples/{}/'.format(GAME, file_num[1:]) + GAME + '-dqn' + file_num + '.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-    h5file = tables.openFile('{}_human_samples/{}/'.format(GAME, file_num[1:]) + GAME + '-dqn-images' + file_num + '.h5', mode='w', title='Images Array')
+    h5file = tables.open_file('{}_human_samples/{}/'.format(GAME, file_num[1:]) + GAME + '-dqn-images' + file_num + '.h5', mode='w', title='Images Array')
     root = h5file.root
-    h5file.createArray(root, "images", images)
+    h5file.create_array(root, "images", images)
     h5file.close()
 
 

@@ -21,7 +21,7 @@ class Experiment(object):
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
         optimizer, learning_rate, epsilon, decay, momentum, tau,
-        verbose, path, folder, slow, load_human_memory=False, train_max_steps=sys.maxint):
+        verbose, path, folder, slow, load_human_memory=False, train_max_steps=sys.maxsize):
         """ Initialize experiment """
         self.sess = sess
         self.observe = observe
@@ -50,7 +50,7 @@ class Experiment(object):
             rng = np.random.RandomState()
         self.D = DataSet(self.resized_width, self.resized_height, rng, replay_memory, self.phi_length, self.actions)
         self.net = network
-        self.game_state = game.GameState()
+        self.game_state = game.GameState(game=self.name)
 
     def _reset(self):
         do_nothing = np.zeros(self.actions)
@@ -64,22 +64,27 @@ class Experiment(object):
         return observation, s_t
 
     def _add_human_experiences(self):
-        data = pickle.load(open(self.name + '_human_samples/' + self.name + '-dqn-all.pkl', 'rb'))
+        if self.name == 'pong' or self.name == 'breakout':
+            # data were pickled using Python 2 which have compatibility issues in Python 3
+            data = pickle.load(open(self.name + '_human_samples/' + self.name + '-dqn-all.pkl', 'rb'), encoding='latin1')
+        else:
+            data = pickle.load(open(self.name + '_human_samples/' + self.name + '-dqn-all.pkl', 'rb'))
         terminals = data['D.terminal']
         actions = data['D.actions']
         rewards = data['D.rewards']
-        h5file = tables.openFile(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5', mode='r')
+        h5file = tables.open_file(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5', mode='r')
         imgs = h5file.root.images[:]
         h5file.close()
-        print "\tMemory size={}".format(self.D.size)
-        print "\tAdding {} human experiences...".format(data['D.size'])
+        print ("\tMemory size={}".format(self.D.size))
+        print ("\tAdding {} human experiences...".format(data['D.size']))
         for i in range(data['D.size']):
             s = imgs[i]
             a = actions[i]
             r = rewards[i]
             t = terminals[i]
             self.D.add_sample(s, a, r, t)
-        print "\tMemory size={}".format(self.D.size)
+        print ("\tMemory size={}".format(self.D.size))
+        time.sleep(2)
 
     def _load(self):
         if self.net.load():
@@ -98,11 +103,11 @@ class Experiment(object):
             self.D.size = data['D.size']
             t = data['t']
             epsilon = data['epsilon']
-            h5file = tables.openFile(self.folder + '/' + self.name + '-dqn-images.h5', mode='r')
+            h5file = tables.open_file(self.folder + '/' + self.name + '-dqn-images.h5', mode='r')
             self.D.imgs = h5file.root.images[:]
             h5file.close()
         else:
-            print "Could not find old network weights"
+            print ("Could not find old network weights")
             if self.load_human_memory:
                 self._add_human_experiences()
             t = 0
@@ -138,7 +143,7 @@ class Experiment(object):
             if terminal:
                 show_gui = False
                 n_episodes += 1
-                print "\tTRIAL", n_episodes, "/ REWARD", sub_total_reward, "/ STEPS", sub_steps, "/ TOTAL STEPS", total_steps
+                print ("\tTRIAL", n_episodes, "/ REWARD", sub_total_reward, "/ STEPS", sub_steps, "/ TOTAL STEPS", total_steps)
                 self.game_state.reinit(random_restart=True, is_testing=True)
                 _, s_t = self._reset()
                 total_reward += sub_total_reward
@@ -158,7 +163,7 @@ class Experiment(object):
         last_img, s_t = self._reset()
         self.t, self.epsilon, self.rewards = self._load()
 
-        print "D size: ", self.D.size
+        print ("D size: ", self.D.size)
         total_reward = 0.0
         sub_steps = 0
 
@@ -167,7 +172,7 @@ class Experiment(object):
             if (self.t - self.observe) >= 0 and (self.t - self.observe) % self.eval_freq == 0:
                 terminal = 0
                 total_reward, total_steps, n_episodes = self.test()
-                print "TIMESTEP", (self.t - self.observe), "/ AVE REWARD", total_reward, "/ AVE TOTAL STEPS", total_steps, "/ # EPISODES", n_episodes
+                print ("TIMESTEP", (self.t - self.observe), "/ AVE REWARD", total_reward, "/ AVE TOTAL STEPS", total_steps, "/ # EPISODES", n_episodes)
                 # re-initialize game for training
                 self.game_state.reinit(random_restart=True)
                 last_img, s_t = self._reset()
@@ -238,9 +243,9 @@ class Experiment(object):
                         't':self.t}
                 pickle.dump(data, open(self.folder + '/' + self.name + '-dqn.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
                 pickle.dump(self.rewards, open(self.folder + '/' + self.name + '-dqn-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-                h5file = tables.openFile(self.folder + '/' + self.name + '-dqn-images.h5', mode='w', title='Images Array')
+                h5file = tables.open_file(self.folder + '/' + self.name + '-dqn-images.h5', mode='w', title='Images Array')
                 root = h5file.root
-                h5file.createArray(root, "images", self.D.imgs)
+                h5file.create_array(root, "images", self.D.imgs)
                 h5file.close()
 
             # print info
@@ -253,7 +258,7 @@ class Experiment(object):
                 state = "train"
 
             if self.t%1000 == 0:
-                print "TIMESTEP", self.t, "/ STATE", state, "/ EPSILON", round(self.epsilon,4), "/ ACTION", action_index, "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t)
+                print ("TIMESTEP", self.t, "/ STATE", state, "/ EPSILON", round(self.epsilon,4), "/ ACTION", action_index, "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t))
 
 NUM_THREADS = 16
 def playGame():
