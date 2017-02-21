@@ -70,9 +70,9 @@ class DqnNetClass(Network):
 
         with tf.name_scope("FullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.W_fc2 = self.weight_variable_last_layer(kernel_shape, 'fc2')
+            self.W_fc2 = self.weight_variable(kernel_shape, 'fc2')
             self.W_fc2 = self.W_fc2
-            self.b_fc2 = self.bias_variable_last_layer(kernel_shape, 'fc2')
+            self.b_fc2 = self.bias_variable(kernel_shape, 'fc2')
             self.b_fc2 = self.b_fc2
             self.action_output = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
             tf.add_to_collection('transfer_params', self.W_fc2)

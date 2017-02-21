@@ -88,8 +88,8 @@ class DqnNet(Network):
 
         with tf.name_scope("FullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.W_fc2 = self.weight_variable_last_layer(kernel_shape, 'fc2')
-            self.b_fc2 = self.bias_variable_last_layer(kernel_shape, 'fc2')
+            self.W_fc2 = self.weight_variable(kernel_shape, 'fc2')
+            self.b_fc2 = self.bias_variable(kernel_shape, 'fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
             if transfer:
                 self.fast_learnrate_vars.append(self.W_fc2)
@@ -98,11 +98,11 @@ class DqnNet(Network):
         if transfer:
             self.load_transfer_model(folder=transfer_folder)
             # Scale down the last layer
-            # W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
-            # b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
-            # self.sess.run([
-            #    self.W_fc2.assign(W_fc2_scaled), self.b_fc2.assign(b_fc2_scaled)
-            # ])
+            W_fc2_scaled = tf.scalar_mul(0.1, self.W_fc2)
+            b_fc2_scaled = tf.scalar_mul(0.1, self.b_fc2)
+            self.sess.run([
+               self.W_fc2.assign(W_fc2_scaled), self.b_fc2.assign(b_fc2_scaled)
+            ])
 
         if verbose:
             self.init_verbosity()
@@ -146,7 +146,6 @@ class DqnNet(Network):
             self._global_vars_temp = set(tf.global_variables())
 
         # cost of q network
-        #self.l2_regularizer_loss = l2_decay * (tf.reduce_sum(tf.pow(self.W_conv1, 2)) + tf.reduce_sum(tf.pow(self.W_conv2, 2)) + tf.reduce_sum(tf.pow(self.W_conv3, 2))  + tf.reduce_sum(tf.pow(self.W_fc1, 2)) + tf.reduce_sum(tf.pow(self.W_fc2, 2)))
         self.cost = self.build_loss(error_clip, n_actions) #+ self.l2_regularizer_loss
         # self.parameters = [
         #     self.W_conv1, self.b_conv1,

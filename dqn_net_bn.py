@@ -99,8 +99,8 @@ class DqnNetBn(Network):
 
         with tf.name_scope("FullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.W_fc2 = self.weight_variable_last_layer(kernel_shape, 'fc2')
-            self.b_fc2 = self.bias_variable_last_layer(kernel_shape, 'fc2')
+            self.W_fc2 = self.weight_variable(kernel_shape, 'fc2')
+            self.b_fc2 = self.bias_variable(kernel_shape, 'fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
             if transfer:
                 self.fast_learnrate_vars.append(self.W_fc2)
@@ -193,7 +193,6 @@ class DqnNetBn(Network):
                         continue
                     grads.append(p[0])
                     params.append(p[1])
-
                 grads = tf.clip_by_global_norm(grads, 1)[0]
                 self.grads_vars_updates = zip(grads, params)
                 self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
