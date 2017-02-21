@@ -14,7 +14,7 @@ class DqnNetClass(Network):
     def __init__(
         self, sess, height, width, phi_length, n_actions, name,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0.,
-        slow=False, tau=0.001, verbose=False, path='', folder='_networks'):
+        slow=False, tau=0.001, verbose=False, path='', folder='_networks', l2_decay=0.001):
         """ Initialize network """
         super(DqnNetClass, self).__init__(sess, name=name)
         self.slow = slow
@@ -102,22 +102,37 @@ class DqnNetClass(Network):
                 tf.nn.softmax_cross_entropy_with_logits(
                     _sentinel=None,
                     labels=self.actions,
-                    logits=self.action_output))
+                    logits=self.action_output)) #+ \
+                    #l2_decay*tf.nn.l2_loss(self.W_fc2) + l2_decay*tf.nn.l2_loss(self.b_fc2))
             ce_summ = tf.summary.scalar("cross_entropy", self.cross_entropy)
-        self.parameters = [
-            self.W_conv1, self.h_conv1_bn.scale, self.h_conv1_bn.beta,
-            self.W_conv2, self.h_conv2_bn.scale, self.h_conv2_bn.beta,
-            self.W_conv3, self.h_conv3_bn.scale, self.h_conv3_bn.beta,
-            self.W_fc1, self.h_fc1_bn.scale, self.h_fc1_bn.beta,
-            self.W_fc2, self.b_fc2,
-        ]
-        self.gradient = tf.gradients(self.cross_entropy, self.parameters)
+        # self.parameters = [
+        #     self.W_conv1, self.h_conv1_bn.scale, self.h_conv1_bn.beta,
+        #     self.W_conv2, self.h_conv2_bn.scale, self.h_conv2_bn.beta,
+        #     self.W_conv3, self.h_conv3_bn.scale, self.h_conv3_bn.beta,
+        #     self.W_fc1, self.h_fc1_bn.scale, self.h_fc1_bn.beta,
+        #     self.W_fc2, self.b_fc2,
+        # ]
         with tf.name_scope("Train") as scope:
             if optimizer == "Adam":
                 self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
             else:
                 self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
-            self.train_step = self.opt.apply_gradients(zip(self.gradient, self.parameters))
+            self.grads_vars = self.opt.compute_gradients(self.cross_entropy)
+            grads = []
+            params = []
+            for p in self.grads_vars:
+                if p[0] == None:
+                    continue
+                grads.append(p[0])
+                params.append(p[1])
+
+            grads = tf.clip_by_global_norm(grads, 1)[0]
+            self.grads_vars_updates = zip(grads, params)
+            self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
+            # for grad, var in self.grads_vars:
+            #     if grad == None:
+            #         continue
+            #     tf.summary.histogram(var.op.name + '/gradients', grad)
         with tf.name_scope("Evaluating") as scope:
             correct_prediction = tf.equal(tf.argmax(self.action_output,1), tf.argmax(self.actions,1))
             self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))

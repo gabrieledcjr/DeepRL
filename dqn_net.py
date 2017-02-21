@@ -3,7 +3,7 @@ import tensorflow as tf
 import random
 import numpy as np
 from time import sleep
-from util import plot_conv_weights
+from util import plot_conv_weights, graves_rmsprop_optimizer
 from termcolor import colored
 from net import Network
 
@@ -98,11 +98,11 @@ class DqnNet(Network):
         if transfer:
             self.load_transfer_model(folder=transfer_folder)
             # Scale down the last layer
-            W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
-            b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
-            self.sess.run([
-               self.W_fc2.assign(W_fc2_scaled), self.b_fc2.assign(b_fc2_scaled)
-            ])
+            # W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
+            # b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
+            # self.sess.run([
+            #    self.W_fc2.assign(W_fc2_scaled), self.b_fc2.assign(b_fc2_scaled)
+            # ])
 
         if verbose:
             self.init_verbosity()
@@ -136,8 +136,8 @@ class DqnNet(Network):
 
         with tf.name_scope("TFullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.t_W_fc2 = self.weight_variable_last_layer(kernel_shape, 't_fc2')
-            self.t_b_fc2 = self.bias_variable_last_layer(kernel_shape, 't_fc2')
+            self.t_W_fc2 = self.weight_variable(kernel_shape, 't_fc2')
+            self.t_b_fc2 = self.bias_variable(kernel_shape, 't_fc2')
             self.t_q_value = tf.add(tf.matmul(self.t_h_fc1, self.t_W_fc2), self.t_b_fc2, name=self.name + '_t_fc1_outputs')
 
         if transfer:
@@ -148,22 +148,44 @@ class DqnNet(Network):
         # cost of q network
         #self.l2_regularizer_loss = l2_decay * (tf.reduce_sum(tf.pow(self.W_conv1, 2)) + tf.reduce_sum(tf.pow(self.W_conv2, 2)) + tf.reduce_sum(tf.pow(self.W_conv3, 2))  + tf.reduce_sum(tf.pow(self.W_fc1, 2)) + tf.reduce_sum(tf.pow(self.W_fc2, 2)))
         self.cost = self.build_loss(error_clip, n_actions) #+ self.l2_regularizer_loss
-        self.parameters = [
-            self.W_conv1, self.b_conv1,
-            self.W_conv2, self.b_conv2,
-            self.W_conv3, self.b_conv3,
-            self.W_fc1, self.b_fc1,
-            self.W_fc2, self.b_fc2,
-        ]
-        self.gradient = tf.gradients(self.cost, self.parameters)
+        # self.parameters = [
+        #     self.W_conv1, self.b_conv1,
+        #     self.W_conv2, self.b_conv2,
+        #     self.W_conv3, self.b_conv3,
+        #     self.W_fc1, self.b_fc1,
+        #     self.W_fc2, self.b_fc2,
+        # ]
         with tf.name_scope("Train") as scope:
-            if optimizer == "Adam":
-                #self.train_step = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon).minimize(self.cost)
-                self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
+            if optimizer == "Graves":
+                # Nature RMSOptimizer
+                self.train_step, self.grads_vars = graves_rmsprop_optimizer(self.cost, learning_rate, decay, epsilon, 1)
             else:
-                #self.train_step = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=0.0, epsilon=epsilon).minimize(self.cost)
-                self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
-            self.train_step = self.opt.apply_gradients(zip(self.gradient, self.parameters))
+                if optimizer == "Adam":
+                    self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
+                elif optimizer == "RMS":
+                    # Tensorflow RMSOptimizer
+                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
+                else:
+                    print (colored("Unknown Optimizer!", "red"))
+                    sys.exit()
+
+                self.grads_vars = self.opt.compute_gradients(self.cost)
+                grads = []
+                params = []
+                for p in self.grads_vars:
+                    if p[0] == None:
+                        continue
+                    grads.append(p[0])
+                    params.append(p[1])
+
+                grads = tf.clip_by_global_norm(grads, 1)[0]
+                self.grads_vars_updates = zip(grads, params)
+                self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
+
+            # for grad, var in self.grads_vars:
+            #     if grad == None:
+            #         continue
+            #     tf.summary.histogram(var.op.name + '/gradients', grad)
 
         with tf.name_scope("Evaluating") as scope:
             self.accuracy = tf.placeholder(tf.float32, shape=(), name="accuracy")
@@ -171,7 +193,7 @@ class DqnNet(Network):
 
         if transfer:
             vars_diff = set(tf.global_variables()) - self._global_vars_temp
-            self.sess.run(tf.initialize_variables(vars_diff))
+            self.sess.run(tf.variables_initializer(vars_diff))
         else:
             # initialize all tensor variable parameters
             self.sess.run(tf.global_variables_initializer())
@@ -219,26 +241,27 @@ class DqnNet(Network):
 
     def build_loss(self, error_clip, n_actions):
         with tf.name_scope("Cost") as scope:
-            predictions = tf.reduce_sum(tf.multiply(self.q_value, self.actions), reduction_indices=1)
-            #delta = self.q_values_t - predictions
-            #clipped_error = tf.select(
-            #    tf.abs(delta) < 1.0,
-            #    0.5 * tf.square(delta),
-            #    tf.abs(delta) - 0.5, name='clipped_error'
-            #)
+            predictions = tf.reduce_sum(tf.multiply(self.q_value, self.actions), axis=1)
             max_action_values = tf.reduce_max(self.t_q_value, 1)
             clipped_rewards = tf.clip_by_value(self.rewards, -1, 1)
             targets = tf.stop_gradient(clipped_rewards + (self.gamma * max_action_values * (1 - self.terminals)))
             difference = tf.abs(targets - predictions)
             if error_clip >= 0:
-                quadratic_part = tf.clip_by_value(difference, 0, error_clip)
+                #quadratic_part = tf.clip_by_value(difference, 0, error_clip)
+                quadratic_part = tf.minimum(difference, error_clip)
                 linear_part = difference - quadratic_part
                 errors = (0.5 * tf.square(quadratic_part)) + (error_clip * linear_part)
             else:
                 errors = (0.5 * tf.square(difference))
-            #self.cost = tf.reduce_mean(clipped_error, name='loss')
             cost = tf.reduce_sum(errors, name='loss')
-            cost_summ = tf.summary.scalar("cost", cost)
+            tf.summary.scalar("cost", cost)
+            tf.summary.scalar("cost_0", errors[0])
+            tf.summary.scalar("cost_max", tf.reduce_max(errors))
+            tf.summary.scalar("target_0", targets[0])
+            tf.summary.scalar("target_max", tf.reduce_max(targets))
+            tf.summary.scalar("acted_Q_0", predictions[0])
+            tf.summary.scalar("acted_Q_max", tf.reduce_max(predictions))
+            tf.summary.scalar("reward_max", tf.reduce_max(clipped_rewards))
             return cost
 
     def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal, total_reward):

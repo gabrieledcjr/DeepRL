@@ -36,7 +36,7 @@ C_FREQ = 10000
 SLOW = False
 TAU = 1.
 
-OPTIMIZER = 'RMS'
+OPTIMIZER = 'Graves' # Adam, RMS, Graves
 if OPTIMIZER == 'Adam':
     LEARNING_RATE = 0.00025
     DECAY = 0.
