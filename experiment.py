@@ -2,13 +2,15 @@
 import tensorflow as tf
 import cv2
 import sys
+import os
 import random
 import numpy as np
-from data_set import DataSet
-from dqn_net_bn import DqnNetBn
-from util import egreedy, get_action_index
 import tables
 import time
+
+from termcolor import colored
+from data_set import DataSet
+from util import egreedy, get_action_index, make_gif, process_frame84
 
 try:
     import cPickle as pickle
@@ -17,11 +19,10 @@ except ImportError:
 
 class Experiment(object):
     def __init__(
-        self, sess, network, game, resized_height, resized_width, phi_length, actions, batch,
+        self, sess, network, game_state, resized_height, resized_width, phi_length, actions, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
-        optimizer, learning_rate, epsilon, decay, momentum, tau,
-        verbose, path, folder, slow, load_human_memory=False, train_max_steps=sys.maxsize):
+        path, folder, load_human_memory=False, train_max_steps=sys.maxsize):
         """ Initialize experiment """
         self.sess = sess
         self.observe = observe
@@ -44,24 +45,32 @@ class Experiment(object):
         self.load_human_memory = load_human_memory
         self.train_max_steps = train_max_steps
 
+        self.state_input = np.zeros((1, 84, 84, self.phi_length), dtype=np.uint8)
+
         if False: # Deterministic
             rng = np.random.RandomState(123456)
         else:
             rng = np.random.RandomState()
         self.D = DataSet(self.resized_width, self.resized_height, rng, replay_memory, self.phi_length, self.actions)
         self.net = network
-        self.game_state = game.GameState(game=self.name)
+        self.game_state = game_state
 
-    def _reset(self):
-        do_nothing = np.zeros(self.actions)
-        do_nothing[0] = 1
+        if not os.path.exists(self.folder + '/frames'):
+            os.makedirs(self.folder + '/frames')
+
+    def _reset(self, testing=False):
+        self.state_input.fill(0)
         observation, r_0, terminal = self.game_state.frame_step(0)
+        observation = process_frame84(observation)
+        if not testing:
+            for _ in range(self.phi_length-1):
+                empty_img = np.zeros((self.resized_width, self.resized_height), dtype=np.uint8)
+                self.D.add_sample(empty_img, 0, 0, 0)
+        return observation
 
-        observation = cv2.cvtColor(cv2.resize(observation, (self.resized_height, self.resized_width)), cv2.COLOR_BGR2GRAY)
-        observation_t = observation / 255.0
-        s_t = [ observation_t for _ in range(self.phi_length)]
-        s_t = np.stack(tuple(s_t), axis = 2)
-        return observation, s_t
+    def _update_state_input(self, observation):
+        self.state_input = np.roll(self.state_input, -1, axis=3)
+        self.state_input[0, :, :, -1] = observation
 
     def _add_human_experiences(self):
         if self.name == 'pong' or self.name == 'breakout':
@@ -117,8 +126,11 @@ class Experiment(object):
 
     def test(self, show_gui=False):
         # re-initialize game for evaluation
+        episode_buffer = []
         self.game_state.reinit(random_restart=False, is_testing=True)
-        last_img, s_t = self._reset()
+        observation = self._reset(testing=True)
+        episode_buffer.append(self.game_state.screen_buffer)
+        self._update_state_input(observation)
         max_steps = self.eval_max_steps
         total_reward = 0.0
         total_steps = 0
@@ -127,25 +139,31 @@ class Experiment(object):
         n_episodes = 0
         time.sleep(0.5)
         while max_steps > 0:
-            readout_t = self.net.evaluate([s_t])[0]
+            readout_t = self.net.evaluate(self.state_input)[0]
             action_index = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.actions)
-            a_t = np.zeros([self.actions])
-            a_t[action_index] = 1
             observation, r_t, terminal = self.game_state.frame_step(action_index, gui=show_gui)
-            observation = cv2.cvtColor(cv2.resize(observation, (self.resized_height, self.resized_width)), cv2.COLOR_BGR2GRAY)
-            observation_t = observation / 255.0
-            observation_t = np.reshape(observation_t, (self.resized_height, self.resized_width, 1))
-            s_t1 = np.append(observation_t, s_t[:,:,0:3], axis = 2)
-            s_t = s_t1
+            if n_episodes == 0:
+                episode_buffer.append(observation)
+            observation = process_frame84(observation)
+            self._update_state_input(observation)
             sub_total_reward += r_t
             sub_steps += 1
             max_steps -= 1
             if terminal:
                 show_gui = False
+                if n_episodes == 0:
+                    time_per_step = 0.05
+                    images = np.array(episode_buffer)
+                    make_gif(
+                        images, self.folder + '/frames/image{ep:010d}.gif'.format(ep=(self.t-self.observe)),
+                        duration=len(images)*time_per_step,
+                        true_image=True, salience=False)
+                    episode_buffer = []
                 n_episodes += 1
                 print ("\tTRIAL", n_episodes, "/ REWARD", sub_total_reward, "/ STEPS", sub_steps, "/ TOTAL STEPS", total_steps)
                 self.game_state.reinit(random_restart=True, is_testing=True)
-                _, s_t = self._reset()
+                observation = self._reset(testing=True)
+                self._update_state_input(observation)
                 total_reward += sub_total_reward
                 total_steps += sub_steps
                 sub_total_reward = 0.0
@@ -160,7 +178,7 @@ class Experiment(object):
 
     def run(self):
         # get the first state by doing nothing and preprocess the image to 80x80x4
-        last_img, s_t = self._reset()
+        observation = self._reset()
         self.t, self.epsilon, self.rewards = self._load()
 
         print ("D size: ", self.D.size)
@@ -172,21 +190,21 @@ class Experiment(object):
             if (self.t - self.observe) >= 0 and (self.t - self.observe) % self.eval_freq == 0:
                 terminal = 0
                 total_reward, total_steps, n_episodes = self.test()
+                self.net.add_accuracy(total_reward, total_steps, n_episodes, (self.t - self.observe))
                 print ("TIMESTEP", (self.t - self.observe), "/ AVE REWARD", total_reward, "/ AVE TOTAL STEPS", total_steps, "/ # EPISODES", n_episodes)
                 # re-initialize game for training
                 self.game_state.reinit(random_restart=True)
-                last_img, s_t = self._reset()
+                observation = self._reset()
                 sub_steps = 0
                 time.sleep(0.5)
 
             # choose an action epsilon greedily
-            readout_t = self.net.evaluate([s_t])[0]
+            self._update_state_input(observation)
+            readout_t = self.net.evaluate(self.state_input)[0]
             action_index = get_action_index(
                 readout_t,
                 is_random=(random.random() <= self.epsilon or self.t <= self.observe),
                 n_actions=self.actions)
-            a_t = np.zeros([self.actions])
-            a_t[action_index] = 1
 
             # scale down epsilon
             if self.epsilon > self.final_epsilon and self.t > self.observe:
@@ -194,40 +212,35 @@ class Experiment(object):
 
             # Training
             # run the selected action and observe next state and reward
-            observation, r_t, terminal = self.game_state.frame_step(action_index, random_restart=True)
-            terminal = True if (terminal or r_t == -1) else False
-            sub_steps += 1
-            observation = cv2.cvtColor(cv2.resize(observation, (self.resized_height, self.resized_width)), cv2.COLOR_BGR2GRAY)
+            next_observation, r_t, terminal = self.game_state.frame_step(action_index, random_restart=True)
+            next_observation = process_frame84(next_observation)
+            terminal_ = terminal or ((self.t+1 - self.observe) >= 0 and (self.t+1 - self.observe) % self.eval_freq == 0)
 
             # store the transition in D
-            terminal_ = terminal or ((self.t+1 - self.observe) >= 0 and (self.t+1 - self.observe) % self.eval_freq == 0)
-            self.D.add_sample(last_img, a_t, r_t, (1 if terminal_ else 0))
-            last_img = observation
-
-            observation_t = observation / 255.0
-            observation_t = np.reshape(observation_t, (self.resized_height, self.resized_width, 1))
-            s_t1 = np.append(observation_t, s_t[:,:,0:3], axis = 2)
+            self.D.add_sample(observation, action_index, r_t, (1 if terminal_ else 0))
 
             # only train if done observing
             if self.t > self.observe and self.t % self.update_freq == 0:
                 s_j_batch, a_batch, r_batch, s_j1_batch, terminals = self.D.random_batch(self.batch)
                 # perform gradient step
-                summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals, total_reward)
+                summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
                 self.net.add_summary(summary, self.t-self.observe)
 
                 self.rewards['train'].append(round(r_t, 4))
 
             # update the old values
-            s_t = s_t1
+            sub_steps += 1
             self.t += 1
+            observation = next_observation
 
             if terminal:
-                last_img, s_t = self._reset()
+                observation = self._reset()
                 sub_steps = 0
 
             # save progress every SAVE_FREQ iterations
             if (self.t-self.observe) % self.save_freq == 0:
                 self.net.save(self.t)
+
                 data = {'D.width':self.D.width,
                         'D.height':self.D.height,
                         'D.max_steps':self.D.max_steps,
@@ -241,12 +254,16 @@ class Experiment(object):
                         'D.size':self.D.size,
                         'epsilon':self.epsilon,
                         't':self.t}
+                print (colored('Saving data...', 'blue'))
                 pickle.dump(data, open(self.folder + '/' + self.name + '-dqn.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
                 pickle.dump(self.rewards, open(self.folder + '/' + self.name + '-dqn-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
+                print (colored('Successfully saved data!', 'green'))
+                print (colored('Saving replay memory...', 'blue'))
                 h5file = tables.open_file(self.folder + '/' + self.name + '-dqn-images.h5', mode='w', title='Images Array')
                 root = h5file.root
                 h5file.create_array(root, "images", self.D.imgs)
                 h5file.close()
+                print (colored('Successfully saved replay memory!', 'green'))
 
             # print info
             state = ""

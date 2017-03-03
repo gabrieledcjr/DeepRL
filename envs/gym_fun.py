@@ -47,9 +47,11 @@ class GameState:
         self.game = game
         if self.game == 'pong':
             self._env = gym.make('PongDeterministic-v3')
+            self.n_actions = 3
             print (colored("PongDeterministic-v3", "green"))
         elif self.game == 'breakout':
             self._env = gym.make('BreakoutDeterministic-v3')
+            self.n_actions = 4
             print (colored("BreakoutDeterministic-v3", "green"))
         self._env.frameskip = frame_skip
         self.lives = self._env.ale.lives()
@@ -76,7 +78,7 @@ class GameState:
             for _ in range(random_actions):
                 self.frame_step(0)
         self.frame_step(0)
-        self.frame_step(0)
+        self.screen_buffer, _, _ = self.frame_step(0)
 
     def handle_user_event(self):
         pygame.event.get()
@@ -119,6 +121,7 @@ class GameState:
                 self.lost_life = False
 
         observation, reward, terminal, info = self._env.step(action)
+        self.screen_buffer = observation
 
         if (self.lives - info['ale.lives']) != 0:
             self.lost_life = True
@@ -137,13 +140,15 @@ class GameState:
         if gui:
             self._env.render(mode='human')
 
-        # cv2.imshow("observation", observation[33:195,:])
+        # frame = _process_frame42(observation)
+        # frame = observation[34:34+160, :160]
+        # cv2.imshow("observation", frame)
         # cv2.waitKey(2)
 
         if terminal:
             self.reinit(random_restart=random_restart)
 
-        return observation[33:195,:], reward, (1 if terminal else 0)
+        return observation, reward, (1 if terminal else 0)
 
 # test_game = GameState()
 # terminal = False

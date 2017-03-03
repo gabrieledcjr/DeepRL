@@ -12,24 +12,28 @@ class Network(object):
         slow=False, tau=0.01, verbose=False, path='', folder='_networks', decay_learning_rate=False):
         self.name = name
 
-    def weight_variable_(self, shape, layer_name, stddev=0.01):
-        initial = tf.truncated_normal(shape, stddev=stddev)
-        return tf.Variable(initial, name=self.name + '_' + layer_name + '_weights')
-
-    def bias_variable_(self, shape, layer_name, value=0.01):
-        initial = tf.constant(value, shape=[shape[-1]])
-        return tf.Variable(initial, name=self.name + '_' + layer_name + '_biases')
-
-    def weight_variable(self, shape, layer_name):
-        fan_in = np.prod(shape[0:-1])
-        std = 1. / sqrt(fan_in)
+    def weight_variable(self, head_channels, shape, layer_name):
+        std = self._xavier_std(
+            head_channels * shape[0] ** 2,
+            shape[-1] * shape[0] ** 2
+        )
         initial = tf.random_uniform(shape, minval=(-std), maxval=std)
         return tf.Variable(initial, name=self.name + '_' + layer_name + '_weights')
 
-    def bias_variable(self, shape, layer_name):
+    def bias_variable(self, head_channels, shape, layer_name):
         """ Pass the same shape as was passed in the weight_variable  """
-        fan_in = np.prod(shape[0:-1])
-        std = 1. / sqrt(fan_in)
+        std = self._xavier_std(head_channels ** 2, shape[-1] ** 2)
+        initial = tf.random_uniform([shape[-1]], minval=(-std), maxval=std)
+        return tf.Variable(initial, name=self.name + '_' + layer_name + '_biases')
+
+    def weight_variable_linear(self, shape, layer_name):
+        std = self._xavier_std(shape[0] ** 2, shape[1] ** 2)
+        initial = tf.random_uniform(shape, minval=(-std), maxval=std)
+        return tf.Variable(initial, name=self.name + '_' + layer_name + '_weights')
+
+    def bias_variable_linear(self, shape, layer_name):
+        """ Pass the same shape as was passed in the weight_variable  """
+        std = self._xavier_std(shape[0] ** 2, shape[1] ** 2)
         initial = tf.random_uniform([shape[-1]], minval=(-std), maxval=std)
         return tf.Variable(initial, name=self.name + '_' + layer_name + '_biases')
 
@@ -42,6 +46,9 @@ class Network(object):
         std = 0.003
         initial = tf.random_uniform([shape[-1]], minval=(-std), maxval=std)
         return tf.Variable(initial, name=self.name + '_' + layer_name + '_biases')
+
+    def _xavier_std(self, in_size, out_size):
+        return np.sqrt(2. / (in_size + out_size))
 
     def conv2d(self, x, W, stride):
         return tf.nn.conv2d(x, W, strides=[1,stride,stride,1], padding = "VALID")

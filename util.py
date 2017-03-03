@@ -5,6 +5,7 @@ import tables
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import cv2
 from math import sqrt
 
 try:
@@ -255,3 +256,66 @@ def prepare_dir(path, empty=False):
 
     if empty:
         empty_dir(path)
+
+#This code allows gifs to be saved of the training episode for use in the Control Center.
+def make_gif(images, fname, duration=2, true_image=False,salience=False,salIMGS=None):
+    """
+    src: https://github.com/awjuliani/DeepRL-Agents/blob/master/helper.py
+    """
+    import moviepy.editor as mpy
+
+    def make_frame(t):
+        try:
+            x = images[int(len(images)/duration*t)]
+        except:
+            x = images[-1]
+
+        if true_image:
+            return x.astype(np.uint8)
+        else:
+            return ((x+1)/2*255).astype(np.uint8)
+
+    def make_mask(t):
+        try:
+            x = salIMGS[int(len(salIMGS)/duration*t)]
+        except:
+            x = salIMGS[-1]
+        return x
+
+    clip = mpy.VideoClip(make_frame, duration=duration)
+    if salience == True:
+        mask = mpy.VideoClip(make_mask, ismask=True,duration= duration)
+        clipB = clip.set_mask(mask)
+        clipB = clip.set_opacity(0)
+        mask = mask.set_opacity(0.1)
+        mask.write_gif(fname, fps = len(images) / duration,verbose=False)
+        #clipB.write_gif(fname, fps = len(images) / duration,verbose=False)
+    else:
+        clip.write_gif(fname, fps = len(images) / duration,verbose=False)
+
+def process_frame42(frame):
+    frame = frame[34:34+160, :160]
+    # Resize by half, then down to 42x42 (essentially mipmapping). If
+    # we resize directly we lose pixels that, when mapped to 42x42,
+    # aren't close enough to the pixel boundary.
+    frame = cv2.resize(frame, (80, 80))
+    frame = cv2.resize(frame, (42, 42))
+    frame = frame.mean(2)
+    frame = frame.astype(np.float32)
+    frame *= (1.0 / 255.0)
+    frame = np.reshape(frame, [42, 42, 1])
+    #frame = np.reshape(frame, [np.prod(frame.shape)])
+    return frame
+
+def process_frame84(frame):
+    frame = frame[34:34+160, :160]
+    # Resize by half, then down to 42x42 (essentially mipmapping). If
+    # we resize directly we lose pixels that, when mapped to 42x42,
+    # aren't close enough to the pixel boundary.
+    frame = cv2.resize(frame, (84, 84))
+    frame = frame.mean(2)
+    frame = frame.astype(np.uint8)
+    #frame *= (1.0 / 255.0)
+    #frame = np.reshape(frame, [84, 84, 1])
+    #frame = np.reshape(frame, [np.prod(frame.shape)])
+    return frame
