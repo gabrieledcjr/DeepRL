@@ -42,14 +42,17 @@ class DqnNetBn(Network):
         self.slow_learnrate_vars = []
         self.fast_learnrate_vars = []
 
+        self.observation_n = tf.div(self.observation, 255.)
+        self.next_observation_n = tf.div(self.next_observation, 255.)
+
         # q network model:
         self.is_training = tf.placeholder(tf.bool, [])
 
         with tf.name_scope("Conv1") as scope:
             kernel_shape = [8, 8, phi_length, 32]
-            self.W_conv1 = self.weight_variable(kernel_shape, 'conv1')
+            self.W_conv1 = self.weight_variable(phi_length, kernel_shape, 'conv1')
             #self.b_conv1 = self.bias_variable(kernel_shape, 'conv1')
-            self.h_conv1_bn = batch_norm(self.conv2d(self.observation, self.W_conv1, 4), 32, self.is_training, self.sess, slow=self.slow, tau=self.tau)
+            self.h_conv1_bn = batch_norm(self.conv2d(self.observation_n, self.W_conv1, 4), 32, self.is_training, self.sess, slow=self.slow, tau=self.tau)
             self.h_conv1 = tf.nn.relu(self.h_conv1_bn.bnorm, name=self.name + '_conv1_activations')
             tf.add_to_collection('conv_weights', self.W_conv1)
             tf.add_to_collection('conv_output', self.h_conv1)
@@ -60,7 +63,7 @@ class DqnNetBn(Network):
 
         with tf.name_scope("Conv2") as scope:
             kernel_shape = [4, 4, 32, 64]
-            self.W_conv2 = self.weight_variable(kernel_shape, 'conv2')
+            self.W_conv2 = self.weight_variable(32, kernel_shape, 'conv2')
             #self.b_conv2 = self.bias_variable(kernel_shape, 'conv2')
             self.h_conv2_bn = batch_norm(self.conv2d(self.h_conv1, self.W_conv2, 2), 64, self.is_training, self.sess, slow=self.slow, tau=self.tau)
             self.h_conv2 = tf.nn.relu(self.h_conv2_bn.bnorm, name=self.name + '_conv2_activations')
@@ -73,7 +76,7 @@ class DqnNetBn(Network):
 
         with tf.name_scope("Conv3") as scope:
             kernel_shape = [3, 3, 64, 64]
-            self.W_conv3 = self.weight_variable(kernel_shape, 'conv3')
+            self.W_conv3 = self.weight_variable(64, kernel_shape, 'conv3')
             #self.b_conv3 = self.bias_variable(kernel_shape, 'conv3')
             self.h_conv3_bn = batch_norm(self.conv2d(self.h_conv2, self.W_conv3, 1), 64, self.is_training, self.sess, slow=self.slow, tau=self.tau)
             self.h_conv3 = tf.nn.relu(self.h_conv3_bn.bnorm, name=self.name + '_conv3_activations')
@@ -88,7 +91,7 @@ class DqnNetBn(Network):
 
         with tf.name_scope("FullyConnected1") as scope:
             kernel_shape = [3136, 512]
-            self.W_fc1 = self.weight_variable(kernel_shape, 'fc1')
+            self.W_fc1 = self.weight_variable_linear(kernel_shape, 'fc1')
             #self.b_fc1 = self.bias_variable(kernel_shape, 'fc1')
             self.h_fc1_bn = batch_norm(tf.matmul(self.h_conv3_flat, self.W_fc1), 512, self.is_training, self.sess, slow=self.slow, tau=self.tau, linear=True)
             self.h_fc1 = tf.nn.relu(self.h_fc1_bn.bnorm, name=self.name + '_fc1_activations')
@@ -99,8 +102,8 @@ class DqnNetBn(Network):
 
         with tf.name_scope("FullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.W_fc2 = self.weight_variable(kernel_shape, 'fc2')
-            self.b_fc2 = self.bias_variable(kernel_shape, 'fc2')
+            self.W_fc2 = self.weight_variable_linear(kernel_shape, 'fc2')
+            self.b_fc2 = self.bias_variable_linear(kernel_shape, 'fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
             if transfer:
                 self.fast_learnrate_vars.append(self.W_fc2)
@@ -122,21 +125,21 @@ class DqnNetBn(Network):
         self.t_is_training = tf.placeholder(tf.bool, [])
         with tf.name_scope("TConv1") as scope:
             kernel_shape = [8, 8, phi_length, 32]
-            self.t_W_conv1 = self.weight_variable(kernel_shape, 't_conv1')
+            self.t_W_conv1 = self.weight_variable(phi_length, kernel_shape, 't_conv1')
             #self.t_b_conv1 = self.bias_variable(kernel_shape, 't_conv1')
-            self.t_h_conv1_bn = batch_norm(self.conv2d(self.next_observation, self.t_W_conv1, 4), 32, self.t_is_training, self.sess, parForTarget=self.h_conv1_bn, slow=self.slow, tau=self.tau)
+            self.t_h_conv1_bn = batch_norm(self.conv2d(self.next_observation_n, self.t_W_conv1, 4), 32, self.t_is_training, self.sess, parForTarget=self.h_conv1_bn, slow=self.slow, tau=self.tau)
             self.t_h_conv1 = tf.nn.relu(self.t_h_conv1_bn.bnorm, name=self.name + '_t_conv1_activations')
 
         with tf.name_scope("TConv2") as scope:
             kernel_shape = [4, 4, 32, 64]
-            self.t_W_conv2 = self.weight_variable(kernel_shape, 't_conv2')
+            self.t_W_conv2 = self.weight_variable(32, kernel_shape, 't_conv2')
             #self.t_b_conv2 = self.bias_variable(kernel_shape, 't_conv2')
             self.t_h_conv2_bn = batch_norm(self.conv2d(self.t_h_conv1, self.t_W_conv2, 2), 64, self.t_is_training, self.sess, parForTarget=self.h_conv2_bn, slow=self.slow, tau=self.tau)
             self.t_h_conv2 = tf.nn.relu(self.t_h_conv2_bn.bnorm, name=self.name + '_t_conv2_activations')
 
         with tf.name_scope("TConv3") as scope:
             kernel_shape = [3, 3, 64, 64]
-            self.t_W_conv3 = self.weight_variable(kernel_shape, 't_conv3')
+            self.t_W_conv3 = self.weight_variable(64, kernel_shape, 't_conv3')
             #self.t_b_conv3 = self.bias_variable(kernel_shape, 't_conv3')
             self.t_h_conv3_bn = batch_norm(self.conv2d(self.t_h_conv2, self.t_W_conv3, 1), 64, self.t_is_training, self.sess, parForTarget=self.h_conv3_bn, slow=self.slow, tau=self.tau)
             self.t_h_conv3 = tf.nn.relu(self.t_h_conv3_bn.bnorm, name=self.name + '_t_conv3_activations')
@@ -145,15 +148,15 @@ class DqnNetBn(Network):
 
         with tf.name_scope("TFullyConnected1") as scope:
             kernel_shape = [3136, 512]
-            self.t_W_fc1 = self.weight_variable(kernel_shape, 't_fc1')
+            self.t_W_fc1 = self.weight_variable_linear(kernel_shape, 't_fc1')
             #self.t_b_fc1 = self.bias_variable(kernel_shape, 't_fc1')
             self.t_h_fc1_bn = batch_norm(tf.matmul(self.t_h_conv3_flat, self.t_W_fc1), 512, self.t_is_training, self.sess, parForTarget=self.h_fc1_bn, slow=self.slow, tau=self.tau, linear=True)
             self.t_h_fc1 = tf.nn.relu(self.t_h_fc1_bn.bnorm, name=self.name + '_t_fc1_activations')
 
         with tf.name_scope("TFullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.t_W_fc2 = self.weight_variable(kernel_shape, 't_fc2')
-            self.t_b_fc2 = self.bias_variable(kernel_shape, 't_fc2')
+            self.t_W_fc2 = self.weight_variable_linear(kernel_shape, 't_fc2')
+            self.t_b_fc2 = self.bias_variable_linear(kernel_shape, 't_fc2')
             self.t_q_value = tf.add(tf.matmul(self.t_h_fc1, self.t_W_fc2), self.t_b_fc2, name=self.name + '_t_fc1_outputs')
 
         if transfer:
@@ -193,7 +196,7 @@ class DqnNetBn(Network):
                         continue
                     grads.append(p[0])
                     params.append(p[1])
-                grads = tf.clip_by_global_norm(grads, 1)[0]
+                #grads = tf.clip_by_global_norm(grads, 1)[0]
                 self.grads_vars_updates = zip(grads, params)
                 self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
 
@@ -201,10 +204,6 @@ class DqnNetBn(Network):
             #     if grad == None:
             #         continue
             #     tf.summary.histogram(var.op.name + '/gradients', grad)
-
-        with tf.name_scope("Evaluating") as scope:
-            self.accuracy = tf.placeholder(tf.float32, shape=(), name="accuracy")
-            accuracy_summary = tf.summary.scalar("accuracy", self.accuracy)
 
         if transfer:
             vars_diff = set(tf.global_variables()) - self._global_vars_temp
@@ -294,13 +293,14 @@ class DqnNetBn(Network):
                 errors = (0.5 * tf.square(quadratic_part)) + (error_clip * linear_part)
             else:
                 errors = (0.5 * tf.square(difference))
-            cost = tf.reduce_sum(errors, name='loss')
+            #cost = tf.reduce_sum(errors, name='loss')
+            cost = tf.reduce_mean(errors, name='loss')
             cost_summ = tf.summary.scalar("cost", cost)
             return cost
 
-    def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal, total_reward):
+    def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal):
         t_ops = [
-            self.merged, self.train_step, self.cost, self.accuracy,
+            self.merged, self.train_step, self.cost,
             self.h_conv1_bn.train, self.t_h_conv1_bn.train,
             self.h_conv2_bn.train, self.t_h_conv2_bn.train,
             self.h_conv3_bn.train, self.t_h_conv3_bn.train,
@@ -314,7 +314,6 @@ class DqnNetBn(Network):
                 self.next_observation: s_j1_batch,
                 self.rewards: r_batch,
                 self.terminals: terminal,
-                self.accuracy: total_reward,
                 self.is_training: True,
                 self.t_is_training: True
             }
@@ -325,6 +324,14 @@ class DqnNetBn(Network):
             self.update_target_network()
         self.update_counter += 1
         return summary[0]
+
+    def add_accuracy(self, mean_reward, mean_length, n_episodes, step):
+        summary = tf.Summary()
+        summary.value.add(tag='Perf/Reward', simple_value=float(mean_reward))
+        summary.value.add(tag='Perf/Length', simple_value=float(mean_length))
+        summary.value.add(tag='Perf/Episodes', simple_value=float(n_episodes))
+        self.writer.add_summary(performance_summary, agent.step_count)
+        self.writer.flush()
 
     def add_summary(self, summary, step):
         self.writer.add_summary(summary, step)
@@ -392,11 +399,11 @@ class DqnNetBn(Network):
         np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
         print (colored('Successfully saved parameters!', 'green'))
 
-        print (colored('Saving convolutional weights as images...', 'blue'))
-        conv_weights = self.sess.run([tf.get_collection('conv_weights')])
-        for i, c in enumerate(conv_weights[0]):
-            plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
-        print (colored('Successfully saved convolutional weights!', 'green'))
+        # print (colored('Saving convolutional weights as images...', 'blue'))
+        # conv_weights = self.sess.run([tf.get_collection('conv_weights')])
+        # for i, c in enumerate(conv_weights[0]):
+        #     plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
+        # print (colored('Successfully saved convolutional weights!', 'green'))
 
 
     def init_verbosity(self):
