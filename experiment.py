@@ -5,7 +5,6 @@ import sys
 import os
 import random
 import numpy as np
-import tables
 import time
 
 from termcolor import colored

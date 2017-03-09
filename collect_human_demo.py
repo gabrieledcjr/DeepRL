@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import numpy as np
-import tables
 import time
 from datetime import datetime
 from termcolor import colored
