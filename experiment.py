@@ -10,9 +10,7 @@ import time
 
 from termcolor import colored
 from data_set import DataSet
-from util import egreedy, get_action_index, make_gif,
-    process_frame, get_compressed_images,
-    compress_h5file, remove_h5file
+from util import egreedy, get_action_index, make_gif, process_frame, get_compressed_images, compress_h5file, remove_h5file
 
 try:
     import cPickle as pickle
@@ -259,7 +257,7 @@ class Experiment(object):
                 root = h5file.root
                 h5file.create_array(root, "images", self.D.imgs)
                 h5file.close()
-                print (colored('Compressing replay memory...')
+                print (colored('Compressing replay memory...'))
                 gz_file = compress_h5file(h5_filename)
                 print (colored('Successfully compressed/saved replay memory!', 'green'))
                 print (colored('Removing residual h5 file', 'blue'))
