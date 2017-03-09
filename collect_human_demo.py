@@ -4,7 +4,7 @@ import tables
 import time
 from datetime import datetime
 from termcolor import colored
-from util import prepare_dir, process_frame, compress_h5file, remove_h5file
+from util import prepare_dir, process_frame, save_compressed_images
 
 try:
     import cPickle as pickle
@@ -138,14 +138,6 @@ class CollectHumanDemo(object):
         pkl_file = '{name}-dqn.pkl'.format(name=self.name)
         h5_file = '{name}-dqn-images.h5'.format(name=self.name)
         pickle.dump(data, open(self.folder + pkl_file, 'wb'), pickle.HIGHEST_PROTOCOL)
-        h5file = tables.open_file(self.folder + h5_file, mode='w', title='Images Array')
-        root = h5file.root
-        h5file.create_array(root, "images", images)
-        h5file.close()
-
-        print (colored('Compressing {}...'.format(self.folder + h5_file), 'blue'))
-        gz_file = compress_h5file(self.folder + h5_file)
-        print (colored('{} compressed => {}...'.format(self.folder + h5_file, gz_file), 'green'))
-        print (colored('Removing {}...'.format(self.folder + h5_file), 'blue'))
-        remove_h5file(self.folder + h5_file)
-        print (colored('{} removed'.format(self.folder + h5_file), 'green'))
+        print (colored('Compressing and saving replay memory...', 'blue'))
+        save_compressed_images(self.folder + h5_file, images)
+        print (colored('Compressed and saved replay memory', 'green'))

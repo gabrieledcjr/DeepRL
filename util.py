@@ -350,6 +350,15 @@ def uncompress_h5file(file_h5):
         h5file = tables.open_file(temp_file, mode='r')
     return h5file, temp_file
 
+def save_compressed_images(file_h5, imgs):
+    h5file = tables.open_file(file_h5, mode='w', title='Images Array')
+    root = h5file.root
+    h5file.create_array(root, "images", imgs)
+    h5file.close()
+    gz_file = compress_h5file(file_h5)
+    remove_h5file(file_h5)
+    return gz_file
+
 def get_compressed_images(h5file_gz):
     h5file, temp_file = uncompress_h5file(h5file_gz)
     imgs = h5file.root.images[:]

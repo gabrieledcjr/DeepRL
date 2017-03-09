@@ -10,7 +10,7 @@ import time
 
 from termcolor import colored
 from data_set import DataSet
-from util import egreedy, get_action_index, make_gif, process_frame, get_compressed_images, compress_h5file, remove_h5file
+from util import egreedy, get_action_index, make_gif, process_frame, get_compressed_images, save_compressed_images
 
 try:
     import cPickle as pickle
@@ -75,9 +75,6 @@ class Experiment(object):
         terminals = data['D.terminal']
         actions = data['D.actions']
         rewards = data['D.rewards']
-        #h5file = tables.open_file(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5', mode='r')
-        #imgs = h5file.root.images[:]
-        #h5file.close()
         imgs = get_compressed_images(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5' + '.gz')
         print ("\tMemory size={}".format(self.D.size))
         print ("\tAdding {} human experiences...".format(data['D.size']))
@@ -107,9 +104,7 @@ class Experiment(object):
             self.D.size = data['D.size']
             t = data['t']
             epsilon = data['epsilon']
-            h5file = tables.open_file(self.folder + '/' + self.name + '-dqn-images.h5', mode='r')
-            self.D.imgs = h5file.root.images[:]
-            h5file.close()
+            self.D.imgs = get_compressed_images(self.folder + '/' + self.name + '-dqn-images.h5' + '.gz')
         else:
             print ("Could not find old network weights")
             if self.load_human_memory:
@@ -251,18 +246,9 @@ class Experiment(object):
                 pickle.dump(data, open(self.folder + '/' + self.name + '-dqn.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
                 pickle.dump(self.rewards, open(self.folder + '/' + self.name + '-dqn-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
                 print (colored('Successfully saved data!', 'green'))
-                print (colored('Saving replay memory...', 'blue'))
-                h5_filename = self.folder + '/' + self.name + '-dqn-images.h5'
-                h5file = tables.open_file(h5_filename, mode='w', title='Images Array')
-                root = h5file.root
-                h5file.create_array(root, "images", self.D.imgs)
-                h5file.close()
-                print (colored('Compressing replay memory...'))
-                gz_file = compress_h5file(h5_filename)
-                print (colored('Successfully compressed/saved replay memory!', 'green'))
-                print (colored('Removing residual h5 file', 'blue'))
-                remove_h5file(h5_filename)
-                print (colored('Residual h5 file removed', 'green'))
+                print (colored('Compressing and saving replay memory...', 'blue'))
+                save_compressed_images(self.folder + '/' + self.name + '-dqn-images.h5', self.D.imgs)
+                print (colored('Compressed and saved replay memory', 'green'))
 
             # print info
             state = ""
