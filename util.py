@@ -1,11 +1,12 @@
 #!/usr/bin/env python
-import tensorflow as tf
 import random
 import tables
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import cv2
+import gzip
+import shutil
 from math import sqrt
 
 try:
@@ -17,6 +18,7 @@ def graves_rmsprop_optimizer(loss, learning_rate, rmsprop_decay, rmsprop_constan
     """
     src:https://raw.githubusercontent.com/cgel/DRL/master/agents/commonOps.py
     """
+    import tensorflow as tf
     with tf.name_scope('rmsprop'):
         optimizer = None
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
@@ -319,3 +321,41 @@ def process_frame84(frame):
     #frame = np.reshape(frame, [84, 84, 1])
     #frame = np.reshape(frame, [np.prod(frame.shape)])
     return frame
+
+def process_frame(frame, h, w):
+    frame = frame[34:34+160, :160]
+    # Resize by half, then down to 42x42 (essentially mipmapping). If
+    # we resize directly we lose pixels that, when mapped to 42x42,
+    # aren't close enough to the pixel boundary.
+    frame = cv2.resize(frame, (h, w))
+    frame = frame.mean(2)
+    frame = frame.astype(np.uint8)
+    #frame *= (1.0 / 255.0)
+    #frame = np.reshape(frame, [84, 84, 1])
+    #frame = np.reshape(frame, [np.prod(frame.shape)])
+    return frame
+
+def compress_h5file(file_h5, gz_compress_level=1):
+    with open(file_h5, 'rb') as f_in, gzip.open(file_h5 + '.gz', 'wb', gz_compress_level) as f_out:
+        shutil.copyfileobj(f_in, f_out)
+    return file_h5 + '.gz'
+
+def uncompress_h5file(file_h5):
+    import uuid
+    temp_file = str(uuid.uuid4()) + '.h5'
+    with gzip.open(file_h5, 'rb') as f_in:
+        f_out = open(temp_file, 'wb')
+        shutil.copyfileobj(f_in, f_out)
+        f_out.close()
+        h5file = tables.open_file(temp_file, mode='r')
+    return h5file, temp_file
+
+def get_compressed_images(h5file_gz):
+    h5file, temp_file = uncompress_h5file(h5file_gz)
+    imgs = h5file.root.images[:]
+    h5file.close()
+    remove_h5file(temp_file)
+    return imgs
+
+def remove_h5file(file_h5):
+    os.remove(file_h5)

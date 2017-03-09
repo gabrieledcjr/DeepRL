@@ -39,14 +39,36 @@ actions, and rewards.
         self.rng = rng
 
         # Allocate the circular buffers and indices.
-        self.imgs = np.zeros((max_steps, height, width), dtype=np.uint8)
-        self.actions = np.zeros(max_steps, dtype=np.uint8)
-        self.rewards = np.zeros(max_steps, dtype=np.float32)
-        self.terminal = np.zeros(max_steps, dtype=np.uint8)
+        self.imgs = np.zeros((self.max_steps, height, width), dtype=np.uint8)
+        self.actions = np.zeros(self.max_steps, dtype=np.uint8)
+        self.rewards = np.zeros(self.max_steps, dtype=np.float32)
+        self.terminal = np.zeros(self.max_steps, dtype=np.uint8)
 
         self.bottom = 0
         self.top = 0
         self.size = 0
+
+    def resize(self):
+        print ("Resizing replay memory...")
+        print ("Current specs:")
+        print ("\tsize:{}".format(self.size))
+        print ("\tmax_steps:{}".format(self.max_steps))
+        print ("\ttop:{}".format(self.top))
+        print ("\tbottom:{}".format(self.bottom))
+        print ("\timgs shape:", np.shape(self.imgs))
+        tmp_imgs = np.delete(self.imgs, range(self.size,self.max_steps), axis=0)
+        del self.imgs
+        self.imgs = tmp_imgs
+        self.top = 0
+        self.bottom = 1
+        self.max_steps = self.size
+        print ("Resizing completed!")
+        print ("Updated specs:")
+        print ("\tsize:{}".format(self.size))
+        print ("\tmax_steps:{}".format(self.max_steps))
+        print ("\ttop:{}".format(self.top))
+        print ("\tbottom:{}".format(self.bottom))
+        print ("\timgs shape:", np.shape(self.imgs))
 
     def add_sample(self, img, action, reward, terminal):
         """Add a time step record.

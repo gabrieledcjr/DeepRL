@@ -10,7 +10,9 @@ import time
 
 from termcolor import colored
 from data_set import DataSet
-from util import egreedy, get_action_index, make_gif, process_frame84
+from util import egreedy, get_action_index, make_gif,
+    process_frame, get_compressed_images,
+    compress_h5file, remove_h5file
 
 try:
     import cPickle as pickle
@@ -19,12 +21,14 @@ except ImportError:
 
 class Experiment(object):
     def __init__(
-        self, sess, network, game_state, resized_height, resized_width, phi_length, actions, batch,
+        self, sess, network, game_state, resized_height, resized_width, phi_length, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
         path, folder, load_human_memory=False, train_max_steps=sys.maxsize):
         """ Initialize experiment """
         self.sess = sess
+        self.net = network
+        self.game_state = game_state
         self.observe = observe
         self.explore = explore
         self.final_epsilon = final_epsilon
@@ -34,10 +38,9 @@ class Experiment(object):
         self.eval_freq = eval_freq
         self.eval_max_steps = eval_max_steps
         self.copy_freq = copy_freq # copy q to t-network frequency
-        self.resized_height = resized_height
-        self.resized_width = resized_width
+        self.resized_h = resized_height
+        self.resized_w = resized_width
         self.phi_length = phi_length
-        self.actions = actions
         self.batch = batch
         self.name = name
         self.path = path
@@ -46,14 +49,7 @@ class Experiment(object):
         self.train_max_steps = train_max_steps
 
         self.state_input = np.zeros((1, 84, 84, self.phi_length), dtype=np.uint8)
-
-        if False: # Deterministic
-            rng = np.random.RandomState(123456)
-        else:
-            rng = np.random.RandomState()
-        self.D = DataSet(self.resized_width, self.resized_height, rng, replay_memory, self.phi_length, self.actions)
-        self.net = network
-        self.game_state = game_state
+        self.D = replay_memory
 
         if not os.path.exists(self.folder + '/frames'):
             os.makedirs(self.folder + '/frames')
@@ -61,10 +57,10 @@ class Experiment(object):
     def _reset(self, testing=False):
         self.state_input.fill(0)
         observation, r_0, terminal = self.game_state.frame_step(0)
-        observation = process_frame84(observation)
+        observation = process_frame(observation, self.resized_h, self.resized_w)
         if not testing:
             for _ in range(self.phi_length-1):
-                empty_img = np.zeros((self.resized_width, self.resized_height), dtype=np.uint8)
+                empty_img = np.zeros((self.resized_w, self.resized_h), dtype=np.uint8)
                 self.D.add_sample(empty_img, 0, 0, 0)
         return observation
 
@@ -81,9 +77,10 @@ class Experiment(object):
         terminals = data['D.terminal']
         actions = data['D.actions']
         rewards = data['D.rewards']
-        h5file = tables.open_file(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5', mode='r')
-        imgs = h5file.root.images[:]
-        h5file.close()
+        #h5file = tables.open_file(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5', mode='r')
+        #imgs = h5file.root.images[:]
+        #h5file.close()
+        imgs = get_compressed_images(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5' + '.gz')
         print ("\tMemory size={}".format(self.D.size))
         print ("\tAdding {} human experiences...".format(data['D.size']))
         for i in range(data['D.size']):
@@ -124,13 +121,13 @@ class Experiment(object):
             rewards = {'train':[], 'eval':[]}
         return t, epsilon, rewards
 
-    def test(self, show_gui=False):
+    def test(self, render=False):
         # re-initialize game for evaluation
         episode_buffer = []
-        self.game_state.reinit(random_restart=False, is_testing=True)
+        self.game_state.reinit(random_restart=False, terminate_loss_of_life=False)
         observation = self._reset(testing=True)
         episode_buffer.append(self.game_state.screen_buffer)
-        self._update_state_input(observation)
+
         max_steps = self.eval_max_steps
         total_reward = 0.0
         total_steps = 0
@@ -139,18 +136,17 @@ class Experiment(object):
         n_episodes = 0
         time.sleep(0.5)
         while max_steps > 0:
+            self._update_state_input(observation)
             readout_t = self.net.evaluate(self.state_input)[0]
-            action_index = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.actions)
-            observation, r_t, terminal = self.game_state.frame_step(action_index, gui=show_gui)
+            action = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.game_state.n_actions)
+            observation, reward, terminal = self.game_state.frame_step(action, render=render)
             if n_episodes == 0:
                 episode_buffer.append(observation)
-            observation = process_frame84(observation)
-            self._update_state_input(observation)
-            sub_total_reward += r_t
+            observation = process_frame(observation, self.resized_h, self.resized_w)
+            sub_total_reward += reward
             sub_steps += 1
             max_steps -= 1
             if terminal:
-                show_gui = False
                 if n_episodes == 0:
                     time_per_step = 0.05
                     images = np.array(episode_buffer)
@@ -161,9 +157,8 @@ class Experiment(object):
                     episode_buffer = []
                 n_episodes += 1
                 print ("\tTRIAL", n_episodes, "/ REWARD", sub_total_reward, "/ STEPS", sub_steps, "/ TOTAL STEPS", total_steps)
-                self.game_state.reinit(random_restart=True, is_testing=True)
+                self.game_state.reinit(random_restart=True, terminate_loss_of_life=False)
                 observation = self._reset(testing=True)
-                self._update_state_input(observation)
                 total_reward += sub_total_reward
                 total_steps += sub_steps
                 sub_total_reward = 0.0
@@ -201,10 +196,10 @@ class Experiment(object):
             # choose an action epsilon greedily
             self._update_state_input(observation)
             readout_t = self.net.evaluate(self.state_input)[0]
-            action_index = get_action_index(
+            action = get_action_index(
                 readout_t,
                 is_random=(random.random() <= self.epsilon or self.t <= self.observe),
-                n_actions=self.actions)
+                n_actions=self.game_state.n_actions)
 
             # scale down epsilon
             if self.epsilon > self.final_epsilon and self.t > self.observe:
@@ -212,12 +207,12 @@ class Experiment(object):
 
             # Training
             # run the selected action and observe next state and reward
-            next_observation, r_t, terminal = self.game_state.frame_step(action_index, random_restart=True)
-            next_observation = process_frame84(next_observation)
+            next_observation, reward, terminal = self.game_state.frame_step(action, random_restart=True)
+            next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
             terminal_ = terminal or ((self.t+1 - self.observe) >= 0 and (self.t+1 - self.observe) % self.eval_freq == 0)
 
             # store the transition in D
-            self.D.add_sample(observation, action_index, r_t, (1 if terminal_ else 0))
+            self.D.add_sample(observation, action, reward, (1 if terminal_ else 0))
 
             # only train if done observing
             if self.t > self.observe and self.t % self.update_freq == 0:
@@ -226,7 +221,7 @@ class Experiment(object):
                 summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
                 self.net.add_summary(summary, self.t-self.observe)
 
-                self.rewards['train'].append(round(r_t, 4))
+                self.rewards['train'].append(round(reward, 4))
 
             # update the old values
             sub_steps += 1
@@ -259,11 +254,17 @@ class Experiment(object):
                 pickle.dump(self.rewards, open(self.folder + '/' + self.name + '-dqn-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
                 print (colored('Successfully saved data!', 'green'))
                 print (colored('Saving replay memory...', 'blue'))
-                h5file = tables.open_file(self.folder + '/' + self.name + '-dqn-images.h5', mode='w', title='Images Array')
+                h5_filename = self.folder + '/' + self.name + '-dqn-images.h5'
+                h5file = tables.open_file(h5_filename, mode='w', title='Images Array')
                 root = h5file.root
                 h5file.create_array(root, "images", self.D.imgs)
                 h5file.close()
-                print (colored('Successfully saved replay memory!', 'green'))
+                print (colored('Compressing replay memory...')
+                gz_file = compress_h5file(h5_filename)
+                print (colored('Successfully compressed/saved replay memory!', 'green'))
+                print (colored('Removing residual h5 file', 'blue'))
+                remove_h5file(h5_filename)
+                print (colored('Residual h5 file removed', 'green'))
 
             # print info
             state = ""
@@ -275,7 +276,7 @@ class Experiment(object):
                 state = "train"
 
             if self.t%1000 == 0:
-                print ("TIMESTEP", self.t, "/ STATE", state, "/ EPSILON", round(self.epsilon,4), "/ ACTION", action_index, "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t))
+                print ("TIMESTEP", self.t, "/ STATE", state, "/ EPSILON", round(self.epsilon,4), "/ ACTION", action, "/ REWARD", reward, "/ Q_MAX %e" % np.max(readout_t))
 
 NUM_THREADS = 16
 def playGame():
