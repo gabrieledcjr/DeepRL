@@ -54,6 +54,10 @@ class GameState:
             self._env = gym.make('SpaceInvadersDeterministic-v3')
             self.n_actions = self._env.action_space.n
             print (colored("SpaceInvadersDeterministic-v3", "green"))
+        elif self.game == 'qbert':
+            self._env = gym.make('QbertDeterministic-v3')
+            self.n_actions = 5
+            print (colored("QbertDeterministic-v3", "green"))
 
         self._env.frameskip = frame_skip
         self.lives = self._env.ale.lives()
@@ -118,7 +122,7 @@ class GameState:
     def _game_group_keys_3(self, a):
         """
         Space Invaders
-        actions: 6 == [NOOP, Fire, R, L, R & Fire, L & Fire]
+        actions: 6 == [NOOP, FIRE, R, L, R_FIRE, L_FIRE]
         """
         action = NOOP
         if a == 4 or a == 65412: # LEFT
@@ -130,6 +134,22 @@ class GameState:
         elif a == 9 or a == 65417: # RIGHTFIRE
             action = 4
         elif a == 5 or a == 65413: # FIRE
+            action = 1
+        return action
+
+    def _game_group_keys_4(self, a):
+        """
+        Qbert
+        actions: 5 == [NOOP, NOOP, R_UP, R_DOWN, L_UP, L_DOWN]
+        """
+        action = NOOP
+        if a == 1 or a == 65409: # LEFTDOWN
+            action = 4
+        elif a == 7 or a == 65415: # LEFTUP
+            action = 3
+        elif a == 3 or a == 65411: # RIGHTDOWN
+            action = 2
+        elif a == 9 or a == 65417: # RIGHTUP
             action = 1
         return action
 
@@ -145,6 +165,8 @@ class GameState:
                 self.human_agent_action = self._game_group_keys_2(a)
             elif self.game == 'spaceinvaders':
                 self.human_agent_action = self._game_group_keys_3(a)
+            elif self.game == 'qbert':
+                self.human_agent_action = self._game_group_keys_4(a)
 
     def key_release(self, key, mod):
         a = int( key - ord('0') )
@@ -167,6 +189,11 @@ class GameState:
                 action = RIGHT
             elif act == 3:
                 action = FIRE
+            else:
+                action = NOOP
+        elif self.game == 'qbert':
+            if act > 0:
+                action = act + 1
             else:
                 action = NOOP
         else:
