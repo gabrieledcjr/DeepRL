@@ -44,6 +44,7 @@ class Experiment(object):
         self.folder = folder
         self.load_human_memory = load_human_memory
         self.train_max_steps = train_max_steps
+        self.wall_t = 0.0
 
         self.state_input = np.zeros((1, 84, 84, self.phi_length), dtype=np.uint8)
         self.D = replay_memory
@@ -168,6 +169,9 @@ class Experiment(object):
         observation = self._reset()
         self.t, self.epsilon, self.rewards = self._load()
 
+        # set start time
+        self.start_time = time.time() - self.wall_t
+
         print ("D size: ", self.D.size)
         total_reward = 0.0
         sub_steps = 0
@@ -248,6 +252,10 @@ class Experiment(object):
                 print (colored('Compressing and saving replay memory...', 'blue'))
                 save_compressed_images(self.folder + '/' + self.name + '-dqn-images.h5', self.D.imgs)
                 print (colored('Compressed and saved replay memory', 'green'))
+
+                # write wall time
+                self.wall_t = time.time() - self.start_time
+                print ('Total time: {} seconds'.format(self.wall_t))
 
             # print info
             state = ""
