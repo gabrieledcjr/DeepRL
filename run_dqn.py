@@ -13,6 +13,12 @@ def collect_human_demo(args):
     python3 run_dqn.py pong --demo-time-limit=5 --human-demo --file-num=1
     """
     from collect_human_demo import CollectHumanDemo
+
+    if args.folder is not None:
+        folder = args.folder
+    else:
+        folder = '{}_human_samples'.format(args.env)
+
     game_state = game.GameState(human_demo=True, frame_skip=1, game=args.env)
     if False: # Deterministic
         rng = RandomState(123456)
@@ -25,9 +31,9 @@ def collect_human_demo(args):
 
     collect_demo = CollectHumanDemo(
         game_state, args.resized_height, args.resized_width, args.phi_len,
-        args.env, D, sample_num=args.file_num
+        args.env, D, folder=folder, sample_num=args.file_num
     )
-    collect_demo.run(minutes_limit=args.demo_time_limit)
+    collect_demo.run(minutes_limit=args.demo_time_limit, random_action=args.random_action)
 
 def run_experiment(args):
     """
@@ -125,7 +131,7 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
 
     # Prevent numpy from using multiple threads
-    os.environ['OMP_NUM_THREADS'] = '1'
+    # os.environ['OMP_NUM_THREADS'] = '1'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('env', type=str)
@@ -176,6 +182,8 @@ def main():
 
     parser.add_argument('--human-demo', action='store_true')
     parser.set_defaults(human_demo=False)
+    parser.add_argument('--random-action', action='store_true')
+    parser.set_defaults(random_action=False)
     parser.add_argument('-n', '--file-num', type=int, default=1)
     parser.add_argument('--demo-time-limit', type=int, default=5) # 5 minutes
 

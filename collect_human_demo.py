@@ -15,7 +15,7 @@ class CollectHumanDemo(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
-        replay_memory, sample_num=0):
+        replay_memory, folder='', sample_num=0):
         """ Initialize collection of human demo """
         assert sample_num > 0
         self.file_num = sample_num
@@ -30,7 +30,7 @@ class CollectHumanDemo(object):
         if self.game_state._env.frameskip == 1:
             self._skip = 4
 
-        self.folder = '{name}_human_samples/{n:03d}/'.format(name=self.name, n=self.file_num)
+        self.folder = folder + '/{n:03d}/'.format(name=self.name, n=self.file_num)
         prepare_dir(self.folder, empty=True)
 
     def _reset(self, testing=False):
@@ -42,7 +42,7 @@ class CollectHumanDemo(object):
                 self.D.add_sample(empty_img, 0, 0, 0)
         return observation
 
-    def run(self, minutes_limit=5):
+    def run(self, minutes_limit=5, random_action=False):
         imgs = []
         acts = []
         rews = []
@@ -71,11 +71,10 @@ class CollectHumanDemo(object):
         observation = self._reset()
 
         while True:
-            #action = self.game_state.handle_user_event()
-            action = self.game_state.human_agent_action
-            # if self.name == 'breakout' and is_reset:
-            #     action = 3 #FIRE
-            #     is_reset = False
+            if random_action:
+                action = np.random.randint(self.game_state.n_actions)
+            else:
+                action = self.game_state.human_agent_action
 
             next_observation, reward, terminal = self.game_state.frame_step(action, render=False, random_restart=True)
             next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
