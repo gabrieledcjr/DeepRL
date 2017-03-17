@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import tensorflow as tf
+import os
 import random
 import numpy as np
 from math import sqrt
@@ -12,135 +13,147 @@ class DqnNetClass(Network):
     """ DQN Network Model for Classification """
 
     def __init__(
-        self, sess, height, width, phi_length, n_actions, name,
+        self, height, width, phi_length, n_actions, name,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0.,
         slow=False, tau=0.001, verbose=False, path='', folder='_networks', l2_decay=0.001):
         """ Initialize network """
-        super(DqnNetClass, self).__init__(sess, name=name)
+        super(DqnNetClass, self).__init__(None, name=name)
+        self.graph = tf.Graph()
         self.slow = slow
         self.tau = tau
         self.name = name
-        self.sess = sess
         self.path = path
         self.folder = folder
 
-        self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name=self.name + '_observation')
-        self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name=self.name + "_actions")
+        with self.graph.as_default():
+            self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name=self.name + '_observation')
+            self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name=self.name + "_actions")
 
-        # q network model:
-        with tf.name_scope("Conv1") as scope:
-            kernel_shape = [8, 8, phi_length, 32]
-            self.W_conv1 = self.weight_variable(kernel_shape, 'conv1')
-            self.b_conv1 = self.bias_variable(kernel_shape, 'conv1')
-            self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
-            tf.add_to_collection('conv_weights', self.W_conv1)
-            tf.add_to_collection('conv_output', self.h_conv1)
-            tf.add_to_collection('transfer_params', self.W_conv1)
-            tf.add_to_collection('transfer_params', self.b_conv1)
+            self.observation_n = tf.div(self.observation, 255.)
 
-        with tf.name_scope("Conv2") as scope:
-            kernel_shape = [4, 4, 32, 64]
-            self.W_conv2 = self.weight_variable(kernel_shape, 'conv2')
-            self.b_conv2 = self.bias_variable(kernel_shape, 'conv2')
-            self.h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.h_conv1, self.W_conv2, 2), self.b_conv2), name=self.name + '_conv2_activations')
-            tf.add_to_collection('conv_weights', self.W_conv2)
-            tf.add_to_collection('conv_output', self.h_conv2)
-            tf.add_to_collection('transfer_params', self.W_conv2)
-            tf.add_to_collection('transfer_params', self.b_conv2)
+            # q network model:
+            with tf.name_scope("Conv1") as scope:
+                kernel_shape = [8, 8, phi_length, 32]
+                self.W_conv1 = self.weight_variable(phi_length, kernel_shape, 'conv1')
+                self.b_conv1 = self.bias_variable(phi_length, kernel_shape, 'conv1')
+                self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
+                tf.add_to_collection('conv_weights', self.W_conv1)
+                tf.add_to_collection('conv_output', self.h_conv1)
+                tf.add_to_collection('transfer_params', self.W_conv1)
+                tf.add_to_collection('transfer_params', self.b_conv1)
 
-        with tf.name_scope("Conv3") as scope:
-            kernel_shape = [3, 3, 64, 64]
-            self.W_conv3 = self.weight_variable(kernel_shape, 'conv3')
-            self.b_conv3 = self.bias_variable(kernel_shape, 'conv3')
-            self.h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.h_conv2, self.W_conv3, 1), self.b_conv3), name=self.name + '_conv3_activations')
-            tf.add_to_collection('conv_weights', self.W_conv3)
-            tf.add_to_collection('conv_output', self.h_conv3)
-            tf.add_to_collection('transfer_params', self.W_conv3)
-            tf.add_to_collection('transfer_params', self.b_conv3)
+            with tf.name_scope("Conv2") as scope:
+                kernel_shape = [4, 4, 32, 64]
+                self.W_conv2 = self.weight_variable(32, kernel_shape, 'conv2')
+                self.b_conv2 = self.bias_variable(32, kernel_shape, 'conv2')
+                self.h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.h_conv1, self.W_conv2, 2), self.b_conv2), name=self.name + '_conv2_activations')
+                tf.add_to_collection('conv_weights', self.W_conv2)
+                tf.add_to_collection('conv_output', self.h_conv2)
+                tf.add_to_collection('transfer_params', self.W_conv2)
+                tf.add_to_collection('transfer_params', self.b_conv2)
 
-        self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
+            with tf.name_scope("Conv3") as scope:
+                kernel_shape = [3, 3, 64, 64]
+                self.W_conv3 = self.weight_variable(64, kernel_shape, 'conv3')
+                self.b_conv3 = self.bias_variable(64, kernel_shape, 'conv3')
+                self.h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.h_conv2, self.W_conv3, 1), self.b_conv3), name=self.name + '_conv3_activations')
+                tf.add_to_collection('conv_weights', self.W_conv3)
+                tf.add_to_collection('conv_output', self.h_conv3)
+                tf.add_to_collection('transfer_params', self.W_conv3)
+                tf.add_to_collection('transfer_params', self.b_conv3)
 
-        with tf.name_scope("FullyConnected1") as scope:
-            kernel_shape = [3136, 512]
-            self.W_fc1 = self.weight_variable(kernel_shape, 'fc1')
-            self.b_fc1 = self.bias_variable(kernel_shape, 'fc1')
-            self.h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.h_conv3_flat, self.W_fc1), self.b_fc1), name=self.name + '_fc1_activations')
-            tf.add_to_collection('transfer_params', self.W_fc1)
-            tf.add_to_collection('transfer_params', self.b_fc1)
+            self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
 
-        with tf.name_scope("FullyConnected2") as scope:
-            kernel_shape = [512, n_actions]
-            self.W_fc2 = self.weight_variable(kernel_shape, 'fc2')
-            self.W_fc2 = self.W_fc2
-            self.b_fc2 = self.bias_variable(kernel_shape, 'fc2')
-            self.b_fc2 = self.b_fc2
-            self.action_output = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
-            tf.add_to_collection('transfer_params', self.W_fc2)
-            tf.add_to_collection('transfer_params', self.b_fc2)
+            with tf.name_scope("FullyConnected1") as scope:
+                kernel_shape = [3136, 512]
+                self.W_fc1 = self.weight_variable_linear(kernel_shape, 'fc1')
+                self.b_fc1 = self.bias_variable_linear(kernel_shape, 'fc1')
+                self.h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.h_conv3_flat, self.W_fc1), self.b_fc1), name=self.name + '_fc1_activations')
+                tf.add_to_collection('transfer_params', self.W_fc1)
+                tf.add_to_collection('transfer_params', self.b_fc1)
 
-        if verbose:
-            self.init_verbosity()
+            with tf.name_scope("FullyConnected2") as scope:
+                kernel_shape = [512, n_actions]
+                self.W_fc2 = self.weight_variable_linear(kernel_shape, 'fc2')
+                self.W_fc2 = self.W_fc2
+                self.b_fc2 = self.bias_variable_linear(kernel_shape, 'fc2')
+                self.b_fc2 = self.b_fc2
+                self.action_output = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
+                tf.add_to_collection('transfer_params', self.W_fc2)
+                tf.add_to_collection('transfer_params', self.b_fc2)
 
-        # cost of q network
-        with tf.name_scope("Entropy") as scope:
-            self.cross_entropy = tf.reduce_mean(
-                tf.nn.softmax_cross_entropy_with_logits(
-                    _sentinel=None,
-                    labels=self.actions,
-                    logits=self.action_output)) #+ \
-                    #l2_decay*tf.nn.l2_loss(self.W_fc2) + l2_decay*tf.nn.l2_loss(self.b_fc2)
-            ce_summ = tf.summary.scalar("cross_entropy", self.cross_entropy)
-        # self.parameters = [
-        #     self.W_conv1, self.b_conv1,
-        #     self.W_conv2, self.b_conv2,
-        #     self.W_conv3, self.b_conv3,
-        #     self.W_fc1, self.b_fc1,
-        #     self.W_fc2, self.b_fc2,
-        # ]
-        with tf.name_scope("Train") as scope:
-            if optimizer == "Adam":
-                self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
-            else:
-                self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
-            self.grads_vars = self.opt.compute_gradients(self.cross_entropy)
-            grads = []
-            params = []
-            for p in self.grads_vars:
-                if p[0] == None:
-                    continue
-                grads.append(p[0])
-                params.append(p[1])
+            if verbose:
+                self.init_verbosity()
 
-            grads = tf.clip_by_global_norm(grads, 1)[0]
-            self.grads_vars_updates = zip(grads, params)
-            self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
-            # for grad, var in self.grads_vars:
-            #     if grad == None:
-            #         continue
-            #     tf.summary.histogram(var.op.name + '/gradients', grad)
+            self.max_value = tf.reduce_max(self.action_output, axis=None)
+            self.action = tf.nn.softmax(self.action_output)
 
-        with tf.name_scope("Evaluating") as scope:
-            correct_prediction = tf.equal(tf.argmax(self.action_output,1), tf.argmax(self.actions,1))
-            self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-            accuracy_summary = tf.summary.scalar("accuracy", self.accuracy)
+            # cost of q network
+            with tf.name_scope("Entropy") as scope:
+                self.cross_entropy = tf.reduce_mean(
+                    tf.nn.softmax_cross_entropy_with_logits(
+                        _sentinel=None,
+                        labels=self.actions,
+                        logits=self.action_output)) #+ \
+                        #l2_decay*tf.nn.l2_loss(self.W_fc2) + l2_decay*tf.nn.l2_loss(self.b_fc2)
+                ce_summ = tf.summary.scalar("cross_entropy", self.cross_entropy)
+
+            with tf.name_scope("Train") as scope:
+                if optimizer == "Adam":
+                    self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
+                else:
+                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
+                self.grads_vars = self.opt.compute_gradients(self.cross_entropy)
+                grads = []
+                params = []
+                for p in self.grads_vars:
+                    if p[0] == None:
+                        continue
+                    grads.append(p[0])
+                    params.append(p[1])
+
+                #grads = tf.clip_by_global_norm(grads, 1)[0]
+                self.grads_vars_updates = zip(grads, params)
+                self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
+                # for grad, var in self.grads_vars:
+                #     if grad == None:
+                #         continue
+                #     tf.summary.histogram(var.op.name + '/gradients', grad)
+
+            with tf.name_scope("Evaluating") as scope:
+                correct_prediction = tf.equal(tf.argmax(self.action_output,1), tf.argmax(self.actions,1))
+                self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+                accuracy_summary = tf.summary.scalar("accuracy", self.accuracy)
+
+            self.saver = tf.train.Saver()
+            self.merged = tf.summary.merge_all()
+
+        if not os.path.exists(self.folder + '/transfer_model'):
+            os.makedirs(self.folder + '/transfer_model')
+
+    def initializer(self, sess):
         # initialize all tensor variable parameters
-        self.sess.run(tf.global_variables_initializer())
-        self.saver = tf.train.Saver()
-        self.merged = tf.summary.merge_all()
+        self.sess = sess
+        with self.graph.as_default():
+            self.sess.run(tf.global_variables_initializer())
+
         self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
 
-    def evaluate(self, s_j_batch, a_batch):
+    def evaluate(self, state):
+        return  self.sess.run(self.action, feed_dict={self.observation: state})
+
+    def evaluate_batch(self, s_j_batch, a_batch):
         return self.sess.run(
             [self.accuracy, self.merged],
             feed_dict={
                 self.actions: a_batch,
-                self.observation : s_j_batch,
+                self.observation: s_j_batch,
             }
         )
 
     def train(self, s_j_batch, a_batch):
         t_ops = [
-            self.merged, self.train_step, self.cross_entropy, self.accuracy
+            self.merged, self.train_step, self.cross_entropy, self.accuracy, self.action_output, self.max_value
         ]
         return self.sess.run(
             t_ops,
@@ -155,17 +168,10 @@ class DqnNetClass(Network):
         self.writer.flush()
 
     def load(self):
-        has_checkpoint = False
-        # saving and loading networks
-        checkpoint = tf.train.get_checkpoint_state(self.folder)
+        self.saver.restore(self.sess, self.folder + '/' + self.name + '-dqn')
+        print ("Successfully loaded:", self.folder + '/' + self.name + '-dqn')
 
-        if checkpoint and checkpoint.model_checkpoint_path:
-            saver.restore(self.sess, checkpoint.model_checkpoint_path)
-            print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-            has_checkpoint = True
-        return has_checkpoint
-
-    def save(self, step=-1):
+    def save(self, step=-1, model_max_output_val=0.):
         print (colored('Saving checkpoint...', 'blue'))
         if step < 0:
             self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn')
@@ -175,6 +181,8 @@ class DqnNetClass(Network):
         transfer_params = tf.get_collection("transfer_params")
         transfer_saver = tf.train.Saver(transfer_params)
         transfer_saver.save(self.sess, self.folder + '/transfer_model/' + self.name + '-dqn')
+        with open(self.folder + '/transfer_model/max_output_value', 'w') as f_max_value:
+            f_max_value.write(model_max_output_val)
 
         W1_val = self.W_conv1.eval()
         np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())

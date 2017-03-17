@@ -21,7 +21,8 @@ class Experiment(object):
         self, sess, network, game_state, resized_height, resized_width, phi_length, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
-        path, folder, load_human_memory=False, train_max_steps=sys.maxsize):
+        path, folder, load_human_memory=False, train_max_steps=sys.maxsize,
+        human_net=None, confidence=0., psi=0.999995):
         """ Initialize experiment """
         self.sess = sess
         self.net = network
@@ -45,6 +46,13 @@ class Experiment(object):
         self.load_human_memory = load_human_memory
         self.train_max_steps = train_max_steps
         self.wall_t = 0.0
+        self.human_net = human_net
+        self.confidence = confidence
+        self.use_human_advice = False
+        self.psi = self.init_psi = psi
+        if self.human_net is not None:
+            self.use_human_advice = True
+
 
         self.state_input = np.zeros((1, 84, 84, self.phi_length), dtype=np.uint8)
         self.D = replay_memory
@@ -200,6 +208,17 @@ class Experiment(object):
             # scale down epsilon
             if self.epsilon > self.final_epsilon and self.t > self.observe:
                 self.epsilon -= (self.init_epsilon - self.final_epsilon) / self.explore
+
+                ##### HUMAN ADVICE OVERRIDE ACTION #####
+                if self.use_human_advice:
+                    if self.psi > random.random():
+                        action_advice = self.human_net.evaluate(self.state_input)[0]
+                        action_human = np.argmax(action_advice)
+                        if action_advice[action_human] >= self.confidence:
+                            #print ("{} Overriding action from {} to {}".format(action_advice, action, action_human))
+                            action = action_human
+                    self.psi *= self.init_psi
+                ##### HUMAN ADVICE OVERRIDE ACTION #####
 
             # Training
             # run the selected action and observe next state and reward
