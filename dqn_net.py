@@ -101,10 +101,12 @@ class DqnNet(Network):
         if transfer:
             self.load_transfer_model(folder=transfer_folder)
             # Scale down the last layer
-            W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
-            b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
+            #W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
+            #b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
+            W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
+            b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
             self.sess.run([
-               self.W_fc2.assign(W_fc2_scaled), self.b_fc2.assign(b_fc2_scaled)
+               self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
             ])
 
         if verbose:
@@ -388,3 +390,5 @@ class DqnNet(Network):
                 self.sess.run(v)
                 print (colored("{}: LOADED".format(v.op.name), "green"))
                 sleep(.2)
+        with open(folder + "/max_output_value", 'r') as f_max_value:
+            self.transfer_max_output_val = f_max_value.read()
