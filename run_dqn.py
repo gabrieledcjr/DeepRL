@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import multiprocessing
 import os
@@ -49,7 +49,10 @@ def run_experiment(args):
 
     python3 run_dqn.py breakout --cuda_devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --train_max_steps=20125000
     """
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
+    if args.cpu_only:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
     import tensorflow as tf
     from experiment import Experiment
     from dqn_net import DqnNet
@@ -67,16 +70,23 @@ def run_experiment(args):
         else:
             folder = '{}_networks_{}'.format(args.env, args.optimizer.lower())
 
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_fraction)
+    if args.cpu_only:
+        device = '/cpu:0'
+        gpu_options = None:
+    else:
+        device = '/gpu:'+os.environ["CUDA_VISIBLE_DEVICES"]
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_fraction)
+
     config = tf.ConfigProto(
         gpu_options=gpu_options,
         allow_soft_placement=True,
         log_device_placement=True,
-        intra_op_parallelism_threads=multiprocessing.cpu_count()
+        intra_op_parallelism_threads=multiprocessing.cpu_count(),
+        inter_op_parallelism_threads=multiprocessing.cpu_count()
     )
 
     with tf.Session(config=config) as sess:
-        with tf.device('/gpu:'+os.environ["CUDA_VISIBLE_DEVICES"]):
+        with tf.device(device):
             game_state = game.GameState(game=args.env)
             if False: # Deterministic
                 rng = RandomState(123456)
@@ -170,6 +180,8 @@ def main():
     parser.add_argument('--verbose', action='store_true')
     parser.set_defaults(verbose=False)
     parser.add_argument('--gpu_fraction', type=float, default=0.333)
+    parser.add_argument('--cpu-only', action='store_true')
+    parser.set_defaults(cpu_only=False)
 
     parser.add_argument('--use-transfer', action='store_true')
     parser.set_defaults(use_transfer=False)
