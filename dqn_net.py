@@ -391,4 +391,4 @@ class DqnNet(Network):
                 print (colored("{}: LOADED".format(v.op.name), "green"))
                 sleep(.2)
         with open(folder + "/max_output_value", 'r') as f_max_value:
-            self.transfer_max_output_val = f_max_value.read()
+            self.transfer_max_output_val = float(f_max_value.readline().split()[0])

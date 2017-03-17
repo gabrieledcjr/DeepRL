@@ -182,7 +182,7 @@ class DqnNetClass(Network):
         transfer_saver = tf.train.Saver(transfer_params)
         transfer_saver.save(self.sess, self.folder + '/transfer_model/' + self.name + '-dqn')
         with open(self.folder + '/transfer_model/max_output_value', 'w') as f_max_value:
-            f_max_value.write(model_max_output_val)
+            f_max_value.write(str(model_max_output_val))
 
         W1_val = self.W_conv1.eval()
         np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
