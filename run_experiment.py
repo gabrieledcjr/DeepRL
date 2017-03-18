@@ -28,7 +28,7 @@ def classify_demo(args):
         path = os.getcwd() + '/'
 
     if args.folder is not None:
-        folder = args.folder
+        folder = '{}_{}'.format(args.env, args.folder)
     else:
         folder = '{}_networks_classifier_{}'.format(args.env, args.optimizer.lower())
 
@@ -77,7 +77,7 @@ def collect_human_demo(args):
     from collect_human_demo import CollectHumanDemo
 
     if args.folder is not None:
-        folder = args.folder
+        folder = '{}_{}'.format(args.env, args.folder)
     else:
         folder = '{}_human_samples'.format(args.env)
 
@@ -109,10 +109,10 @@ def run_dqn(args):
     python3 run_experiment.py breakout --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --train-max-steps=20125000
 
     Transfer with Human Advice and Human Memory:
-    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --use-human-model-as-advice --advice-confidence=0.75
+    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979
 
     Human Advice only with Human Memory:
-    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --load-memory --use-human-model-as-advice --advice-confidence=0.75
+    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979
     """
     if args.cpu_only:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -129,7 +129,7 @@ def run_dqn(args):
         path = os.getcwd() + '/'
 
     if args.folder is not None:
-        folder = args.folder
+        folder = '{}_{}'.format(args.env, args.folder)
     else:
         folder = '{}_networks_{}'.format(args.env, args.optimizer.lower())
         if args.use_transfer:
@@ -213,7 +213,7 @@ def run_dqn(args):
                 args.eval_max_steps, args.c_freq,
                 path, folder, load_human_memory=args.load_memory,
                 train_max_steps=args.train_max_steps,
-                human_net=human_net, confidence=args.advice_confidence)
+                human_net=human_net, confidence=args.advice_confidence, psi=args.psi)
             experiment.run()
             sess_human.close()
 
@@ -272,7 +272,8 @@ def main():
 
     parser.add_argument('--use-human-model-as-advice', action='store_true')
     parser.set_defaults(use_human_model_as_advice=False)
-    parser.add_argument('--advice-confidence', type=float, default=0.75)
+    parser.add_argument('--advice-confidence', type=float, default=0.)
+    parser.add_argument('--psi', type=float, default=0.)
 
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
