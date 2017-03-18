@@ -144,7 +144,7 @@ class DqnNetClass(Network):
 
     def evaluate_batch(self, s_j_batch, a_batch):
         return self.sess.run(
-            [self.accuracy, self.merged],
+            [self.accuracy, self.merged, self.action_output, self.max_value],
             feed_dict={
                 self.actions: a_batch,
                 self.observation: s_j_batch,
@@ -181,8 +181,8 @@ class DqnNetClass(Network):
         transfer_params = tf.get_collection("transfer_params")
         transfer_saver = tf.train.Saver(transfer_params)
         transfer_saver.save(self.sess, self.folder + '/transfer_model/' + self.name + '-dqn')
-        with open(self.folder + '/transfer_model/max_output_value', 'w') as f_max_value:
-            f_max_value.write(str(model_max_output_val))
+
+        self.save_max_value(model_max_output_val)
 
         W1_val = self.W_conv1.eval()
         np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
@@ -213,6 +213,10 @@ class DqnNetClass(Network):
         for i, c in enumerate(conv_weights[0]):
             plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
         print (colored('Successfully saved checkpoint!', 'green'))
+
+    def save_max_value(self, model_max_output_val):
+        with open(self.folder + '/transfer_model/max_output_value', 'w') as f_max_value:
+            f_max_value.write(str(model_max_output_val))
 
     def init_verbosity(self):
         # with tf.name_scope("Summary_Conv1") as scope:

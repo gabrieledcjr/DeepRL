@@ -286,7 +286,19 @@ class Experiment(object):
                 state = "train"
 
             if self.t%1000 == 0:
-                print ("TIMESTEP", self.t, "/ STATE", state, "/ EPSILON", round(self.epsilon,4), "/ ACTION", action, "/ REWARD", reward, "/ Q_MAX %e" % np.max(readout_t))
+                if self.use_human_advice:
+                    print (
+                        "T:", self.t, "/ STATE", state,
+                        "/ EPSILON", round(self.epsilon,4),
+                        "/ PSI", round(self.psi,4),
+                        "/ ACTION", action, "/ REWARD", reward,
+                        "/ Q_MAX %e" % np.max(readout_t))
+                else:
+                    print (
+                        "T:", self.t, "/ STATE", state,
+                        "/ EPSILON", round(self.epsilon,4),
+                        "/ ACTION", action, "/ REWARD", reward,
+                        "/ Q_MAX %e" % np.max(readout_t))
 
 NUM_THREADS = 16
 def playGame():

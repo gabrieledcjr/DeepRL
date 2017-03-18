@@ -103,8 +103,11 @@ class DqnNet(Network):
             # Scale down the last layer
             #W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
             #b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
+            print (colored("Normalizing output layer with max value {}...".format(self.transfer_max_output_val), "yellow"))
             W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
             b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
+            print (colored("Output layer normalized", "green"))
+            sleep(3)
             self.sess.run([
                self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
             ])

@@ -62,4 +62,21 @@ class ClassifyDemo(object):
             if max_value > max_val:
                 max_val = max_value
 
+        print ("max output val {}".format(max_val))
         self.net.save(model_max_output_val=max_val)
+        self.save_max_value(max_val=max_val)
+
+    def save_max_value(self, max_val=-(sys.maxsize)):
+        batch = self.D.size * 10 // 100
+        for i in range(100):
+            s_j_batch, a_batch, _, _, _ = self.D.random_batch(batch)
+            _, _, output_vals, max_value = self.net.evaluate_batch(s_j_batch, a_batch)
+            if i%10 == 0:
+                print ("step {}, max output val {}".format(i, max_val))
+
+            if max_value > max_val:
+                print ("Max value from {} to {}".format(max_val, max_value))
+                max_val = max_value
+
+        print ("max output val {}".format(max_val))
+        self.net.save_max_value(max_val)
