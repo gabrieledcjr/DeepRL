@@ -16,7 +16,8 @@ def classify_demo(args):
     if args.cpu_only:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
     else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
+        if args.cuda_devices != '':
+            os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
     import tensorflow as tf
     #from dqn_net_bn_class import DqnNetClass
     from dqn_net_class import DqnNetClass
@@ -70,11 +71,11 @@ def classify_demo(args):
             '{}_human_samples'.format(args.env))
         cd.run()
 
-def collect_human_demo(args):
+def get_demo(args):
     """
-    python3 run_experiment.py pong --demo-time-limit=5 --human-demo --file-num=1
+    python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --file-num=1
     """
-    from collect_human_demo import CollectHumanDemo
+    from collect_demo import CollectDemonstration
 
     if args.folder is not None:
         folder = '{}_{}'.format(args.env, args.folder)
@@ -91,7 +92,7 @@ def collect_human_demo(args):
         rng, (args.demo_time_limit * 5000),
         args.phi_len, game_state.n_actions)
 
-    collect_demo = CollectHumanDemo(
+    collect_demo = CollectDemonstration(
         game_state, args.resized_height, args.resized_width, args.phi_len,
         args.env, D, folder=folder, sample_num=args.file_num
     )
@@ -106,10 +107,10 @@ def run_dqn(args):
     Transfer with Human Memory:
     python3 run_experiment.py pong --cuda-devices=0 --optimizer=Adam --lr=0.0001 --decay=0.0 --momentum=0.0 --epsilon=0.001 --observe=0 --use-transfer --load-memory
     python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory
-    python3 run_experiment.py breakout --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --train-max-steps=20125000
+    python3 run_experiment.py breakout --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --train-max-steps=20500000
 
     Transfer with Human Advice and Human Memory:
-    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979
+    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979 --train-max-steps=20500000
 
     Human Advice only with Human Memory:
     python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979
@@ -117,7 +118,8 @@ def run_dqn(args):
     if args.cpu_only:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
     else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
+        if args.cuda_devices != '':
+            os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
     import tensorflow as tf
     from experiment import Experiment
     from dqn_net import DqnNet
@@ -261,7 +263,7 @@ def main():
     parser.add_argument('--verbose', action='store_true')
     parser.set_defaults(verbose=False)
 
-    parser.add_argument('--cuda-devices', type=str, default='0')
+    parser.add_argument('--cuda-devices', type=str, default='')
     parser.add_argument('--gpu-fraction', type=float, default=0.333)
     parser.add_argument('--cpu-only', action='store_true')
     parser.set_defaults(cpu_only=False)
@@ -291,9 +293,9 @@ def main():
     args = parser.parse_args()
 
     if args.human_demo:
-        print (colored('Collecting human demonstration...', 'green'))
+        print (colored('Collecting demonstration...', 'green'))
         sleep(2)
-        collect_human_demo(args)
+        get_demo(args)
     elif args.classify_demo:
         print (colored('Classifying human demonstration...', 'green'))
         sleep(2)

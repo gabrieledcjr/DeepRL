@@ -5,59 +5,89 @@ import os
 from sys import exit
 import random
 import cv2
+import pyglet
+import threading
 from time import sleep
 from termcolor import colored
 
 NOOP = 0
 FIRE = 1
 UP = 2
-RIGHT = 4
-LEFT = 3
+RIGHT = 3
+LEFT = 4
 DOWN = 5
-# ACTION_MEANING = {
-#     0 : "NOOP",
-#     1 : "FIRE",
-#     2 : "UP",
-#     3 : "RIGHT",
-#     4 : "LEFT",
-#     5 : "DOWN",
-#     6 : "UPRIGHT",
-#     7 : "UPLEFT",
-#     8 : "DOWNRIGHT",
-#     9 : "DOWNLEFT",
-#     10 : "UPFIRE",
-#     11 : "RIGHTFIRE",
-#     12 : "LEFTFIRE",
-#     13 : "DOWNFIRE",
-#     14 : "UPRIGHTFIRE",
-#     15 : "UPLEFTFIRE",
-#     16 : "DOWNRIGHTFIRE",
-#     17 : "DOWNLEFTFIRE",
-# }
+UPRIGHT = 6
+UPLEFT = 7
+DOWNRIGHT = 8
+DOWNLEFT = 9
+UPFIRE = 10
+RIGHTFIRE = 11
+LEFTFIRE = 12
+DOWNFIRE = 13
+UPRIGHTFIRE = 14
+UPLEFTFIRE = 15
+DOWNRIGHTFIRE = 16
+DOWNLEFTFIRE = 17
 
 class GameState:
     def __init__(self, human_demo=False, frame_skip=4, game='pong'):
         self.game = game
+        self._human_demo = human_demo
+
+        if self._human_demo:
+            self.action_map = {
+                NOOP: 0, FIRE: 0, UP: 0, RIGHT: 0, LEFT: 0, DOWN: 0,
+                UPRIGHT: 0, UPLEFT: 0, DOWNRIGHT: 0, DOWNLEFT: 0,
+                UPFIRE: 0, RIGHTFIRE: 0, LEFTFIRE: 0, DOWNFIRE: 0,
+                UPRIGHTFIRE: 0, UPLEFTFIRE: 0, DOWNRIGHTFIRE: 0, DOWNLEFTFIRE: 0
+            }
         if self.game == 'pong':
             self._env = gym.make('PongDeterministic-v3')
             self.n_actions = 3
-            print (colored("PongDeterministic-v3", "green"))
+
+            if self._human_demo:
+                self.action_map[UP] = 1
+                self.action_map[DOWN] = 2
+
         elif self.game == 'breakout':
             self._env = gym.make('BreakoutDeterministic-v3')
             self.n_actions = 4
-            print (colored("BreakoutDeterministic-v3", "green"))
+
+            if self._human_demo:
+                self.action_map[LEFT] = 1
+                self.action_map[RIGHT] = 2
+                self.action_map[FIRE] = 3
+
         elif self.game == 'freeway':
             self._env = gym.make('FreewayDeterministic-v3')
             self.n_actions = 3
-            print (colored("FreewayDeterministic-v3", "green"))
+
+            if self._human_demo:
+                self.action_map[UP] = 1
+                self.action_map[DOWN] = 2
+
         elif self.game == 'spaceinvaders':
             self._env = gym.make('SpaceInvadersDeterministic-v3')
             self.n_actions = self._env.action_space.n
-            print (colored("SpaceInvadersDeterministic-v3", "green"))
+
+            if self._human_demo:
+                self.action_map[FIRE] = 1
+                self.action_map[RIGHT] = 2
+                self.action_map[LEFT] = 3
+                self.action_map[RIGHTFIRE] = 4
+                self.action_map[LEFTFIRE] = 5
+
         elif self.game == 'qbert':
             self._env = gym.make('QbertDeterministic-v3')
             self.n_actions = 5
-            print (colored("QbertDeterministic-v3", "green"))
+
+            if self._human_demo:
+                self.action_map[UPRIGHT] = 1
+                self.action_map[DOWNRIGHT] = 2
+                self.action_map[UPLEFT] = 3
+                self.action_map[DOWNLEFT] = 4
+
+        print (colored('{}Deterministic-v3'.format(self.game.title()), "green"))
 
         self._env.frameskip = frame_skip
         self.lives = self._env.ale.lives()
@@ -65,7 +95,6 @@ class GameState:
         print (colored("frameskip: {}".format(self._env.frameskip), "green"))
         print (colored("repeat_action_probability: {}".format(self._env.ale.getFloat(b'repeat_action_probability')), "green"))
 
-        self._human_demo = human_demo
         print (colored("human_demo: {}".format(self._human_demo), "green" if self._human_demo else "red"))
         if self._human_demo:
             self.human_agent_action = 0
@@ -73,8 +102,11 @@ class GameState:
             self.human_wants_restart = False
             self.human_sets_pause = False
             self._env.render(mode='human')
-            self._env.unwrapped.viewer.window.on_key_press = self.key_press
-            self._env.unwrapped.viewer.window.on_key_release = self.key_release
+            self.key = pyglet.window.key
+            self.keys = self.key.KeyStateHandler()
+            self._env.unwrapped.viewer.window.push_handlers(self.keys)
+            keys_thread = threading.Thread(target=(self.update_human_agent_action))
+            keys_thread.start()
 
         sleep(2)
         self.reinit()
@@ -93,109 +125,47 @@ class GameState:
         self.frame_step(0)
         self.screen_buffer, _, _ = self.frame_step(0)
 
-    def _game_group_keys_1(self, a):
-        """
-        Breakout
-        actions: 4 == [NOOP, L, R, Fire]
-        """
-        action = NOOP
-        if a == 4 or a == 65412: # LEFT
-            action = 1
-        elif a == 6 or a == 65414: # RIGHT
-            action = 2
-        elif a == 5 or a == 65413: # FIRE
-            action = 3
-        return action
-
-    def _game_group_keys_2(self, a):
-        """
-        Pong, Freeway
-        actions: 3 = [NOOP, Up, Down]
-        """
-        action = NOOP
-        if a == 8 or a == 65416: # UP
-            action = 1
-        elif a == 2 or a == 65410: # DOWN
-            action = 2
-        return action
-
-    def _game_group_keys_3(self, a):
-        """
-        Space Invaders
-        actions: 6 == [NOOP, FIRE, R, L, R_FIRE, L_FIRE]
-        """
-        action = NOOP
-        if a == 4 or a == 65412: # LEFT
-            action = 3
-        elif a == 7 or a == 65415: # LEFTFIRE
-            action = 5
-        elif a == 6 or a == 65414: # RIGHT
-            action = 2
-        elif a == 9 or a == 65417: # RIGHTFIRE
-            action = 4
-        elif a == 5 or a == 65413: # FIRE
-            action = 1
-        return action
-
-    def _game_group_keys_4(self, a):
-        """
-        Qbert
-        actions: 5 == [NOOP, NOOP, R_UP, R_DOWN, L_UP, L_DOWN]
-        """
-        action = NOOP
-        if a == 1 or a == 65409: # LEFTDOWN
-            action = 4
-        elif a == 7 or a == 65415: # LEFTUP
-            action = 3
-        elif a == 3 or a == 65411: # RIGHTDOWN
-            action = 2
-        elif a == 9 or a == 65417: # RIGHTUP
-            action = 1
-        return action
-
-    def key_press(self, key, mod):
-        if key==0xff0d: self.human_wants_restart = True
-        if key==32: self.human_sets_pause = not self.human_sets_pause
-        a = int( key - ord('0'))
-        if (a > 0 and a <= 9) or (a >= 65409 and a <= 65417):
-            self.human_agent_action_code = a
-            if self.game == 'breakout':
-                self.human_agent_action = self._game_group_keys_1(a)
-            elif self.game == 'pong' or self.game == 'freeway':
-                self.human_agent_action = self._game_group_keys_2(a)
-            elif self.game == 'spaceinvaders':
-                self.human_agent_action = self._game_group_keys_3(a)
-            elif self.game == 'qbert':
-                self.human_agent_action = self._game_group_keys_4(a)
-
-    def key_release(self, key, mod):
-        a = int( key - ord('0') )
-        if (a > 0 and a <= 9) or (a >= 65409 and a <= 65417):
-            if self.human_agent_action_code == a:
-                self.human_agent_action = 0
+    def update_human_agent_action(self):
+        while True:
+            action = NOOP
+            if self.keys[self.key.DOWN] and self.keys[self.key.LEFT]:
+                action = self.action_map[DOWNLEFT]
+            elif self.keys[self.key.DOWN] and self.keys[self.key.RIGHT]:
+                action = self.action_map[DOWNRIGHT]
+            elif self.keys[self.key.UP] and self.keys[self.key.LEFT]:
+                action = self.action_map[UPLEFT]
+            elif self.keys[self.key.UP] and self.keys[self.key.RIGHT]:
+                action = self.action_map[UPRIGHT]
+            elif self.keys[self.key.LEFT] and self.keys[self.key.SPACE]:
+                action = self.action_map[LEFTFIRE]
+            elif self.keys[self.key.RIGHT] and self.keys[self.key.SPACE]:
+                action = self.action_map[RIGHTFIRE]
+            elif self.keys[self.key.LEFT]:
+                action = self.action_map[LEFT]
+            elif self.keys[self.key.RIGHT]:
+                action = self.action_map[RIGHT]
+            elif self.keys[self.key.UP]:
+                action = self.action_map[UP]
+            elif self.keys[self.key.DOWN]:
+                action = self.action_map[DOWN]
+            elif self.keys[self.key.SPACE]:
+                action = self.action_map[FIRE]
+            self.human_agent_action = action
+            sleep(0.01)
 
     def frame_step(self, act, render=False, random_restart=False):
         if self.game == 'pong':
-            if act == 1:
-                action = UP
-            elif act == 2:
-                action = DOWN
-            else:
-                action = NOOP
+            if act == 1: action = 2
+            elif act == 2: action = 5
+            else: action = NOOP
         elif self.game == 'breakout':
-            if act == 1:
-                action = LEFT
-            elif act == 2:
-                action = RIGHT
-            elif act == 3:
-                action = FIRE
-            else:
-                action = NOOP
+            if act == 1: action = 3
+            elif act == 2: action = 4
+            elif act == 3: action = FIRE
+            else: action = NOOP
         elif self.game == 'qbert':
-            if act > 0:
-                action = act + 1
-            else:
-                action = NOOP
+            if act > 0: action = act + 1
+            else: action = NOOP
         else:
             action = act
 
@@ -216,31 +186,33 @@ class GameState:
 
         return observation, reward, (1 if terminal else 0)
 
-# test_game = GameState(human_demo=True, frame_skip=1, game='spaceinvaders')
-# test_game.reinit(render=True)
-# for t in range(5000):
-#     if t < 200:
-#         a = 4
-#     else:
-#         a = 5
-#     print ('action: ', a)
-#     _, r, terminal = test_game.frame_step(a, render=True)
-#     if terminal: break
 
-# test_game = GameState(human_demo=True, frame_skip=1, game='pong')
-# test_game.reinit(render=True)
-# terminal = False
-# skip = 0
-# for t in range(5000):
-#     a = test_game.human_agent_action
-#     # if not skip:
-#     #     a = test_game.human_agent_action
-#     #     skip = 0
-#     # else:
-#     #     skip -= 1
-#     _, r, terminal = test_game.frame_step(a, render=True)
-#     if terminal: break
-#     if test_game.human_wants_restart: break
-#     while test_game.human_sets_pause:
-#         test_game._env.render(mode='human')
-#         sleep(0.1)
+def test_game_1():
+    test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
+    test_game.reinit(render=True, terminate_loss_of_life=False)
+    terminal = False
+    skip = 0
+    for t in range(5000):
+        a = test_game.human_agent_action
+        _, r, terminal = test_game.frame_step(a, render=True)
+        if terminal: break
+        if test_game.human_wants_restart: break
+        while test_game.human_sets_pause:
+            test_game._env.render(mode='human')
+            sleep(0.1)
+
+def test_game_2():
+    test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
+    test_game.reinit(render=True)
+    for t in range(10000):
+        if t < 200:
+            a = 5
+        else:
+            a = 1
+        print ('action: ', a)
+        _, r, terminal = test_game.frame_step(a, render=True)
+        if terminal: break
+
+if __name__ == "__main__":
+    test_game_1()
+    #test_game_2()

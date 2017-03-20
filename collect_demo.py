@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import numpy as np
 import time
 from datetime import datetime
@@ -11,12 +11,12 @@ except ImportError:
     import pickle
 
 
-class CollectHumanDemo(object):
+class CollectDemonstration(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
         replay_memory, folder='', sample_num=0):
-        """ Initialize collection of human demo """
+        """ Initialize collection of demo """
         assert sample_num > 0
         self.file_num = sample_num
         self.game_state = game_state
