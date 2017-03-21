@@ -68,7 +68,7 @@ class GameState:
 
         elif self.game == 'spaceinvaders':
             self._env = gym.make('SpaceInvadersDeterministic-v3')
-            self.n_actions = self._env.action_space.n
+            self.n_actions = 6
 
             if self._human_demo:
                 self.action_map[FIRE] = 1

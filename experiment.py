@@ -21,8 +21,8 @@ class Experiment(object):
         self, sess, network, game_state, resized_height, resized_width, phi_length, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
-        path, folder, load_human_memory=False, train_max_steps=sys.maxsize,
-        human_net=None, confidence=0., psi=0.999995):
+        path, folder, load_demo_memory=False, demo_memory_folder=None,
+        train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995):
         """ Initialize experiment """
         self.sess = sess
         self.net = network
@@ -43,7 +43,8 @@ class Experiment(object):
         self.name = name
         self.path = path
         self.folder = folder
-        self.load_human_memory = load_human_memory
+        self.load_demo_memory = load_demo_memory
+        self.demo_memory_folder = demo_memory_folder
         self.train_max_steps = train_max_steps
         self.wall_t = 0.0
         self.human_net = human_net
@@ -74,16 +75,16 @@ class Experiment(object):
         self.state_input = np.roll(self.state_input, -1, axis=3)
         self.state_input[0, :, :, -1] = observation
 
-    def _add_human_experiences(self):
+    def _add_demo_experiences(self):
         if self.name == 'pong' or self.name == 'breakout':
             # data were pickled using Python 2 which have compatibility issues in Python 3
-            data = pickle.load(open(self.name + '_human_samples/' + self.name + '-dqn-all.pkl', 'rb'), encoding='latin1')
+            data = pickle.load(open(self.demo_memory_folder + '/' + self.name + '-dqn-all.pkl', 'rb'), encoding='latin1')
         else:
-            data = pickle.load(open(self.name + '_human_samples/' + self.name + '-dqn-all.pkl', 'rb'))
+            data = pickle.load(open(self.demo_memory_folder + '/' + self.name + '-dqn-all.pkl', 'rb'))
         terminals = data['D.terminal']
         actions = data['D.actions']
         rewards = data['D.rewards']
-        imgs = get_compressed_images(self.name + '_human_samples/' + self.name + '-dqn-images-all.h5' + '.gz')
+        imgs = get_compressed_images(self.demo_memory_folder + '/' + self.name + '-dqn-images-all.h5' + '.gz')
         print ("\tMemory size={}".format(self.D.size))
         print ("\tAdding {} human experiences...".format(data['D.size']))
         for i in range(data['D.size']):
@@ -115,8 +116,8 @@ class Experiment(object):
             self.D.imgs = get_compressed_images(self.folder + '/' + self.name + '-dqn-images.h5' + '.gz')
         else:
             print ("Could not find old network weights")
-            if self.load_human_memory:
-                self._add_human_experiences()
+            if self.load_demo_memory:
+                self._add_demo_experiences()
             t = 0
             epsilon = self.init_epsilon
             rewards = {'train':[], 'eval':[]}

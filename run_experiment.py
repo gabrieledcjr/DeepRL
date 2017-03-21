@@ -11,7 +11,7 @@ from data_set import DataSet
 
 def classify_demo(args):
     """
-    python3 run_experiment.py pong --cuda-devices=0 --gpu-fraction=0.222 --optimizer=Adam --lr=0.0001 --decay=0.0 --momentum=0.0 --epsilon=0.001 --train-max-steps=150000 --batch=32 --eval-freq=500 --classify-demo
+    python3 run_experiment.py pong --cuda-devices=0 --gpu-fraction=0.4 --optimizer=Adam --lr=0.0001 --decay=0.0 --momentum=0.0 --epsilon=0.001 --train-max-steps=150000 --batch=32 --eval-freq=500 --classify-demo
     """
     if args.cpu_only:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -32,6 +32,11 @@ def classify_demo(args):
         folder = '{}_{}'.format(args.env, args.folder)
     else:
         folder = '{}_networks_classifier_{}'.format(args.env, args.optimizer.lower())
+
+    if args.demo_memory_folder is not None:
+        demo_memory_folder = args.demo_memory_folder
+    else:
+        demo_memory_folder = "{}_demo_samples".format(args.env)
 
     if args.cpu_only:
         device = '/cpu:0'
@@ -68,7 +73,7 @@ def classify_demo(args):
         net.initializer(sess)
         cd = ClassifyDemo(
             net, D, args.env, args.train_max_steps, args.batch, args.eval_freq,
-            '{}_human_samples'.format(args.env))
+            demo_memory_folder)
         cd.run()
 
 def get_demo(args):
@@ -84,7 +89,7 @@ def get_demo(args):
     if args.folder is not None:
         folder = '{}_{}'.format(args.env, args.folder)
     else:
-        folder = '{}_human_samples'.format(args.env)
+        folder = '{}_demo_samples'.format(args.env)
 
     game_state = game.GameState(
         human_demo=True if args.demo_type==0 else False,
@@ -212,6 +217,13 @@ def run_dqn(args):
                     slow=args.use_slow, tau=args.tau,
                     transfer=True, transfer_folder=transfer_folder)
 
+            demo_memory_folder = None
+            if args.load_memory:
+                if args.demo_memory_folder is not None:
+                    demo_memory_folder = args.demo_memory_folder
+                else:
+                    demo_memory_folder = "{}_demo_samples".format(args.env)
+
             experiment = Experiment(
                 sess, net, game_state, args.resized_height, args.resized_width,
                 args.phi_len, args.batch, args.env,
@@ -219,7 +231,8 @@ def run_dqn(args):
                 args.init_epsilon, D,
                 args.update_freq, args.save_freq, args.eval_freq,
                 args.eval_max_steps, args.c_freq,
-                path, folder, load_human_memory=args.load_memory,
+                path, folder, load_demo_memory=args.load_memory,
+                demo_memory_folder=demo_memory_folder,
                 train_max_steps=args.train_max_steps,
                 human_net=human_net, confidence=args.advice_confidence, psi=args.psi)
             experiment.run()
@@ -287,6 +300,7 @@ def main():
 
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
+    parser.add_argument('--demo-memory-folder', type=str, default=None)
 
     parser.add_argument('--collect-demo', action='store_true')
     parser.set_defaults(collect_demo=False)
