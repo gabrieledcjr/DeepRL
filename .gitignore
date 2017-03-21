@@ -1,7 +1,7 @@
 # ignore output files
 *_networks_*/
-*_human_samples/
-*_human_samples*/
+*_demo_samples/
+*_demo_samples*/
 old_codes/
 
 # Byte-compiled / optimized / DLL files
