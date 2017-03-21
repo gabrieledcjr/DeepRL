@@ -73,7 +73,11 @@ def classify_demo(args):
 
 def get_demo(args):
     """
-    python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --file-num=1
+    Human:
+    python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --demo-type=0 --file-num=1
+
+    Random:
+    python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --demo-type=1 --file-num=1
     """
     from collect_demo import CollectDemonstration
 
@@ -82,7 +86,9 @@ def get_demo(args):
     else:
         folder = '{}_human_samples'.format(args.env)
 
-    game_state = game.GameState(human_demo=True, frame_skip=1, game=args.env)
+    game_state = game.GameState(
+        human_demo=True if args.demo_type==0 else False,
+        frame_skip=1, game=args.env)
     if False: # Deterministic
         rng = RandomState(123456)
     else:
@@ -96,7 +102,7 @@ def get_demo(args):
         game_state, args.resized_height, args.resized_width, args.phi_len,
         args.env, D, folder=folder, sample_num=args.file_num
     )
-    collect_demo.run(minutes_limit=args.demo_time_limit, random_action=args.random_action)
+    collect_demo.run(minutes_limit=args.demo_time_limit, demo_type=args.demo_type)
 
 def run_dqn(args):
     """
@@ -217,7 +223,9 @@ def run_dqn(args):
                 train_max_steps=args.train_max_steps,
                 human_net=human_net, confidence=args.advice_confidence, psi=args.psi)
             experiment.run()
-            sess_human.close()
+
+            if args.use_human_model_as_advice:
+                sess_human.close()
 
 def main():
 
@@ -280,10 +288,9 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
 
-    parser.add_argument('--human-demo', action='store_true')
-    parser.set_defaults(human_demo=False)
-    parser.add_argument('--random-action', action='store_true')
-    parser.set_defaults(random_action=False)
+    parser.add_argument('--collect-demo', action='store_true')
+    parser.set_defaults(collect_demo=False)
+    parser.add_argument('--demo-type', type=int, default=0) # human(0), random(1), from_model(2)
     parser.add_argument('-n', '--file-num', type=int, default=1)
     parser.add_argument('--demo-time-limit', type=int, default=5) # 5 minutes
 
@@ -292,7 +299,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.human_demo:
+    if args.collect_demo:
         print (colored('Collecting demonstration...', 'green'))
         sleep(2)
         get_demo(args)

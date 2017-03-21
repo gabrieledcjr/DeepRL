@@ -96,6 +96,7 @@ class GameState:
         print (colored("repeat_action_probability: {}".format(self._env.ale.getFloat(b'repeat_action_probability')), "green"))
 
         print (colored("human_demo: {}".format(self._human_demo), "green" if self._human_demo else "red"))
+
         if self._human_demo:
             self.human_agent_action = 0
             self.human_agent_action_code = 0
@@ -105,8 +106,9 @@ class GameState:
             self.key = pyglet.window.key
             self.keys = self.key.KeyStateHandler()
             self._env.unwrapped.viewer.window.push_handlers(self.keys)
-            keys_thread = threading.Thread(target=(self.update_human_agent_action))
-            keys_thread.start()
+            self.stop_thread = False
+            self.keys_thread = threading.Thread(target=(self.update_human_agent_action))
+            self.keys_thread.start()
 
         sleep(2)
         self.reinit()
@@ -126,7 +128,7 @@ class GameState:
         self.screen_buffer, _, _ = self.frame_step(0)
 
     def update_human_agent_action(self):
-        while True:
+        while not self.stop_thread:
             action = NOOP
             if self.keys[self.key.DOWN] and self.keys[self.key.LEFT]:
                 action = self.action_map[DOWNLEFT]
@@ -152,6 +154,7 @@ class GameState:
                 action = self.action_map[FIRE]
             self.human_agent_action = action
             sleep(0.01)
+        print ("Exited thread loop")
 
     def frame_step(self, act, render=False, random_restart=False):
         if self.game == 'pong':
@@ -185,7 +188,6 @@ class GameState:
             self.reinit(random_restart=random_restart)
 
         return observation, reward, (1 if terminal else 0)
-
 
 def test_game_1():
     test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
