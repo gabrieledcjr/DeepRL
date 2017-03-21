@@ -172,47 +172,50 @@ class DqnNetClass(Network):
         print ("Successfully loaded:", self.folder + '/' + self.name + '-dqn')
 
     def save(self, step=-1, model_max_output_val=0.):
-        print (colored('Saving checkpoint...', 'blue'))
+        print (colored('Saving model and data...', 'blue'))
         if step < 0:
             self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn')
         else:
             self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn', global_step=step)
 
-        transfer_params = tf.get_collection("transfer_params")
-        transfer_saver = tf.train.Saver(transfer_params)
-        transfer_saver.save(self.sess, self.folder + '/transfer_model/' + self.name + '-dqn')
+        with self.graph.as_default():
+            transfer_params = tf.get_collection("transfer_params")
+            transfer_saver = tf.train.Saver(transfer_params)
+            transfer_saver.save(self.sess, self.folder + '/transfer_model/' + self.name + '-dqn')
+
+        with self.sess.as_default():
+            W1_val = self.W_conv1.eval()
+            np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
+            b1_val = self.b_conv1.eval()
+            np.savetxt(self.folder + '/conv1_biases.csv', b1_val.flatten())
+
+            W2_val = self.W_conv2.eval()
+            np.savetxt(self.folder + '/conv2_weights.csv', W2_val.flatten())
+            b2_val = self.b_conv2.eval()
+            np.savetxt(self.folder + '/conv2_biases.csv', b2_val.flatten())
+
+            W3_val = self.W_conv3.eval()
+            np.savetxt(self.folder + '/conv3_weights.csv', W3_val.flatten())
+            b3_val = self.b_conv3.eval()
+            np.savetxt(self.folder + '/conv3_biases.csv', b3_val.flatten())
+
+            Wfc1_val = self.W_fc1.eval()
+            np.savetxt(self.folder + '/fc1_weights.csv', Wfc1_val.flatten())
+            bfc1_val = self.b_fc1.eval()
+            np.savetxt(self.folder + '/fc1_biases.csv', bfc1_val.flatten())
+
+            Wfc2_val = self.W_fc2.eval()
+            np.savetxt(self.folder + '/fc2_weights.csv', Wfc2_val.flatten())
+            bfc2_val = self.b_fc2.eval()
+            np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
+
+        # with self.graph.as_default():
+        #     conv_weights = self.sess.run([tf.get_collection('conv_weights')])
+        #     for i, c in enumerate(conv_weights[0]):
+        #         plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
 
         self.save_max_value(model_max_output_val)
-
-        W1_val = self.W_conv1.eval()
-        np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
-        b1_val = self.b_conv1.eval()
-        np.savetxt(self.folder + '/conv1_biases.csv', b1_val.flatten())
-
-        W2_val = self.W_conv2.eval()
-        np.savetxt(self.folder + '/conv2_weights.csv', W2_val.flatten())
-        b2_val = self.b_conv2.eval()
-        np.savetxt(self.folder + '/conv2_biases.csv', b2_val.flatten())
-
-        W3_val = self.W_conv3.eval()
-        np.savetxt(self.folder + '/conv3_weights.csv', W3_val.flatten())
-        b3_val = self.b_conv3.eval()
-        np.savetxt(self.folder + '/conv3_biases.csv', b3_val.flatten())
-
-        Wfc1_val = self.W_fc1.eval()
-        np.savetxt(self.folder + '/fc1_weights.csv', Wfc1_val.flatten())
-        bfc1_val = self.b_fc1.eval()
-        np.savetxt(self.folder + '/fc1_biases.csv', bfc1_val.flatten())
-
-        Wfc2_val = self.W_fc2.eval()
-        np.savetxt(self.folder + '/fc2_weights.csv', Wfc2_val.flatten())
-        bfc2_val = self.b_fc2.eval()
-        np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
-
-        conv_weights = self.sess.run([tf.get_collection('conv_weights')])
-        for i, c in enumerate(conv_weights[0]):
-            plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
-        print (colored('Successfully saved checkpoint!', 'green'))
+        print (colored('Successfully saved model and data!', 'green'))
 
     def save_max_value(self, model_max_output_val):
         with open(self.folder + '/transfer_model/max_output_value', 'w') as f_max_value:
