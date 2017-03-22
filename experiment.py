@@ -210,16 +210,22 @@ class Experiment(object):
             if self.epsilon > self.final_epsilon and self.t > self.observe:
                 self.epsilon -= (self.init_epsilon - self.final_epsilon) / self.explore
 
-                ##### HUMAN ADVICE OVERRIDE ACTION #####
-                if self.use_human_advice:
-                    if self.psi > random.random():
+            ##### HUMAN ADVICE OVERRIDE ACTION #####
+            if self.use_human_advice and self.psi > self.final_epsilon:
+                use_advice = False
+                # After n exploration steps, decay psi
+                if (self.t - self.observe) >= self.explore:
+                    self.psi *= self.init_psi
+
+                if random.random() > self.final_epsilon:
+                    psi_cond = True if self.psi == self.init_psi else (self.psi > random.random())
+                    if psi_cond:
                         action_advice = self.human_net.evaluate(self.state_input)[0]
                         action_human = np.argmax(action_advice)
                         if action_advice[action_human] >= self.confidence:
-                            #print ("{} Overriding action from {} to {}".format(action_advice, action, action_human))
                             action = action_human
-                    self.psi *= self.init_psi
-                ##### HUMAN ADVICE OVERRIDE ACTION #####
+                            use_advice = True
+            ##### HUMAN ADVICE OVERRIDE ACTION #####
 
             # Training
             # run the selected action and observe next state and reward
@@ -292,6 +298,7 @@ class Experiment(object):
                         "T:", self.t, "/ STATE", state,
                         "/ EPSILON", round(self.epsilon,4),
                         "/ PSI", round(self.psi,4),
+                        "/ ADVICE", use_advice,
                         "/ ACTION", action, "/ REWARD", reward,
                         "/ Q_MAX %e" % np.max(readout_t))
                 else:

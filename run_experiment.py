@@ -122,10 +122,10 @@ def run_dqn(args):
     python3 run_experiment.py breakout --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --train-max-steps=20500000
 
     Transfer with Human Advice and Human Memory:
-    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979 --train-max-steps=20500000
+    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --use-transfer --load-memory --use-human-model-as-advice --advice-confidence=0. --psi=0.9999975 --train-max-steps=20500000
 
     Human Advice only with Human Memory:
-    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999979
+    python3 run_experiment.py pong --cuda-devices=0 --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 --observe=0 --load-memory --use-human-model-as-advice --advice-confidence=0.75 --psi=0.9999975
     """
     if args.cpu_only:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
