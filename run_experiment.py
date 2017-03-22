@@ -105,7 +105,8 @@ def get_demo(args):
 
     collect_demo = CollectDemonstration(
         game_state, args.resized_height, args.resized_width, args.phi_len,
-        args.env, D, folder=folder, sample_num=args.file_num
+        args.env, D, terminate_loss_of_life=args.terminate_life_loss,
+        folder=folder, sample_num=args.file_num
     )
     collect_demo.run(minutes_limit=args.demo_time_limit, demo_type=args.demo_type)
 
@@ -307,6 +308,8 @@ def main():
     parser.add_argument('--demo-type', type=int, default=0) # human(0), random(1), from_model(2)
     parser.add_argument('-n', '--file-num', type=int, default=1)
     parser.add_argument('--demo-time-limit', type=int, default=5) # 5 minutes
+    parser.add_argument('--terminate-life-loss', action='store_true')
+    parser.set_defaults(terminate_life_loss=False)
 
     parser.add_argument('--classify-demo', action='store_true')
     parser.set_defaults(classify_demo=False)

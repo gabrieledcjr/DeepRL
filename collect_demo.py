@@ -15,7 +15,7 @@ class CollectDemonstration(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
-        replay_memory, folder='', sample_num=0):
+        replay_memory, terminate_loss_of_life=False, folder='', sample_num=0):
         """ Initialize collection of demo """
         assert sample_num > 0
         self.file_num = sample_num
@@ -25,6 +25,7 @@ class CollectDemonstration(object):
         self.phi_length = phi_length
         self.name = name
         self.D = replay_memory
+        self.terminate_loss_of_life = terminate_loss_of_life
 
         self._skip = 1
         if self.game_state._env.frameskip == 1:
@@ -67,7 +68,9 @@ class CollectDemonstration(object):
         total_episodes = 0
 
         # re-initialize game for evaluation
-        self.game_state.reinit(render=True, random_restart=True, terminate_loss_of_life=False)
+        self.game_state.reinit(
+            render=True, random_restart=True,
+            terminate_loss_of_life=self.terminate_loss_of_life)
         observation = self._reset()
 
         while True:
@@ -106,7 +109,9 @@ class CollectDemonstration(object):
                 sub_steps.append(sub_t)
                 sub_r = 0.
                 sub_t = 0
-                self.game_state.reinit(render=True, random_restart=True, terminate_loss_of_life=False)
+                self.game_state.reinit(
+                    render=True, random_restart=True,
+                    terminate_loss_of_life=self.terminate_loss_of_life)
                 observation = self._reset()
                 is_reset = True
                 time.sleep(0.5)
