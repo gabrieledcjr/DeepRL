@@ -229,17 +229,14 @@ def test_game_1(env):
             test_game._env.render(mode='human')
             sleep(0.1)
 
-def test_game_2():
 def test_game_2(env):
-
-    test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
     test_game = GameState(human_demo=True, frame_skip=1, game=env)
     test_game.reinit(render=True)
     for t in range(10000):
         if t < 200:
-            a = 5
+            a = 8
         else:
-            a = 1
+            a = 2
         print ('action: ', a)
         _, r, terminal = test_game.frame_step(a, render=True)
         if terminal: break
@@ -251,5 +248,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     test_game_1(args.env)
-    #test_game_2()
     #test_game_2(args.env)

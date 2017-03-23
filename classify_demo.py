@@ -64,7 +64,7 @@ class ClassifyDemo(object):
 
         print ("max output val {}".format(max_val))
         self.net.save(model_max_output_val=max_val)
-        self.save_max_value(max_val=max_val)
+        #self.save_max_value(max_val=max_val)
 
     def save_max_value(self, max_val=-(sys.maxsize)):
         batch = self.D.size * 10 // 100
