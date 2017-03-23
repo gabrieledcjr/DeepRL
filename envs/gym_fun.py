@@ -30,6 +30,10 @@ UPLEFTFIRE = 15
 DOWNRIGHTFIRE = 16
 DOWNLEFTFIRE = 17
 
+TORPEDO = 18
+RIGHTTORPEDO = 19
+LEFTTORPEDO = 20
+
 class GameState:
     def __init__(self, human_demo=False, frame_skip=4, game='pong'):
         self.game = game
@@ -40,7 +44,8 @@ class GameState:
                 NOOP: 0, FIRE: 0, UP: 0, RIGHT: 0, LEFT: 0, DOWN: 0,
                 UPRIGHT: 0, UPLEFT: 0, DOWNRIGHT: 0, DOWNLEFT: 0,
                 UPFIRE: 0, RIGHTFIRE: 0, LEFTFIRE: 0, DOWNFIRE: 0,
-                UPRIGHTFIRE: 0, UPLEFTFIRE: 0, DOWNRIGHTFIRE: 0, DOWNLEFTFIRE: 0
+                UPRIGHTFIRE: 0, UPLEFTFIRE: 0, DOWNRIGHTFIRE: 0, DOWNLEFTFIRE: 0,
+                TORPEDO: 0, RIGHTTORPEDO: 0, LEFTTORPEDO: 0
             }
         if self.game == 'pong':
             self._env = gym.make('PongDeterministic-v3')
@@ -87,6 +92,20 @@ class GameState:
                 self.action_map[DOWNRIGHT] = 2
                 self.action_map[UPLEFT] = 3
                 self.action_map[DOWNLEFT] = 4
+
+        elif self.game == 'beamrider':
+            self._env = gym.make('BeamRiderDeterministic-v3')
+            self.n_actions = 9
+
+            if self._human_demo:
+                self.action_map[FIRE] = 1
+                self.action_map[TORPEDO] = 2
+                self.action_map[RIGHT] = 3
+                self.action_map[LEFT] = 4
+                self.action_map[RIGHTTORPEDO] = 5
+                self.action_map[LEFTTORPEDO] = 6
+                self.action_map[RIGHTFIRE] = 7
+                self.action_map[LEFTFIRE] = 8
 
         print (colored('{}Deterministic-v3'.format(self.game.title()), "green"))
 
@@ -143,6 +162,10 @@ class GameState:
                 action = self.action_map[LEFTFIRE]
             elif self.keys[self.key.RIGHT] and self.keys[self.key.SPACE]:
                 action = self.action_map[RIGHTFIRE]
+            elif self.keys[self.key.LEFT] and self.keys[self.key.ENTER]:
+                action = self.action_map[LEFTTORPEDO]
+            elif self.keys[self.key.RIGHT] and self.keys[self.key.ENTER]:
+                action = self.action_map[RIGHTTORPEDO]
             elif self.keys[self.key.LEFT]:
                 action = self.action_map[LEFT]
             elif self.keys[self.key.RIGHT]:
@@ -153,6 +176,8 @@ class GameState:
                 action = self.action_map[DOWN]
             elif self.keys[self.key.SPACE]:
                 action = self.action_map[FIRE]
+            elif self.keys[self.key.ENTER]:
+                action = self.action_map[TORPEDO]
             self.human_agent_action = action
             sleep(0.01)
         print ("Exited thread loop")
@@ -205,8 +230,10 @@ def test_game_1(env):
             sleep(0.1)
 
 def test_game_2():
+def test_game_2(env):
 
     test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
+    test_game = GameState(human_demo=True, frame_skip=1, game=env)
     test_game.reinit(render=True)
     for t in range(10000):
         if t < 200:
@@ -225,3 +252,4 @@ if __name__ == "__main__":
 
     test_game_1(args.env)
     #test_game_2()
+    #test_game_2(args.env)

@@ -19,7 +19,7 @@ def aggregate_demo(args):
     if args.demo_memory_folder is not None:
         demo_memory_folder = args.demo_memory_folder
     else:
-        demo_memory_folder = "{}_human_samples".format(args.env)
+        demo_memory_folder = "{}_demo_samples".format(args.env)
 
     game_state = game.GameState(game=args.env)
     D = DataSet(
