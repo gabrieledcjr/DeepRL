@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import argparse
 import numpy
 import gym
 import os
@@ -189,8 +190,8 @@ class GameState:
 
         return observation, reward, (1 if terminal else 0)
 
-def test_game_1():
-    test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
+def test_game_1(env):
+    test_game = GameState(human_demo=True, frame_skip=1, game=env)
     test_game.reinit(render=True, terminate_loss_of_life=False)
     terminal = False
     skip = 0
@@ -204,6 +205,7 @@ def test_game_1():
             sleep(0.1)
 
 def test_game_2():
+
     test_game = GameState(human_demo=True, frame_skip=1, game='qbert')
     test_game.reinit(render=True)
     for t in range(10000):
@@ -216,5 +218,10 @@ def test_game_2():
         if terminal: break
 
 if __name__ == "__main__":
-    test_game_1()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('env', type=str)
+    args = parser.parse_args()
+
+    test_game_1(args.env)
     #test_game_2()
