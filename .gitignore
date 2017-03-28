@@ -3,6 +3,7 @@
 *_demo_samples/
 *_demo_samples*/
 old_codes/
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

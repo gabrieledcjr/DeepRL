@@ -48,6 +48,10 @@ actions, and rewards.
         self.top = 0
         self.size = 0
 
+        self.validation_set_markers = None
+        self.validation_indices = None
+        self.validation_set_initialize = False
+
     def resize(self):
         print ("Resizing replay memory...")
         print ("Current specs:")
@@ -69,6 +73,27 @@ actions, and rewards.
         print ("\ttop:{}".format(self.top))
         print ("\tbottom:{}".format(self.bottom))
         print ("\timgs shape:", np.shape(self.imgs))
+
+    def create_validation_set(self, percent=0.2):
+        print ("Creating validation set...")
+        self.validation_set_markers = np.zeros(self.max_steps, dtype=np.uint8)
+        self.validation_indices = []
+        self.validation_set_size = int(self.size * percent)
+        total_validation_set = self.validation_set_size
+        print ("Validation Set: {} of {}".format(total_validation_set, self.size))
+        while total_validation_set > 0:
+            index = np.random.randint(4, self.size-4)
+
+            # cannot be a terminal state since no action will be takened
+            # and it cannot be in the validation set already
+            indices = np.arange(index, index + self.phi_length)
+            if self.validation_set_markers[index] == 1 or np.any(self.terminal.take(indices, mode='wrap')):
+                continue
+
+            self.validation_set_markers[index] = 1
+            self.validation_indices.append(index)
+            total_validation_set -= 1
+        print ("Validation set created!")
 
     def add_sample(self, img, action, reward, terminal):
         """Add a time step record.
@@ -116,7 +141,31 @@ actions, and rewards.
         phi[-1] = img
         return phi
 
-    def random_batch(self, batch_size):
+    def init_validation_set(self):
+        validation_set_size = len(self.validation_indices)
+        # Allocate the response.
+        self.validation_set_states = np.zeros((validation_set_size, 84, 84, self.phi_length), dtype=np.uint8)
+        self.validation_set_actions = np.zeros((validation_set_size, self.num_actions), dtype=np.float32)
+
+        for count, index in enumerate(self.validation_indices):
+            indices = np.arange(index, index + self.phi_length)
+            end_index = index + self.phi_length - 1
+
+            # Add the state to validation set
+            temp = self.imgs.take(indices, axis=0, mode='wrap')
+            for i in range(self.phi_length):
+                self.validation_set_states[count, :, :, i] = temp[i]
+
+            a_idx = self.actions.take(end_index, axis=0, mode='wrap')
+            self.validation_set_actions[count][a_idx] = 1.
+
+    def get_validation_set(self):
+        if not self.validation_set_initialize:
+            self.init_validation_set()
+            self.validation_set_initialize = True
+        return self.validation_set_states, self.validation_set_actions
+
+    def random_batch(self, batch_size, exclude_validation=False):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
 
@@ -145,6 +194,10 @@ actions, and rewards.
             # the Q learner recognizes and handles correctly during
             # training by zeroing the discounted future reward estimate.
             if np.any(self.terminal.take(indices[0:self.phi_length-1], mode='wrap')):
+                continue
+
+            # excluding validation set from random batch
+            if exclude_validation and (index in self.validation_indices):
                 continue
 
             # Add the state transition to the response.

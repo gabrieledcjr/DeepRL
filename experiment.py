@@ -55,7 +55,9 @@ class Experiment(object):
             self.use_human_advice = True
 
 
-        self.state_input = np.zeros((1, 84, 84, self.phi_length), dtype=np.uint8)
+        self.state_input = np.zeros(
+            (1, self.resized_h, self.resized_w, self.phi_length),
+            dtype=np.uint8)
         self.D = replay_memory
 
         if not os.path.exists(self.folder + '/frames'):

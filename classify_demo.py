@@ -10,7 +10,7 @@ except ImportError:
 class ClassifyDemo(object):
     def __init__(
         self, net, D, name, train_max_steps, batch_size,
-        eval_freq, folder):
+        eval_freq, demo_memory_folder='', folder=''):
         """ Initialize Classifying Human Demo Training """
         self.net = net
         self.D = D
@@ -18,6 +18,7 @@ class ClassifyDemo(object):
         self.train_max_steps = train_max_steps
         self.batch_size = batch_size
         self.eval_freq = eval_freq
+        self.demo_memory_folder = demo_memory_folder
         self.folder = folder
 
         self._load_memory()
@@ -26,9 +27,9 @@ class ClassifyDemo(object):
         print ("Loading data")
         if self.name == 'pong' or self.name == 'breakout':
             # data were pickled using Python 2 which have compatibility issues in Python 3
-            data = pickle.load(open('{}/{}-dqn-all.pkl'.format(self.folder, self.name), 'rb'), encoding='latin1')
+            data = pickle.load(open('{}/{}-dqn-all.pkl'.format(self.demo_memory_folder, self.name), 'rb'), encoding='latin1')
         else:
-            data = pickle.load(open('{}/{}-dqn-all.pkl'.format(self.folder, self.name), 'rb'))
+            data = pickle.load(open('{}/{}-dqn-all.pkl'.format(self.demo_memory_folder, self.name), 'rb'))
 
         self.D.width = data['D.width']
         self.D.height = data['D.height']
@@ -41,30 +42,67 @@ class ClassifyDemo(object):
         self.D.bottom = data['D.bottom']
         self.D.top = data['D.top']
         self.D.size = data['D.size']
-        self.D.imgs = get_compressed_images('{}/{}-dqn-images-all.h5'.format(self.folder, self.name) + '.gz')
+        self.D.validation_set_markers = data['D.validation_set_markers']
+        self.D.validation_indices = data['D.validation_indices']
+        self.D.imgs = get_compressed_images('{}/{}-dqn-images-all.h5'.format(self.demo_memory_folder, self.name) + '.gz')
         print ("Data loaded!")
 
     def run(self):
-        max_val = -(sys.maxsize)
+        data = {
+            'training_step': [],
+            'training_accuracy': [],
+            'training_entropy': [],
+            'testing_step': [],
+            'testing_accuracy': [],
+            'testing_entropy': [],
+            'max_accuracy': 0.,
+            'max_accuracy_step': 0,
+        }
+        max_val = -(sys.maxsize),
+        no_change_ctr = 0
+
+        s_j_batch_validation, a_batch_validation = self.D.get_validation_set()
         for i in range(self.train_max_steps):
-            s_j_batch, a_batch, _, _, _ = self.D.random_batch(self.batch_size)
+            s_j_batch, a_batch, _, _, _ = self.D.random_batch(self.batch_size, exclude_validation=True)
 
             if (i % self.eval_freq) == 0:
-                result = self.net.evaluate_batch(s_j_batch, a_batch)
-                acc = result[0]
-                summary_str = result[1]
-                self.net.add_summary(summary_str, i)
-                print ("step {}, training accuracy {}, max output val {}".format(i, acc, max_val))
+                entropy, acc, _, _ = self.net.evaluate_batch(s_j_batch_validation, a_batch_validation)
+                data['testing_step'].append(i)
+                data['testing_accuracy'].append(acc)
+                data['testing_entropy'].append(entropy)
+
+                if acc > data['max_accuracy']:
+                    data['max_accuracy'] = acc
+                    data['max_accuracy_step'] = i
+                    # early stopping (save best model)
+                    self.net.save(model_max_output_val=max_val, step=data['max_accuracy_step'])
+                    no_change_ctr = 0
+                else:
+                    no_change_ctr += 1
+
+                self.net.add_accuracy(acc, entropy, i, stage='Validation')
+                print ("step {}, max accuracy {}, testing accuracy {}, no change ctr {}, max output val {}".format(i, data['max_accuracy'], acc, no_change_ctr, max_val))
+
+            # UNCOMMENT BEFORE PUSHING TO GITHUB
+            # if no_change_ctr == 100:
+            #     break
 
             # perform gradient step
-            _, _, _, _, output_vals, max_value = self.net.train(s_j_batch, a_batch)
+            _, entropy, acc, output_vals, max_value = self.net.train(s_j_batch, a_batch, keep_prob=0.7)
+            data['training_step'].append(i)
+            data['training_accuracy'].append(acc)
+            data['training_entropy'].append(entropy)
+            if (i % self.eval_freq) == 0:
+                print ("\tstep {}, training accuracy {}".format(i, acc))
+
+            self.net.add_accuracy(acc, entropy, i, stage='Training')
 
             if max_value > max_val:
                 max_val = max_value
 
-        print ("max output val {}".format(max_val))
-        self.net.save(model_max_output_val=max_val)
-        #self.save_max_value(max_val=max_val)
+        self.net.save(model_max_output_val=max_val, relative='/final/')
+        pickle.dump(data, open(self.folder + '/data', 'wb'), pickle.HIGHEST_PROTOCOL)
+        print ("final max output val {}".format(max_val))
 
     def save_max_value(self, max_val=-(sys.maxsize)):
         batch = self.D.size * 10 // 100

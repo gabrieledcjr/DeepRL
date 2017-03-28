@@ -9,13 +9,18 @@ from util import plot_conv_weights
 from termcolor import colored
 from net import Network
 
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+
 class DqnNetClass(Network):
     """ DQN Network Model for Classification """
 
     def __init__(
         self, height, width, phi_length, n_actions, name,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0.,
-        slow=False, tau=0.001, verbose=False, path='', folder='_networks', l2_decay=0.001):
+        slow=False, tau=0.001, verbose=False, path='', folder='_networks', l2_decay=0.0001):
         """ Initialize network """
         super(DqnNetClass, self).__init__(None, name=name)
         self.graph = tf.Graph()
@@ -72,6 +77,10 @@ class DqnNetClass(Network):
                 tf.add_to_collection('transfer_params', self.W_fc1)
                 tf.add_to_collection('transfer_params', self.b_fc1)
 
+            # Dropout layer
+            #self.keep_prob = tf.placeholder(tf.float32, shape=())
+            #h_fc1_dropout = tf.nn.dropout(self.h_fc1, self.keep_prob)
+
             with tf.name_scope("FullyConnected2") as scope:
                 kernel_shape = [512, n_actions]
                 self.W_fc2 = self.weight_variable_linear(kernel_shape, 'fc2')
@@ -90,13 +99,18 @@ class DqnNetClass(Network):
 
             # cost of q network
             with tf.name_scope("Entropy") as scope:
+                l2_regularizer = l2_decay * (
+                    tf.nn.l2_loss(self.W_conv1) +
+                    tf.nn.l2_loss(self.W_conv2) +
+                    tf.nn.l2_loss(self.W_conv3) +
+                    tf.nn.l2_loss(self.W_fc1) +
+                    tf.nn.l2_loss(self.W_fc2)
+                )
                 self.cross_entropy = tf.reduce_mean(
                     tf.nn.softmax_cross_entropy_with_logits(
                         _sentinel=None,
                         labels=self.actions,
-                        logits=self.action_output)) #+ \
-                        #l2_decay*tf.nn.l2_loss(self.W_fc2) + l2_decay*tf.nn.l2_loss(self.b_fc2)
-                ce_summ = tf.summary.scalar("cross_entropy", self.cross_entropy)
+                        logits=self.action_output)) + l2_regularizer
 
             with tf.name_scope("Train") as scope:
                 if optimizer == "Adam":
@@ -123,13 +137,14 @@ class DqnNetClass(Network):
             with tf.name_scope("Evaluating") as scope:
                 correct_prediction = tf.equal(tf.argmax(self.action_output,1), tf.argmax(self.actions,1))
                 self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-                accuracy_summary = tf.summary.scalar("accuracy", self.accuracy)
 
             self.saver = tf.train.Saver()
             self.merged = tf.summary.merge_all()
 
         if not os.path.exists(self.folder + '/transfer_model'):
             os.makedirs(self.folder + '/transfer_model')
+        if not os.path.exists(self.folder + '/final/transfer_model'):
+            os.makedirs(self.folder + '/final/transfer_model')
 
     def initializer(self, sess):
         # initialize all tensor variable parameters
@@ -140,26 +155,34 @@ class DqnNetClass(Network):
         self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
 
     def evaluate(self, state):
-        return  self.sess.run(self.action, feed_dict={self.observation: state})
-
-    def evaluate_batch(self, s_j_batch, a_batch):
-        return self.sess.run(
-            [self.accuracy, self.merged, self.action_output, self.max_value],
+        return  self.sess.run(
+            self.action,
             feed_dict={
-                self.actions: a_batch,
-                self.observation: s_j_batch,
+                self.observation: state,
+                #self.keep_prob: 1.0
             }
         )
 
-    def train(self, s_j_batch, a_batch):
+    def evaluate_batch(self, s_j_batch, a_batch):
+        return self.sess.run(
+            [self.cross_entropy, self.accuracy, self.action_output, self.max_value],
+            feed_dict={
+                self.actions: a_batch,
+                self.observation: s_j_batch,
+                #self.keep_prob: 1.0
+            }
+        )
+
+    def train(self, s_j_batch, a_batch, keep_prob=0.4):
         t_ops = [
-            self.merged, self.train_step, self.cross_entropy, self.accuracy, self.action_output, self.max_value
+            self.train_step, self.cross_entropy, self.accuracy, self.action_output, self.max_value
         ]
         return self.sess.run(
             t_ops,
             feed_dict={
                 self.actions : a_batch,
                 self.observation : s_j_batch,
+                #self.keep_prob: keep_prob
             }
         )
 
@@ -167,58 +190,65 @@ class DqnNetClass(Network):
         self.writer.add_summary(summary, step)
         self.writer.flush()
 
+    def add_accuracy(self, accuracy, entropy, step, stage='Training'):
+        summary = tf.Summary()
+        summary.value.add(tag='{}/Accuracy'.format(stage), simple_value=float(accuracy))
+        summary.value.add(tag='{}/CrossEntropy'.format(stage), simple_value=float(entropy))
+        self.writer.add_summary(summary, step)
+        self.writer.flush()
+
     def load(self):
         self.saver.restore(self.sess, self.folder + '/' + self.name + '-dqn')
         print ("Successfully loaded:", self.folder + '/' + self.name + '-dqn')
 
-    def save(self, step=-1, model_max_output_val=0.):
+    def save(self, step=-1, model_max_output_val=0., relative='/'):
         print (colored('Saving model and data...', 'blue'))
-        if step < 0:
-            self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn')
-        else:
-            self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn', global_step=step)
+        self.saver.save(self.sess, self.folder + '{}'.format(relative) + self.name + '-dqn')
+        if step >= 0:
+            with open(self.folder + '{}step'.format(relative), 'w') as f_step:
+                f_step.write(str(step))
 
         with self.graph.as_default():
             transfer_params = tf.get_collection("transfer_params")
             transfer_saver = tf.train.Saver(transfer_params)
-            transfer_saver.save(self.sess, self.folder + '/transfer_model/' + self.name + '-dqn')
+            transfer_saver.save(self.sess, self.folder + '{}transfer_model/'.format(relative) + self.name + '-dqn')
 
         with self.sess.as_default():
             W1_val = self.W_conv1.eval()
-            np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
+            np.savetxt(self.folder + '{}conv1_weights.csv'.format(relative), W1_val.flatten())
             b1_val = self.b_conv1.eval()
-            np.savetxt(self.folder + '/conv1_biases.csv', b1_val.flatten())
+            np.savetxt(self.folder + '{}conv1_biases.csv'.format(relative), b1_val.flatten())
 
             W2_val = self.W_conv2.eval()
-            np.savetxt(self.folder + '/conv2_weights.csv', W2_val.flatten())
+            np.savetxt(self.folder + '{}conv2_weights.csv'.format(relative), W2_val.flatten())
             b2_val = self.b_conv2.eval()
-            np.savetxt(self.folder + '/conv2_biases.csv', b2_val.flatten())
+            np.savetxt(self.folder + '{}conv2_biases.csv'.format(relative), b2_val.flatten())
 
             W3_val = self.W_conv3.eval()
-            np.savetxt(self.folder + '/conv3_weights.csv', W3_val.flatten())
+            np.savetxt(self.folder + '{}conv3_weights.csv'.format(relative), W3_val.flatten())
             b3_val = self.b_conv3.eval()
-            np.savetxt(self.folder + '/conv3_biases.csv', b3_val.flatten())
+            np.savetxt(self.folder + '{}conv3_biases.csv'.format(relative), b3_val.flatten())
 
             Wfc1_val = self.W_fc1.eval()
-            np.savetxt(self.folder + '/fc1_weights.csv', Wfc1_val.flatten())
+            np.savetxt(self.folder + '{}fc1_weights.csv'.format(relative), Wfc1_val.flatten())
             bfc1_val = self.b_fc1.eval()
-            np.savetxt(self.folder + '/fc1_biases.csv', bfc1_val.flatten())
+            np.savetxt(self.folder + '{}fc1_biases.csv'.format(relative), bfc1_val.flatten())
 
             Wfc2_val = self.W_fc2.eval()
-            np.savetxt(self.folder + '/fc2_weights.csv', Wfc2_val.flatten())
+            np.savetxt(self.folder + '{}fc2_weights.csv'.format(relative), Wfc2_val.flatten())
             bfc2_val = self.b_fc2.eval()
-            np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
+            np.savetxt(self.folder + '{}fc2_biases.csv'.format(relative), bfc2_val.flatten())
 
         # with self.graph.as_default():
         #     conv_weights = self.sess.run([tf.get_collection('conv_weights')])
         #     for i, c in enumerate(conv_weights[0]):
         #         plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
 
-        self.save_max_value(model_max_output_val)
+        self.save_max_value(model_max_output_val, relative=relative)
         print (colored('Successfully saved model and data!', 'green'))
 
-    def save_max_value(self, model_max_output_val):
-        with open(self.folder + '/transfer_model/max_output_value', 'w') as f_max_value:
+    def save_max_value(self, model_max_output_val, relative='/'):
+        with open(self.folder + '{}transfer_model/max_output_value'.format(relative), 'w') as f_max_value:
             f_max_value.write(str(model_max_output_val))
 
     def init_verbosity(self):

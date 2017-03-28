@@ -47,6 +47,8 @@ def aggregate_demo(args):
         print ("\tTotal Memory size: {}".format(D.size))
 
     D.resize()
+    D.create_validation_set(percent=args.validation_set_percent)
+
     data = {'D.width': D.width,
             'D.height': D.height,
             'D.max_steps': D.max_steps,
@@ -58,6 +60,8 @@ def aggregate_demo(args):
             'D.bottom': D.bottom,
             'D.top': D.top,
             'D.size': D.size,
+            'D.validation_set_markers': D.validation_set_markers,
+            'D.validation_indices': D.validation_indices,
             'epsilon': args.init_epsilon,
             't': 0}
     images = D.imgs
@@ -80,6 +84,8 @@ def main():
 
     parser.add_argument('--range-start', type=int, default=0)
     parser.add_argument('--range-end', type=int, default=5)
+
+    parser.add_argument('--validation-set-percent', type=float, default=0.2)
 
     parser.add_argument('--demo-memory-folder', type=str, default=None)
 
