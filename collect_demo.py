@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import numpy as np
 import time
+import random
 from datetime import datetime
 from termcolor import colored
-from util import prepare_dir, process_frame, save_compressed_images
+from util import prepare_dir, process_frame, save_compressed_images, get_action_index
 
 try:
     import cPickle as pickle
@@ -31,19 +32,26 @@ class CollectDemonstration(object):
         if self.game_state._env.frameskip == 1:
             self._skip = 4
 
+        self.state_input = np.zeros(
+            (1, self.resized_h, self.resized_w, self.phi_length),
+            dtype=np.uint8)
         self.folder = folder + '/{n:03d}/'.format(name=self.name, n=self.file_num)
         prepare_dir(self.folder, empty=True)
 
-    def _reset(self, testing=False):
+    def _reset(self):
+        self.state_input.fill(0)
         observation, r_0, terminal = self.game_state.frame_step(0, render=True)
         observation = process_frame(observation, self.resized_h, self.resized_w)
-        if not testing:
-            for _ in range(self.phi_length-1):
-                empty_img = np.zeros((self.resized_w, self.resized_h), dtype=np.uint8)
-                self.D.add_sample(empty_img, 0, 0, 0)
+        for _ in range(self.phi_length-1):
+            empty_img = np.zeros((self.resized_w, self.resized_h), dtype=np.uint8)
+            self.D.add_sample(empty_img, 0, 0, 0)
         return observation
 
-    def run(self, minutes_limit=5, demo_type=0):
+    def _update_state_input(self, observation):
+        self.state_input = np.roll(self.state_input, -1, axis=3)
+        self.state_input[0, :, :, -1] = observation
+
+    def run(self, minutes_limit=5, demo_type=0, model_net=None):
         imgs = []
         acts = []
         rews = []
@@ -77,7 +85,10 @@ class CollectDemonstration(object):
             if demo_type == 1: # RANDOM AGENT
                 action = np.random.randint(self.game_state.n_actions)
             elif demo_type == 2: # MODEL AGENT
-                pass
+                if sub_t % self._skip == 0:
+                    self._update_state_input(observation)
+                    readout_t = model_net.evaluate(self.state_input)[0]
+                    action = get_action_index(readout_t, is_random=False, n_actions=self.game_state.n_actions)
             else: # HUMAN
                 action = self.game_state.human_agent_action
 

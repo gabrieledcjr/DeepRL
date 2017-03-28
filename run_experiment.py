@@ -73,7 +73,7 @@ def classify_demo(args):
         net.initializer(sess)
         cd = ClassifyDemo(
             net, D, args.env, args.train_max_steps, args.batch, args.eval_freq,
-            demo_memory_folder)
+            demo_memory_folder=demo_memory_folder, folder=folder)
         cd.run()
 
 def get_demo(args):
@@ -83,13 +83,25 @@ def get_demo(args):
 
     Random:
     python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --demo-type=1 --file-num=1
+
+    Model:
+    python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --demo-type=2 --file-num=1
+    python3 run_experiment.py pong --demo-time-limit=5 --collect-demo --demo-type=2 --model-folder=pong_networks_rms_1 --file-num=1
     """
+    if args.demo_type == 2:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        import tensorflow as tf
+        from dqn_net import DqnNet
     from collect_demo import CollectDemonstration
 
     if args.folder is not None:
         folder = '{}_{}'.format(args.env, args.folder)
     else:
         folder = '{}_demo_samples'.format(args.env)
+        if args.demo_type == 1:
+            folder = '{}_demo_samples_random'.format(args.env)
+        elif args.demo_type == 2:
+            folder = '{}_demo_samples_model'.format(args.env)
 
     game_state = game.GameState(
         human_demo=True if args.demo_type==0 else False,
@@ -103,12 +115,32 @@ def get_demo(args):
         rng, (args.demo_time_limit * 5000),
         args.phi_len, game_state.n_actions)
 
+    model_net = None
+    if args.demo_type == 2: # From model
+        if args.model_folder is not None:
+            model_folder = args.model_folder
+        else:
+            model_folder = '{}_networks_{}'.format(args.env, args.optimizer.lower())
+        sess = tf.Session()
+        with tf.device('/cpu:0'):
+            model_net = DqnNet(
+                sess, args.resized_height, args.resized_width, args.phi_len,
+                game_state.n_actions, args.env, gamma=args.gamma, copy_interval=args.c_freq,
+                optimizer=args.optimizer, learning_rate=args.lr,
+                epsilon=args.epsilon, decay=args.decay, momentum=args.momentum,
+                verbose=args.verbose, path=None, folder=None,
+                slow=args.use_slow, tau=args.tau)
+            model_net.load(folder=model_folder)
+
     collect_demo = CollectDemonstration(
         game_state, args.resized_height, args.resized_width, args.phi_len,
         args.env, D, terminate_loss_of_life=args.terminate_life_loss,
         folder=folder, sample_num=args.file_num
     )
-    collect_demo.run(minutes_limit=args.demo_time_limit, demo_type=args.demo_type)
+    collect_demo.run(
+        minutes_limit=args.demo_time_limit,
+        demo_type=args.demo_type,
+        model_net=model_net)
 
 def run_dqn(args):
     """
@@ -170,12 +202,16 @@ def run_dqn(args):
     human_net = None
     sess_human = None
     if args.use_human_model_as_advice:
+        if args.advice_folder is not None:
+            advice_folder = args.advice_folder
+        else:
+            advice_folder = "{}_networks_classifier_{}".format(args.env, "adam")
         human_net = DqnNetClass(
             args.resized_height, args.resized_width,
             args.phi_len, game_state.n_actions, args.env,
             optimizer="Adam", learning_rate=0.0001, epsilon=0.001,
             decay=0., momentum=0., path=path,
-            folder="{}_networks_classifier_{}".format(args.env, "adam"))
+            folder=advice_folder)
         sess_human = tf.Session(config=config, graph=human_net.graph)
         human_net.initializer(sess_human)
         human_net.load()
@@ -297,6 +333,7 @@ def main():
     parser.add_argument('--use-human-model-as-advice', action='store_true')
     parser.set_defaults(use_human_model_as_advice=False)
     parser.add_argument('--advice-confidence', type=float, default=0.)
+    parser.add_argument('--advice-folder', type=str, default=None)
     parser.add_argument('--psi', type=float, default=0.)
 
     parser.add_argument('--load-memory', action='store_true')
@@ -307,6 +344,7 @@ def main():
     parser.set_defaults(collect_demo=False)
     parser.add_argument('--demo-type', type=int, default=0) # human(0), random(1), from_model(2)
     parser.add_argument('-n', '--file-num', type=int, default=1)
+    parser.add_argument('--model-folder', type=str, default=None)
     parser.add_argument('--demo-time-limit', type=int, default=5) # 5 minutes
     parser.add_argument('--terminate-life-loss', action='store_true')
     parser.set_defaults(terminate_life_loss=False)

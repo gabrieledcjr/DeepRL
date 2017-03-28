@@ -232,8 +232,9 @@ class DqnNet(Network):
             ]
 
         self.saver = tf.train.Saver()
-        self.merged = tf.summary.merge_all()
-        self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
+        if self.folder is not None:
+            self.merged = tf.summary.merge_all()
+            self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
 
     def evaluate(self, state):
         return self.sess.run(self.q_value, feed_dict={self.observation: state})
@@ -299,17 +300,21 @@ class DqnNet(Network):
     def update_target_network(self):
         self.sess.run(self.update_target_op)
 
-    def load(self, folder='_networks'):
+    def load(self, folder=None):
         has_checkpoint = False
+
+        __folder = self.folder
         # saving and loading networks
-        checkpoint = tf.train.get_checkpoint_state(self.folder)
+        if folder is not None:
+            __folder = folder
+        checkpoint = tf.train.get_checkpoint_state(__folder)
 
         if checkpoint and checkpoint.model_checkpoint_path:
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
             print (colored('Successfully loaded:{}'.format(checkpoint.model_checkpoint_path), 'green'))
             sleep(.2)
             has_checkpoint = True
-            data = pickle.load(open(self.folder + '/' + self.name + '-net-variables.pkl', 'rb'))
+            data = pickle.load(open(__folder + '/' + self.name + '-net-variables.pkl', 'rb'))
             self.update_counter = data['update_counter']
 
         return has_checkpoint
