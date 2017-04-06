@@ -22,7 +22,8 @@ class Experiment(object):
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
         path, folder, load_demo_memory=False, demo_memory_folder=None,
-        train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995):
+        train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995,
+        train_with_demo_steps=0):
         """ Initialize experiment """
         self.sess = sess
         self.net = network
@@ -46,6 +47,8 @@ class Experiment(object):
         self.load_demo_memory = load_demo_memory
         self.demo_memory_folder = demo_memory_folder
         self.train_max_steps = train_max_steps
+        self.train_with_demo_steps = train_with_demo_steps
+
         self.wall_t = 0.0
         self.human_net = human_net
         self.confidence = confidence
@@ -65,7 +68,7 @@ class Experiment(object):
 
     def _reset(self, testing=False):
         self.state_input.fill(0)
-        observation, r_0, terminal = self.game_state.frame_step(0)
+        observation, r_0, terminal = self.game_state.step(0)
         observation = process_frame(observation, self.resized_h, self.resized_w)
         if not testing:
             for _ in range(self.phi_length-1):
@@ -128,7 +131,7 @@ class Experiment(object):
     def test(self, render=False):
         # re-initialize game for evaluation
         episode_buffer = []
-        self.game_state.reinit(random_restart=False, terminate_loss_of_life=False)
+        self.game_state.reset(random_restart=False, terminate_loss_of_life=False)
         observation = self._reset(testing=True)
         episode_buffer.append(self.game_state.screen_buffer)
 
@@ -143,7 +146,7 @@ class Experiment(object):
             self._update_state_input(observation)
             readout_t = self.net.evaluate(self.state_input)[0]
             action = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.game_state.n_actions)
-            observation, reward, terminal = self.game_state.frame_step(action, render=render)
+            observation, reward, terminal = self.game_state.step(action, render=render)
             if n_episodes == 0:
                 episode_buffer.append(observation)
             observation = process_frame(observation, self.resized_h, self.resized_w)
@@ -161,7 +164,7 @@ class Experiment(object):
                     episode_buffer = []
                 n_episodes += 1
                 print ("\tTRIAL", n_episodes, "/ REWARD", sub_total_reward, "/ STEPS", sub_steps, "/ TOTAL STEPS", total_steps)
-                self.game_state.reinit(random_restart=True, terminate_loss_of_life=False)
+                self.game_state.reset(random_restart=True, terminate_loss_of_life=False)
                 observation = self._reset(testing=True)
                 total_reward += sub_total_reward
                 total_steps += sub_steps
@@ -175,10 +178,29 @@ class Experiment(object):
         self.rewards['eval'].append(((self.t - self.observe), total_reward, total_steps))
         return total_reward, total_steps, n_episodes
 
+    def train_with_demo_memory_only(self):
+        assert self.load_demo_memory
+        print ((colored('Training with demo memory only for {} steps...'.format(self.train_with_demo_steps), 'blue')))
+        start_update_counter = self.net.update_counter
+        while self.train_with_demo_steps > 0:
+            s_j_batch, a_batch, r_batch, s_j1_batch, terminals = self.D.random_batch(self.batch)
+            # perform gradient step
+            self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
+            self.train_with_demo_steps -= 1
+            if self.train_with_demo_steps % 10000 == 0:
+                print ("\t{} train with demo steps left".format(self.train_with_demo_steps))
+        self.net.update_counter = start_update_counter
+        self.net.update_target_network()
+        print ((colored('Training with demo memory only completed!', 'green')))
+
     def run(self):
         # get the first state by doing nothing and preprocess the image to 80x80x4
         observation = self._reset()
         self.t, self.epsilon, self.rewards = self._load()
+
+        # only executed at the very beginning of training and never again
+        if self.t == 0 and self.train_with_demo_steps > 0:
+            self.train_with_demo_memory_only()
 
         # set start time
         self.start_time = time.time() - self.wall_t
@@ -195,7 +217,7 @@ class Experiment(object):
                 self.net.add_accuracy(total_reward, total_steps, n_episodes, (self.t - self.observe))
                 print ("TIMESTEP", (self.t - self.observe), "/ AVE REWARD", total_reward, "/ AVE TOTAL STEPS", total_steps, "/ # EPISODES", n_episodes)
                 # re-initialize game for training
-                self.game_state.reinit(random_restart=True)
+                self.game_state.reset(random_restart=True)
                 observation = self._reset()
                 sub_steps = 0
                 time.sleep(0.5)
@@ -231,7 +253,7 @@ class Experiment(object):
 
             # Training
             # run the selected action and observe next state and reward
-            next_observation, reward, terminal = self.game_state.frame_step(action, random_restart=True)
+            next_observation, reward, terminal = self.game_state.step(action, random_restart=True)
             next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
             terminal_ = terminal or ((self.t+1 - self.observe) >= 0 and (self.t+1 - self.observe) % self.eval_freq == 0)
 

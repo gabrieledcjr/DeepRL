@@ -271,7 +271,8 @@ def run_dqn(args):
                 path, folder, load_demo_memory=args.load_memory,
                 demo_memory_folder=demo_memory_folder,
                 train_max_steps=args.train_max_steps,
-                human_net=human_net, confidence=args.advice_confidence, psi=args.psi)
+                human_net=human_net, confidence=args.advice_confidence, psi=args.psi,
+                train_with_demo_steps=args.train_with_demo_steps)
             experiment.run()
 
             if args.use_human_model_as_advice:
@@ -339,6 +340,8 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
+
+    parser.add_argument('--train-with-demo-steps', type=int, default=0)
 
     parser.add_argument('--collect-demo', action='store_true')
     parser.set_defaults(collect_demo=False)

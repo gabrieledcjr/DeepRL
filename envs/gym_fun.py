@@ -131,9 +131,9 @@ class GameState:
             self.keys_thread.start()
 
         sleep(2)
-        self.reinit()
+        self.reset()
 
-    def reinit(self, render=False, random_restart=False, terminate_loss_of_life=True):
+    def reset(self, render=False, random_restart=False, terminate_loss_of_life=True):
         self.terminate_loss_of_life = terminate_loss_of_life
         if render or self._human_demo:
             self._env.render(mode='human')
@@ -143,9 +143,10 @@ class GameState:
         if random_restart:
             random_actions = random.randint(0, 30+1)
             for _ in range(random_actions):
-                self.frame_step(0)
-        self.frame_step(0)
-        self.screen_buffer, _, _ = self.frame_step(0)
+                self.step(0)
+        self.step(0)
+        self.screen_buffer, _, _ = self.step(0)
+        return self.screen_buffer
 
     def update_human_agent_action(self):
         while not self.stop_thread:
@@ -182,7 +183,7 @@ class GameState:
             sleep(0.01)
         print ("Exited thread loop")
 
-    def frame_step(self, act, render=False, random_restart=False):
+    def step(self, act, render=False, random_restart=False):
         if self.game == 'pong':
             if act == 1: action = 2
             elif act == 2: action = 5
@@ -211,18 +212,18 @@ class GameState:
             self._env.render(mode='human')
 
         if terminal:
-            self.reinit(random_restart=random_restart)
+            self.reset(random_restart=random_restart)
 
         return observation, reward, (1 if terminal else 0)
 
 def test_game_1(env):
     test_game = GameState(human_demo=True, frame_skip=1, game=env)
-    test_game.reinit(render=True, terminate_loss_of_life=False)
+    test_game.reset(render=True, terminate_loss_of_life=False)
     terminal = False
     skip = 0
     for t in range(5000):
         a = test_game.human_agent_action
-        _, r, terminal = test_game.frame_step(a, render=True)
+        _, r, terminal = test_game.step(a, render=True)
         if terminal: break
         if test_game.human_wants_restart: break
         while test_game.human_sets_pause:
@@ -231,14 +232,14 @@ def test_game_1(env):
 
 def test_game_2(env):
     test_game = GameState(human_demo=True, frame_skip=1, game=env)
-    test_game.reinit(render=True)
+    test_game.reset(render=True)
     for t in range(10000):
         if t < 200:
             a = 8
         else:
             a = 2
         print ('action: ', a)
-        _, r, terminal = test_game.frame_step(a, render=True)
+        _, r, terminal = test_game.step(a, render=True)
         if terminal: break
 
 if __name__ == "__main__":

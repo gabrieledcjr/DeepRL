@@ -99,18 +99,18 @@ class DqnNetClass(Network):
 
             # cost of q network
             with tf.name_scope("Entropy") as scope:
-                l2_regularizer = l2_decay * (
-                    tf.nn.l2_loss(self.W_conv1) +
-                    tf.nn.l2_loss(self.W_conv2) +
-                    tf.nn.l2_loss(self.W_conv3) +
-                    tf.nn.l2_loss(self.W_fc1) +
-                    tf.nn.l2_loss(self.W_fc2)
-                )
+                # l2_regularizer = l2_decay * (
+                #     tf.nn.l2_loss(self.W_conv1) +
+                #     tf.nn.l2_loss(self.W_conv2) +
+                #     tf.nn.l2_loss(self.W_conv3) +
+                #     tf.nn.l2_loss(self.W_fc1) +
+                #     tf.nn.l2_loss(self.W_fc2)
+                # )
                 self.cross_entropy = tf.reduce_mean(
                     tf.nn.softmax_cross_entropy_with_logits(
                         _sentinel=None,
                         labels=self.actions,
-                        logits=self.action_output)) + l2_regularizer
+                        logits=self.action_output)) # + l2_regularizer
 
             with tf.name_scope("Train") as scope:
                 if optimizer == "Adam":
