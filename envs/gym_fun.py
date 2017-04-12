@@ -185,12 +185,12 @@ class GameState:
 
     def step(self, act, render=False, random_restart=False):
         if self.game == 'pong':
-            if act == 1: action = 2
-            elif act == 2: action = 5
+            if act == 1: action = 2    # UP
+            elif act == 2: action = 3  # DOWN
             else: action = NOOP
         elif self.game == 'breakout':
-            if act == 1: action = 3
-            elif act == 2: action = 4
+            if act == 1: action = 3    # LEFT
+            elif act == 2: action = 2  # RIGHT
             elif act == 3: action = FIRE
             else: action = NOOP
         elif self.game == 'qbert':
