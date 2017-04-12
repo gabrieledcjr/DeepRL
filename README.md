@@ -31,13 +31,13 @@ To train,
 
     $python a3c.py --gym-env=PongDeterministic-v3 \
         --parallel-size=8 --initial-learn-rate=7e-4 \
-	--use-lstm --use-mnih-2015
+        --use-lstm --use-mnih-2015
 
 To display the result with game play (IN PROGRESS),
 
     $python a3c_disp.py --gym-env=PongDeterministic-v3 \
         --parallel-size=8 --initial-learn-rate=7e-4 \
-	--use-lstm --use-mnih-2015
+        --use-lstm --use-mnih-2015
 
 ## Using GPU
 To enable gpu, include the "--use-gpu" argument.
