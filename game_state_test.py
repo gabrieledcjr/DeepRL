@@ -7,9 +7,9 @@ class TestSequenceFunctions(unittest.TestCase):
 
   def test_process(self):
     game_state = GameState(0)
-    
+
     before_s_t = np.array( game_state.s_t )
-    
+
     for i in range(1000):
       bef1 = game_state.s_t[:,:,1]
       bef2 = game_state.s_t[:,:,2]
@@ -17,7 +17,7 @@ class TestSequenceFunctions(unittest.TestCase):
 
       game_state.process(1)
       game_state.update()
-      
+
       aft0 = game_state.s_t[:,:,0]
       aft1 = game_state.s_t[:,:,1]
       aft2 = game_state.s_t[:,:,2]

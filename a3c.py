@@ -49,7 +49,7 @@ stop_requested = False
 if USE_LSTM:
   global_network = GameACLSTMNetwork(ACTION_SIZE, -1, device)
 else:
-  global_network = GameACFFNetwork(ACTION_SIZE, device)
+  global_network = GameACFFNetwork(ACTION_SIZE, -1, device)
 
 
 training_threads = []
@@ -74,15 +74,15 @@ for i in range(PARALLEL_SIZE):
 sess = tf.Session(config=tf.ConfigProto(log_device_placement=False,
                                         allow_soft_placement=True))
 
-init = tf.initialize_all_variables()
+init = tf.global_variables_initializer()
 sess.run(init)
 
 # summary for tensorboard
 score_input = tf.placeholder(tf.int32)
-tf.scalar_summary("score", score_input)
+tf.summary.scalar("score", score_input)
 
-summary_op = tf.merge_all_summaries()
-summary_writer = tf.train.SummaryWriter(LOG_FILE, sess.graph_def)
+summary_op = tf.summary.merge_all()
+summary_writer = tf.summary.FileWriter(LOG_FILE, sess.graph)
 
 # init or load checkpoint with saver
 saver = tf.train.Saver()
@@ -106,7 +106,7 @@ else:
 
 def train_function(parallel_index):
   global global_t
-  
+
   training_thread = training_threads[parallel_index]
   # set start_time
   start_time = time.time() - wall_t
@@ -121,17 +121,17 @@ def train_function(parallel_index):
     diff_global_t = training_thread.process(sess, global_t, summary_writer,
                                             summary_op, score_input)
     global_t += diff_global_t
-    
-    
+
+
 def signal_handler(signal, frame):
   global stop_requested
   print('You pressed Ctrl+C!')
   stop_requested = True
-  
+
 train_threads = []
 for i in range(PARALLEL_SIZE):
   train_threads.append(threading.Thread(target=train_function, args=(i,)))
-  
+
 signal.signal(signal.SIGINT, signal_handler)
 
 # set start time
@@ -144,12 +144,12 @@ print('Press Ctrl+C to stop')
 signal.pause()
 
 print('Now saving data. Please wait')
-  
+
 for t in train_threads:
   t.join()
 
 if not os.path.exists(CHECKPOINT_DIR):
-  os.mkdir(CHECKPOINT_DIR)  
+  os.mkdir(CHECKPOINT_DIR)
 
 # write wall time
 wall_t = time.time() - start_time
@@ -158,5 +158,3 @@ with open(wall_t_fname, 'w') as f:
   f.write(str(wall_t))
 
 saver.save(sess, CHECKPOINT_DIR + '/' + 'checkpoint', global_step = global_t)
-
-

@@ -9,15 +9,15 @@ class RMSPropApplierTest(tf.test.TestCase):
   def testApply(self):
     with self.test_session():
       var = tf.Variable([1.0, 2.0])
-      
+
       grad0 = tf.Variable([2.0, 4.0])
       grad1 = tf.Variable([3.0, 6.0])
-      
+
       opt = rmsprop_applier.RMSPropApplier(learning_rate=2.0,
                                            decay=0.9,
                                            momentum=0.0,
                                            epsilon=1.0)
-      
+
       apply_gradient0 = opt.apply_gradients([var], [grad0])
       apply_gradient1 = opt.apply_gradients([var], [grad1])
 
@@ -49,8 +49,8 @@ class RMSPropApplierTest(tf.test.TestCase):
       ms_y = ms_y + (dy * dy - ms_y) * (1.0 - 0.9)
       x = x - (2.0 * dx / math.sqrt(ms_x+1.0))
       y = y - (2.0 * dy / math.sqrt(ms_y+1.0))
-      
+
       self.assertAllClose(np.array([x, y]), var.eval())
-      
+
 if __name__ == "__main__":
   tf.test.main()

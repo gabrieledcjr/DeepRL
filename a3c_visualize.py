@@ -27,7 +27,7 @@ device = "/cpu:0"
 if USE_LSTM:
   global_network = GameACLSTMNetwork(ACTION_SIZE, -1, device)
 else:
-  global_network = GameACFFNetwork(ACTION_SIZE, device)
+  global_network = GameACFFNetwork(ACTION_SIZE, -1, device)
 
 training_threads = []
 
@@ -40,15 +40,8 @@ grad_applier = RMSPropApplier(learning_rate = learning_rate_input,
                               clip_norm = GRAD_NORM_CLIP,
                               device = device)
 
-# for i in range(PARALLEL_SIZE):
-#   training_thread = A3CTrainingThread(i, global_network, 1.0,
-#                                       learning_rate_input,
-#                                       grad_applier, MAX_TIME_STEP,
-#                                       device = device)
-#   training_threads.append(training_thread)
-
 sess = tf.Session()
-init = tf.initialize_all_variables()
+init = tf.global_variables_initializer()
 sess.run(init)
 
 saver = tf.train.Saver()
@@ -58,7 +51,7 @@ if checkpoint and checkpoint.model_checkpoint_path:
   print("checkpoint loaded:", checkpoint.model_checkpoint_path)
 else:
   print("Could not find old checkpoint")
-  
+
 W_conv1 = sess.run(global_network.W_conv1)
 
 # show graph of W_conv1
@@ -74,4 +67,3 @@ for ax,i in zip(axes.flat, range(4*16)):
   ax.set_title(str(inch) + "," + str(outch))
 
 plt.show()
-
