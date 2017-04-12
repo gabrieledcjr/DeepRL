@@ -5,19 +5,22 @@ import random
 import time
 import sys
 
+from termcolor import colored
 from game_state import GameState
-from game_state import ACTION_SIZE
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 
-from constants import GAMMA
-from constants import LOCAL_T_MAX
-from constants import ENTROPY_BETA
-from constants import USE_LSTM
-
-LOG_INTERVAL = 100
-PERFORMANCE_LOG_INTERVAL = 1000
 
 class A3CTrainingThread(object):
+  log_interval = 100
+  performance_log_interval = 1000
+  local_t_max = 5
+  use_lstm = False
+  action_size = -1
+  entropy_beta = 0.01
+  gamma = 0.99
+  use_mnih_2015 = False
+  env_id = None
+
   def __init__(self,
                thread_index,
                global_network,
@@ -25,18 +28,27 @@ class A3CTrainingThread(object):
                learning_rate_input,
                grad_applier,
                max_global_time_step,
-               device):
+               device=None):
+    assert self.action_size != -1
 
     self.thread_index = thread_index
     self.learning_rate_input = learning_rate_input
     self.max_global_time_step = max_global_time_step
 
-    if USE_LSTM:
-      self.local_network = GameACLSTMNetwork(ACTION_SIZE, thread_index, device)
-    else:
-      self.local_network = GameACFFNetwork(ACTION_SIZE, thread_index, device)
+    print (colored("local_t_max: {}".format(self.local_t_max), "green"))
+    print (colored("use_lstm: {}".format(self.use_lstm), "green" if self.use_lstm else "red"))
+    print (colored("action_size: {}".format(self.action_size), "green"))
+    print (colored("entropy_beta: {}".format(self.entropy_beta), "green"))
+    print (colored("gamma: {}".format(self.gamma), "green"))
 
-    self.local_network.prepare_loss(ENTROPY_BETA)
+    if self.use_lstm:
+      GameACLSTMNetwork.use_mnih_2015 = self.use_mnih_2015
+      self.local_network = GameACLSTMNetwork(self.action_size, thread_index, device)
+    else:
+      GameACFFNetwork.use_mnih_2015 = self.use_mnih_2015
+      self.local_network = GameACFFNetwork(self.action_size, thread_index, device)
+
+    self.local_network.prepare_loss(self.entropy_beta)
 
     with tf.device(device):
       var_refs = [v._ref() for v in self.local_network.get_vars()]
@@ -52,7 +64,7 @@ class A3CTrainingThread(object):
 
     self.sync = self.local_network.sync_from(global_network)
 
-    self.game_state = GameState()
+    self.game_state = GameState(env_id=self.env_id)
 
     self.local_t = 0
 
@@ -95,11 +107,11 @@ class A3CTrainingThread(object):
 
     start_local_t = self.local_t
 
-    if USE_LSTM:
+    if self.use_lstm:
       start_lstm_state = self.local_network.lstm_state_out
 
     # t_max times loop
-    for i in range(LOCAL_T_MAX):
+    for i in range(self.local_t_max):
       pi_, value_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
       action = self.choose_action(pi_)
 
@@ -107,7 +119,7 @@ class A3CTrainingThread(object):
       actions.append(action)
       values.append(value_)
 
-      if (self.thread_index == 0) and (self.local_t % LOG_INTERVAL == 0):
+      if (self.thread_index == 0) and (self.local_t % self.log_interval == 0):
         print("pi={}".format(pi_))
         print(" V={}".format(value_))
 
@@ -137,7 +149,7 @@ class A3CTrainingThread(object):
 
         self.episode_reward = 0
         self.game_state.reset()
-        if USE_LSTM:
+        if self.use_lstm:
           self.local_network.reset_state()
         break
 
@@ -157,9 +169,9 @@ class A3CTrainingThread(object):
 
     # compute and accmulate gradients
     for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
-      R = ri + GAMMA * R
+      R = ri + self.gamma * R
       td = R - Vi
-      a = np.zeros([ACTION_SIZE])
+      a = np.zeros([self.action_size])
       a[ai] = 1
 
       batch_si.append(si)
@@ -169,7 +181,7 @@ class A3CTrainingThread(object):
 
     cur_learning_rate = self._anneal_learning_rate(global_t)
 
-    if USE_LSTM:
+    if self.use_lstm:
       batch_si.reverse()
       batch_a.reverse()
       batch_td.reverse()
@@ -193,12 +205,12 @@ class A3CTrainingThread(object):
                   self.local_network.r: batch_R,
                   self.learning_rate_input: cur_learning_rate} )
 
-    if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= PERFORMANCE_LOG_INTERVAL):
-      self.prev_local_t += PERFORMANCE_LOG_INTERVAL
+    if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
+      self.prev_local_t += self.performance_log_interval
       elapsed_time = time.time() - self.start_time
       steps_per_sec = global_t / elapsed_time
-      print("### Performance : {} STEPS in {:.0f} sec. {:.0f} STEPS/sec. {:.2f}M STEPS/hour".format(
-        global_t,  elapsed_time, steps_per_sec, steps_per_sec * 3600 / 1000000.))
+      print(colored("### Performance : {} STEPS in {:.0f} sec. {:.0f} STEPS/sec. {:.2f}M STEPS/hour".format(
+        global_t,  elapsed_time, steps_per_sec, steps_per_sec * 3600 / 1000000.), "blue"))
 
     # return advanced local step size
     diff_local_t = self.local_t - start_local_t

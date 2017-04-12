@@ -2,7 +2,7 @@
 import tensorflow as tf
 import numpy as np
 
-from constants import MNIH_2015
+from termcolor import colored
 
 # Actor-Critic Network Base Class
 # (Policy network and Value network)
@@ -95,15 +95,16 @@ class GameACNetwork(object):
 
 # Actor-Critic FF Network
 class GameACFFNetwork(GameACNetwork):
+  use_mnih_2015 = False
   def __init__(self,
                action_size,
                thread_index, # -1 for global
                device="/cpu:0"):
     GameACNetwork.__init__(self, action_size, thread_index, device)
-
+    print (colored("use_mnih_2015: {}".format(self.use_mnih_2015), "green" if self.use_mnih_2015 else "red"))
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
-      if MNIH_2015:
+      if self.use_mnih_2015:
         self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32])
         self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64])
         self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64])
@@ -122,7 +123,7 @@ class GameACFFNetwork(GameACNetwork):
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
 
-      if MNIH_2015:
+      if self.use_mnih_2015:
         h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
         h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
         h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
@@ -163,15 +164,17 @@ class GameACFFNetwork(GameACNetwork):
 
 # Actor-Critic LSTM Network
 class GameACLSTMNetwork(GameACNetwork):
+  use_mnih_2015 = False
+
   def __init__(self,
                action_size,
                thread_index, # -1 for global
                device="/cpu:0" ):
     GameACNetwork.__init__(self, action_size, thread_index, device)
-
+    print (colored("use_mnih_2015: {}".format(self.use_mnih_2015), "green" if self.use_mnih_2015 else "red"))
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
-      if MNIH_2015:
+      if self.use_mnih_2015:
         self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32])
         self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64])
         self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64])
@@ -193,7 +196,7 @@ class GameACLSTMNetwork(GameACNetwork):
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
 
-      if MNIH_2015:
+      if self.use_mnih_2015:
         h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
         h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
         h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)

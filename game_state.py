@@ -6,24 +6,47 @@ import gym
 import cv2
 import atari_py
 
-from constants import GYM_ENV
-from constants import ACTION_SIZE
+from termcolor import colored
 
 class AtariEnvSkipping(gym.Wrapper):
-    def __init__(self, env, frameskip=4):
+    def __init__(self, env, env_id=None, frameskip=4):
         self.env = env
+        self.env_id = env_id
         self.env.ale.setFloat('frame_skip'.encode('utf-8'), frameskip)
         self.env.ale.setFloat('repeat_action_probability'.encode('utf-8'), 0.0)
         self.env._seed()
 
-        print ("lives={}".format(self.env.ale.lives()))
-        print ("frameskip={}".format(self.env.ale.getFloat(b'frame_skip')))
-        print ("repeat_action_probability={}".format(self.env.ale.getFloat(b'repeat_action_probability')))
-        print ("action space={}".format(self.env.action_space.n))
+        print (colored("lives: {}".format(self.env.ale.lives()), "green"))
+        print (colored("frameskip: {}".format(self.env.ale.getFloat(b'frame_skip')), "green"))
+        print (colored("repeat_action_probability: {}".format(self.env.ale.getFloat(b'repeat_action_probability')), "green"))
+
+        self.n_actions = self.env.action_space.n
+        if self.env_id == "PongDeterministic-v3":
+          self.n_actions = 3
+        elif self.env_id == 'BreakoutDeterministic-v3':
+          self.n_actions = 4
+        elif self.env_id == 'QbertDeterministic-v3':
+          self.n_actions = 5
+        print (colored("action space={}".format(self.n_actions), "green"))
 
     def _step(self, a):
+        if self.env_id == "PongDeterministic-v3":
+          if a == 1: act = 2
+          elif a == 2: act = 3
+          else: act = 0
+        elif self.env_id == 'BreakoutDeterministic-v3':
+          if a == 1: act = 3
+          elif a == 2: act = 4
+          elif a == 3: act = 1
+          else: act = 0
+        elif self.env_id == 'QbertDeterministic-v3':
+          if a > 0: act = a + 1
+          else: act = 0
+        else:
+          act = a
+
         reward = 0.0
-        action = self.env._action_set[a]
+        action = self.env._action_set[act]
 
         reward += self.env.ale.act(action)
         ob = self.env._get_obs()
@@ -31,17 +54,18 @@ class AtariEnvSkipping(gym.Wrapper):
         return ob, reward, self.env.ale.game_over(), {"ale.lives": self.env.ale.lives()}
 
 class GameState(object):
-  def __init__(self, display=False, crop_screen=True, frame_skip=4, no_op_max=30):
+  def __init__(self, env_id=None, display=False, crop_screen=True, frame_skip=4, no_op_max=30):
+    assert env_id is not None
     self._display = display
     self._crop_screen = crop_screen
     self._frame_skip = frame_skip
     if self._frame_skip < 1:
       self._frame_skip = 1
     self._no_op_max = no_op_max
-    self.env_id = GYM_ENV
+    self.env_id = env_id
 
-    self.env = gym.make(GYM_ENV)
-    self.env = AtariEnvSkipping(self.env, frameskip=self._frame_skip)
+    self.env = gym.make(self.env_id)
+    self.env = AtariEnvSkipping(self.env, env_id=self.env_id, frameskip=self._frame_skip)
 
     self.reset()
 
