@@ -19,32 +19,26 @@ Any advice or suggestion is strongly welcomed in issues thread.
 
 https://github.com/miyosuda/async_deep_reinforce/issues/1
 
-## How to build
+## Install Open AI Gym [Atari]
 
-First we need to build multi thread ready version of Arcade Learning Enviroment.
-I made some modification to it to run it on multi thread enviroment.
+First you need to install Atari gym environment. More documentation [here](https://github.com/openai/gym).
 
-    $ git clone https://github.com/miyosuda/Arcade-Learning-Environment.git
-    $ cd Arcade-Learning-Environment
-    $ cmake -DUSE_SDL=ON -DUSE_RLGLUE=OFF -DBUILD_EXAMPLES=OFF .
-    $ make -j 4
-	
-    $ pip install .
-
-I recommend to install it on VirtualEnv environment.
+    $ pip install gym[atari]
 
 ## How to run
 
 To train,
 
-    $python a3c.py
+    $python a3c.py 
 
 To display the result with game play,
 
-    $python a3c_disp.py
+    $python a3c_disp.py --gym-env=PongDeterministic-v3 \
+        --parallel-size=8 --initial-learn-rate=7e-4 \
+	--use-lstm --use-mnih-2015
 
 ## Using GPU
-To enable gpu, change "USE_GPU" flag in "constants.py".
+To enable gpu, include the "--use-gpu" argument.
 
 When running with 8 parallel game environemts, speeds of GPU (GTX980Ti) and CPU(Core i7 6700) were like this.
 
