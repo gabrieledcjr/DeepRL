@@ -40,7 +40,7 @@ class CollectDemonstration(object):
 
     def _reset(self):
         self.state_input.fill(0)
-        observation, r_0, terminal = self.game_state.frame_step(0, render=True)
+        observation, r_0, terminal = self.game_state.step(0, render=True)
         observation = process_frame(observation, self.resized_h, self.resized_w)
         for _ in range(self.phi_length-1):
             empty_img = np.zeros((self.resized_w, self.resized_h), dtype=np.uint8)
@@ -76,7 +76,7 @@ class CollectDemonstration(object):
         total_episodes = 0
 
         # re-initialize game for evaluation
-        self.game_state.reinit(
+        self.game_state.reset(
             render=True, random_restart=True,
             terminate_loss_of_life=self.terminate_loss_of_life)
         observation = self._reset()
@@ -92,7 +92,7 @@ class CollectDemonstration(object):
             else: # HUMAN
                 action = self.game_state.human_agent_action
 
-            next_observation, reward, terminal = self.game_state.frame_step(action, render=True, random_restart=True)
+            next_observation, reward, terminal = self.game_state.step(action, render=True, random_restart=True)
             next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
             terminal = True if terminal or (time.time() > timeout_start + timeout) else False
 
@@ -120,7 +120,7 @@ class CollectDemonstration(object):
                 sub_steps.append(sub_t)
                 sub_r = 0.
                 sub_t = 0
-                self.game_state.reinit(
+                self.game_state.reset(
                     render=True, random_restart=True,
                     terminate_loss_of_life=self.terminate_loss_of_life)
                 observation = self._reset()
