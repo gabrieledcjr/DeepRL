@@ -196,8 +196,8 @@ class GameState:
         #     elif act == 2: action = 3
         #     else: action = NOOP
         if self.game == 'breakout':
-            if act == 1: action = 3
-            elif act == 2: action = 4
+            if act == 1: action = 3    # LEFT
+            elif act == 2: action = 2  # RIGHT
             elif act == 3: action = FIRE
             else: action = NOOP
         elif self.game == 'qbert':
