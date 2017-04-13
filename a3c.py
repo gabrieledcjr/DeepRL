@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import tensorflow as tf
 import threading
 import numpy as np
 
@@ -16,14 +15,17 @@ from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from a3c_training_thread import A3CTrainingThread
 from rmsprop_applier import RMSPropApplier
 
-global_t = 0
 
 def run_a3c(args):
     """
     python3 a3c.py --gym-env=PongDeterministic-v3 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015
     """
-    global global_t
-
+    if args.use_gpu:
+        assert args.cuda_devices != ''
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    import tensorflow as tf
     def log_uniform(lo, hi, rate):
         log_lo = math.log(lo)
         log_hi = math.log(hi)
@@ -31,8 +33,10 @@ def run_a3c(args):
         return math.exp(v)
 
     device = "/cpu:0"
+    gpu_options = None
     if args.use_gpu:
-        device = "/gpu:0"
+        device = "/gpu:"+os.environ["CUDA_VISIBLE_DEVICES"]
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_fraction)
 
     if args.initial_learn_rate == 0:
         initial_learning_rate = log_uniform(
@@ -43,6 +47,8 @@ def run_a3c(args):
         initial_learning_rate = args.initial_learn_rate
     print (colored('Initial Learning Rate={}'.format(initial_learning_rate), 'green'))
     time.sleep(2)
+
+    global_t = 0
 
     stop_requested = False
 
@@ -90,7 +96,10 @@ def run_a3c(args):
         training_threads.append(training_thread)
 
     # prepare session
-    config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
+    config = tf.ConfigProto(
+        gpu_options=gpu_options,
+        log_device_placement=False,
+        allow_soft_placement=True)
     sess = tf.Session(config=config)
 
     init = tf.global_variables_initializer()
@@ -124,7 +133,7 @@ def run_a3c(args):
 
 
     def train_function(parallel_index):
-        global global_t
+        nonlocal global_t
 
         training_thread = training_threads[parallel_index]
         # set start_time
@@ -144,7 +153,7 @@ def run_a3c(args):
 
 
     def signal_handler(signal, frame):
-        global stop_requested
+        nonlocal stop_requested
         print('You pressed Ctrl+C!')
         stop_requested = True
 
@@ -205,6 +214,9 @@ def main():
 
     parser.add_argument('--use-gpu', action='store_true', help='use GPU')
     parser.set_defaults(use_gpu=False)
+    parser.add_argument('--gpu-fraction', type=float, default=0.4)
+    parser.add_argument('--cuda-devices', type=str, default='')
+
     parser.add_argument('--use-lstm', action='store_true', help='use LSTM')
     parser.set_defaults(use_lstm=False)
 
