@@ -311,9 +311,6 @@ def process_frame42(frame):
 
 def process_frame84(frame):
     frame = frame[34:34+160, :160]
-    # Resize by half, then down to 42x42 (essentially mipmapping). If
-    # we resize directly we lose pixels that, when mapped to 42x42,
-    # aren't close enough to the pixel boundary.
     frame = cv2.resize(frame, (84, 84))
     frame = frame.mean(2)
     frame = frame.astype(np.uint8)
@@ -324,9 +321,6 @@ def process_frame84(frame):
 
 def process_frame(frame, h, w):
     frame = frame[34:34+160, :160]
-    # Resize by half, then down to 42x42 (essentially mipmapping). If
-    # we resize directly we lose pixels that, when mapped to 42x42,
-    # aren't close enough to the pixel boundary.
     frame = cv2.resize(frame, (h, w))
     frame = frame.mean(2)
     frame = frame.astype(np.uint8)

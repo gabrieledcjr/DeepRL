@@ -193,7 +193,7 @@ def run_dqn(args):
     config = tf.ConfigProto(
         gpu_options=gpu_options,
         allow_soft_placement=True,
-        log_device_placement=True,
+        log_device_placement=False,
         intra_op_parallelism_threads=multiprocessing.cpu_count(),
         inter_op_parallelism_threads=multiprocessing.cpu_count()
     )

@@ -49,11 +49,14 @@ class GameState:
             }
         if self.game == 'pong':
             self._env = gym.make('PongDeterministic-v3')
-            self.n_actions = 3
+            self.n_actions = 6
 
             if self._human_demo:
-                self.action_map[UP] = 1
-                self.action_map[DOWN] = 2
+                self.action_map[FIRE] = 1
+                self.action_map[UP] = 2
+                self.action_map[DOWN] = 3
+                self.action_map[UPFIRE] = 4
+                self.action_map[DOWNFIRE] = 5
 
         elif self.game == 'breakout':
             self._env = gym.make('BreakoutDeterministic-v3')
@@ -155,10 +158,14 @@ class GameState:
                 action = self.action_map[DOWNLEFT]
             elif self.keys[self.key.DOWN] and self.keys[self.key.RIGHT]:
                 action = self.action_map[DOWNRIGHT]
+            elif self.keys[self.key.DOWN] and self.keys[self.key.SPACE]:
+                action = self.action_map[DOWNFIRE]
             elif self.keys[self.key.UP] and self.keys[self.key.LEFT]:
                 action = self.action_map[UPLEFT]
             elif self.keys[self.key.UP] and self.keys[self.key.RIGHT]:
                 action = self.action_map[UPRIGHT]
+            elif self.keys[self.key.UP] and self.keys[self.key.SPACE]:
+                action = self.action_map[UPFIRE]
             elif self.keys[self.key.LEFT] and self.keys[self.key.SPACE]:
                 action = self.action_map[LEFTFIRE]
             elif self.keys[self.key.RIGHT] and self.keys[self.key.SPACE]:
@@ -184,11 +191,11 @@ class GameState:
         print ("Exited thread loop")
 
     def step(self, act, render=False, random_restart=False):
-        if self.game == 'pong':
-            if act == 1: action = 2
-            elif act == 2: action = 5
-            else: action = NOOP
-        elif self.game == 'breakout':
+        # if self.game == 'pong':
+        #     if act == 1: action = 2
+        #     elif act == 2: action = 3
+        #     else: action = NOOP
+        if self.game == 'breakout':
             if act == 1: action = 3
             elif act == 2: action = 4
             elif act == 3: action = FIRE
