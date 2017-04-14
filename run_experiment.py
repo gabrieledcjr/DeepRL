@@ -272,7 +272,8 @@ def run_dqn(args):
                 demo_memory_folder=demo_memory_folder,
                 train_max_steps=args.train_max_steps,
                 human_net=human_net, confidence=args.advice_confidence, psi=args.psi,
-                train_with_demo_steps=args.train_with_demo_steps)
+                train_with_demo_steps=args.train_with_demo_steps,
+                use_transfer=args.use_transfer)
             experiment.run()
 
             if args.use_human_model_as_advice:

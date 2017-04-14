@@ -23,7 +23,7 @@ class Experiment(object):
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
         path, folder, load_demo_memory=False, demo_memory_folder=None,
         train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995,
-        train_with_demo_steps=0):
+        train_with_demo_steps=0, use_transfer=False):
         """ Initialize experiment """
         self.sess = sess
         self.net = network
@@ -48,6 +48,7 @@ class Experiment(object):
         self.demo_memory_folder = demo_memory_folder
         self.train_max_steps = train_max_steps
         self.train_with_demo_steps = train_with_demo_steps
+        self.use_transfer = use_transfer
 
         self.wall_t = 0.0
         self.human_net = human_net
@@ -183,6 +184,8 @@ class Experiment(object):
         print ((colored('Training with demo memory only for {} steps...'.format(self.train_with_demo_steps), 'blue')))
         start_update_counter = self.net.update_counter
         while self.train_with_demo_steps > 0:
+            if self.use_transfer:
+                self.net.update_counter = 1 # this ensures target network doesn't update
             s_j_batch, a_batch, r_batch, s_j1_batch, terminals = self.D.random_batch(self.batch)
             # perform gradient step
             self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
