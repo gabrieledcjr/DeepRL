@@ -50,7 +50,7 @@ class AtariEnvSkipping(gym.Wrapper):
 
         self.n_actions = self.env.action_space.n
         if self.env_id[:4] == "Pong":
-            self.n_actions = 3
+            self.n_actions = 6
         elif self.env_id[:8] == 'Breakout':
             self.n_actions = 4
         elif self.env_id[:5] == 'Qbert':
@@ -58,13 +58,13 @@ class AtariEnvSkipping(gym.Wrapper):
         print (colored("action space={}".format(self.n_actions), "green"))
 
     def _step(self, a):
-        if self.env_id[:4] == "Pong":
-            if a == 1: act = 2
-            elif a == 2: act = 3
-            else: act = 0
-        elif self.env_id[:8] == 'Breakout':
+        # if self.env_id[:4] == "Pong":
+        #     if a == 1: act = 2
+        #     elif a == 2: act = 3
+        #     else: act = 0
+        if self.env_id[:8] == 'Breakout':
             if a == 1: act = 3
-            elif a == 2: act = 4
+            elif a == 2: act = 2
             elif a == 3: act = 1
             else: act = 0
         elif self.env_id[:5] == 'Qbert':
@@ -112,8 +112,11 @@ class GameState(object):
 
     def _remap_actions(self):
         if self.env_id[:4] == "Pong":
-            self.action_map[UP] = 1
-            self.action_map[DOWN] = 2
+            self.action_map[FIRE] = 1
+            self.action_map[UP] = 2
+            self.action_map[DOWN] = 3
+            self.action_map[UPFIRE] = 4
+            self.action_map[DOWNFIRE] = 5
         elif self.env_id[:5] == 'Qbert':
             self.action_map[UPRIGHT] = 1
             self.action_map[DOWNRIGHT] = 2
@@ -165,20 +168,18 @@ class GameState(object):
                 action = self.action_map[DOWNLEFT]
             elif self.keys[self.key.DOWN] and self.keys[self.key.RIGHT]:
                 action = self.action_map[DOWNRIGHT]
+            elif self.keys[self.key.DOWN] and self.keys[self.key.SPACE]:
+                action = self.action_map[DOWNFIRE]
             elif self.keys[self.key.UP] and self.keys[self.key.LEFT]:
                 action = self.action_map[UPLEFT]
             elif self.keys[self.key.UP] and self.keys[self.key.RIGHT]:
                 action = self.action_map[UPRIGHT]
-            elif self.keys[self.key.LEFT] and self.keys[self.key.SPACE]:
-                print ("LEFTFIRE", self.action_map[LEFTFIRE])
-                action = self.action_map[LEFTFIRE]
-            elif self.keys[self.key.RIGHT] and self.keys[self.key.SPACE]:
-                print ("RIGHTFIRE", self.action_map[RIGHTFIRE])
-                action = self.action_map[RIGHTFIRE]
             elif self.keys[self.key.UP] and self.keys[self.key.SPACE]:
                 action = self.action_map[UPFIRE]
-            elif self.keys[self.key.DOWN] and self.keys[self.key.SPACE]:
-                action = self.action_map[DOWNFIRE]
+            elif self.keys[self.key.LEFT] and self.keys[self.key.SPACE]:
+                action = self.action_map[LEFTFIRE]
+            elif self.keys[self.key.RIGHT] and self.keys[self.key.SPACE]:
+                action = self.action_map[RIGHTFIRE]
             elif self.keys[self.key.LEFT] and self.keys[self.key.ENTER]: # Torpedo in Beamrider
                 action = self.action_map[UPLEFT]
             elif self.keys[self.key.RIGHT] and self.keys[self.key.ENTER]: # Torpedo in Beamrider
