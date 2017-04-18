@@ -6,7 +6,6 @@ import gym
 import cv2
 import pyglet
 import threading
-#import atari_py
 
 from time import sleep
 from termcolor import colored
@@ -35,8 +34,6 @@ RIGHTTORPEDO = 19
 LEFTTORPEDO = 20
 
 class AtariEnvSkipping(gym.Wrapper):
-    metadata = {'render.modes': ['human', 'rgb_array']}
-
     def __init__(self, env, env_id=None, frameskip=4):
         self.env = env
         self.env_id = env_id
@@ -55,13 +52,9 @@ class AtariEnvSkipping(gym.Wrapper):
             self.n_actions = 4
         elif self.env_id[:5] == 'Qbert':
             self.n_actions = 5
-        print (colored("action space={}".format(self.n_actions), "green"))
+        print (colored("action space: {}".format(self.n_actions), "green"))
 
     def _step(self, a):
-        # if self.env_id[:4] == "Pong":
-        #     if a == 1: act = 2
-        #     elif a == 2: act = 3
-        #     else: act = 0
         if self.env_id[:8] == 'Breakout':
             if a == 1: act = 3
             elif a == 2: act = 2
@@ -153,7 +146,7 @@ class GameState(object):
         self.human_agent_action_code = 0
         self.human_wants_restart = False
         self.human_sets_pause = False
-        self.env.render()
+        self.env.unwrapped._render(mode='human')
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
         self.env.unwrapped.env.viewer.window.push_handlers(self.keys)
@@ -241,7 +234,7 @@ class GameState(object):
 
     def process(self, action):
         if self._display:
-            self.env.render()
+            self.env.unwrapped._render()
 
         r, t, x_t1 = self._process_frame(action, True)
 

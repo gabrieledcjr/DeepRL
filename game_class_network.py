@@ -4,9 +4,8 @@ import numpy as np
 
 from termcolor import colored
 
-# Actor-Critic Network Base Class
-# (Policy network and Value network)
-class GameACNetwork(object):
+# Base Class
+class GameClassNetwork(object):
   def __init__(self,
                action_size,
                thread_index, # -1 for global
@@ -20,27 +19,16 @@ class GameACNetwork(object):
       # taken action (input for policy)
       self.a = tf.placeholder("float", [None, self._action_size])
 
-      # temporary difference (R-V) (input for policy)
-      self.td = tf.placeholder("float", [None])
+      #log_pi = tf.log(tf.clip_by_value(self.pi, 1e-20, 1.0))
+      log_pi = tf.log(self.pi)
+      cross_entropy = -tf.reduce_sum(self.a * log_pi, reduction_indices=1)
 
-      # avoid NaN with clipping when value in pi becomes zero
-      log_pi = tf.log(tf.clip_by_value(self.pi, 1e-20, 1.0))
+      self.total_loss = tf.reduce_mean(cross_entropy)
 
-      # policy entropy
-      entropy = -tf.reduce_sum(self.pi * log_pi, reduction_indices=1)
-
-      # policy loss (output)  (Adding minus, because the original paper's objective function is for gradient ascent, but we use gradient descent optimizer.)
-      policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ), reduction_indices=1 ) * self.td + entropy * entropy_beta )
-
-      # R (input for value)
-      self.r = tf.placeholder("float", [None])
-
-      # value loss (output)
-      # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
-      value_loss = 0.5 * tf.nn.l2_loss(self.r - self.v)
-
-      # gradienet of policy and value are summed up
-      self.total_loss = policy_loss + value_loss
+  def prepare_evaluate(self):
+    with tf.device(self._device):
+      correct_prediction = tf.equal(tf.argmax(self.pi, 1), tf.argmax(self.a))
+      self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
   def run_policy_and_value(self, sess, s_t):
     raise NotImplementedError()
@@ -117,9 +105,6 @@ class GameACFFNetwork(GameACNetwork):
       # weight for policy output layer
       self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size])
 
-      # weight for value output layer
-      self.W_fc3, self.b_fc3 = self._fc_variable([256, 1])
-
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
 
@@ -138,29 +123,26 @@ class GameACFFNetwork(GameACNetwork):
         h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
       # policy (output)
-      self.pi = tf.nn.softmax(tf.matmul(h_fc1, self.W_fc2) + self.b_fc2)
-      # value (output)
-      v_ = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
-      self.v = tf.reshape( v_, [-1] )
+      self._pi = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
+      self.pi = tf.nn.softmax(self._pi)
+
+      self.max_value = tf.reduce_max(self._pi, axis=None)
 
   def run_policy_and_value(self, sess, s_t):
-    pi_out, v_out = sess.run( [self.pi, self.v], feed_dict = {self.s : [s_t]} )
-    return (pi_out[0], v_out[0])
+    raise NotImplementedError()
 
   def run_policy(self, sess, s_t):
     pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t]} )
     return pi_out[0]
 
   def run_value(self, sess, s_t):
-    v_out = sess.run( self.v, feed_dict = {self.s : [s_t]} )
-    return v_out[0]
+    raise NotImplementedError()
 
   def get_vars(self):
     return [self.W_conv1, self.b_conv1,
             self.W_conv2, self.b_conv2,
             self.W_fc1, self.b_fc1,
-            self.W_fc2, self.b_fc2,
-            self.W_fc3, self.b_fc3]
+            self.W_fc2, self.b_fc2]
 
 # Actor-Critic LSTM Network
 class GameACLSTMNetwork(GameACNetwork):
@@ -169,7 +151,7 @@ class GameACLSTMNetwork(GameACNetwork):
   def __init__(self,
                action_size,
                thread_index, # -1 for global
-               device="/cpu:0"):
+               device="/cpu:0" ):
     GameACNetwork.__init__(self, action_size, thread_index, device)
     print (colored("use_mnih_2015: {}".format(self.use_mnih_2015), "green" if self.use_mnih_2015 else "red"))
     scope_name = "net_" + str(self._thread_index)
@@ -189,9 +171,6 @@ class GameACLSTMNetwork(GameACNetwork):
 
       # weight for policy output layer
       self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size])
-
-      # weight for value output layer
-      self.W_fc3, self.b_fc3 = self._fc_variable([256, 1])
 
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
@@ -237,11 +216,10 @@ class GameACLSTMNetwork(GameACNetwork):
       lstm_outputs = tf.reshape(lstm_outputs, [-1,256])
 
       # policy (output)
-      self.pi = tf.nn.softmax(tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2)
+      self._pi = tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2
+      self.pi = tf.nn.softmax(self._pi)
 
-      # value (output)
-      v_ = tf.matmul(lstm_outputs, self.W_fc3) + self.b_fc3
-      self.v = tf.reshape( v_, [-1] )
+      self.max_value = tf.reduce_max(self._pi, axis=None)
 
       scope.reuse_variables()
       self.W_lstm = tf.get_variable("basic_lstm_cell/weights")
@@ -254,15 +232,7 @@ class GameACLSTMNetwork(GameACNetwork):
                                                         np.zeros([1, 256]))
 
   def run_policy_and_value(self, sess, s_t):
-    # This run_policy_and_value() is used when forward propagating.
-    # so the step size is 1.
-    pi_out, v_out, self.lstm_state_out = sess.run( [self.pi, self.v, self.lstm_state],
-                                                   feed_dict = {self.s : [s_t],
-                                                                self.initial_lstm_state0 : self.lstm_state_out[0],
-                                                                self.initial_lstm_state1 : self.lstm_state_out[1],
-                                                                self.step_size : [1]} )
-    # pi_out: (1,3), v_out: (1)
-    return (pi_out[0], v_out[0])
+    raise NotImplementedError()
 
   def run_policy(self, sess, s_t):
     # This run_policy() is used for displaying the result with display tool.
@@ -275,25 +245,11 @@ class GameACLSTMNetwork(GameACNetwork):
     return pi_out[0]
 
   def run_value(self, sess, s_t):
-    # This run_value() is used for calculating V for bootstrapping at the
-    # end of LOCAL_T_MAX time step sequence.
-    # When next sequcen starts, V will be calculated again with the same state using updated network weights,
-    # so we don't update LSTM state here.
-    prev_lstm_state_out = self.lstm_state_out
-    v_out, _ = sess.run( [self.v, self.lstm_state],
-                         feed_dict = {self.s : [s_t],
-                                      self.initial_lstm_state0 : self.lstm_state_out[0],
-                                      self.initial_lstm_state1 : self.lstm_state_out[1],
-                                      self.step_size : [1]} )
-
-    # roll back lstm state
-    self.lstm_state_out = prev_lstm_state_out
-    return v_out[0]
+    raise NotImplementedError()
 
   def get_vars(self):
     return [self.W_conv1, self.b_conv1,
             self.W_conv2, self.b_conv2,
             self.W_fc1, self.b_fc1,
             self.W_lstm, self.b_lstm,
-            self.W_fc2, self.b_fc2,
-            self.W_fc3, self.b_fc3]
+            self.W_fc2, self.b_fc2]
