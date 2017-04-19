@@ -110,6 +110,19 @@ class GameState:
                 self.action_map[RIGHTFIRE] = 7
                 self.action_map[LEFTFIRE] = 8
 
+        elif self.game == 'gopher':
+            self._env = gym.make('GopherDeterministic-v3')
+            self.n_actions = self._env.action_space.n
+
+            if self._human_demo:
+                self.action_map[FIRE] = 1
+                self.action_map[UP] = 2
+                self.action_map[RIGHT] = 3
+                self.action_map[LEFT] = 4
+                self.action_map[UPFIRE] = 5
+                self.action_map[RIGHTFIRE] = 6
+                self.action_map[LEFTFIRE] = 7
+
         print (colored('{}Deterministic-v3'.format(self.game.title()), "green"))
 
         self._env.frameskip = frame_skip

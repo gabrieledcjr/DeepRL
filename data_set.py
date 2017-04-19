@@ -13,8 +13,7 @@ import time
 
 class DataSet(object):
     """A replay memory consisting of circular buffers for observed images,
-actions, and rewards.
-
+    actions, and rewards.
     """
     def __init__(self, width, height, rng, max_steps=1000, phi_length=4, num_actions=1):
         """Construct a DataSet.
@@ -27,9 +26,6 @@ actions, and rewards.
             choose random minibatches
 
         """
-        # TODO: Specify capacity in number of state transitions, not
-        # number of saved time steps.
-
         # Store arguments.
         self.width = width
         self.height = height
