@@ -6,6 +6,7 @@ from time import sleep
 from termcolor import colored
 from a3c import run_a3c
 from classify_demo import classify_demo
+from collect_demo import get_demo
 
 def main():
     parser = argparse.ArgumentParser()
@@ -44,13 +45,24 @@ def main():
     parser.add_argument('--log-interval', type=int, default=100)
     parser.add_argument('--performance-log-interval', type=int, default=1000)
 
+    parser.add_argument('--collect-demo', action='store_true')
+    parser.set_defaults(collect_demo=False)
+    parser.add_argument('--num-episodes', type=int, default=5, help='number of episodes')
+    parser.add_argument('--demo-time-limit', type=int, default=5, help='time limit per episode')
+    parser.add_argument('--demo-memory-folder', type=str, default=None)
+
     parser.add_argument('--classify-demo', action='store_true')
     parser.set_defaults(classify_demo=False)
+    parser.add_argument('--model-folder', type=str, default=None)
 
     args = parser.parse_args()
 
     if args.collect_demo:
         print (colored('Collecting demonstration...', 'green'))
+        sleep(2)
+        get_demo(args)
+    elif args.classify_demo:
+        print (colored('Classifying human demonstration...', 'green'))
         sleep(2)
         classify_demo(args)
     else:

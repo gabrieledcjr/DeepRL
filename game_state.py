@@ -193,7 +193,7 @@ class GameState(object):
             sleep(0.01)
         print ("Exited thread loop")
 
-    def _process_frame(self, action, reshape):
+    def _process_frame(self, action, normalize=True):
         reward = 0
         observation, r, terminal, _ = self.env.step(action)
         reward += r
@@ -210,14 +210,12 @@ class GameState(object):
             resized_observation = cv2.resize(grayscale_observation, (84,84))
             x_t = resized_observation.astype(np.float32)
 
-        if reshape:
-            x_t = np.reshape(x_t, (84, 84, 1))
-
         # normalize
-        x_t *= (1.0/255.0)
+        if normalize:
+            x_t *= (1.0/255.0)
         return reward, terminal, x_t
 
-    def reset(self):
+    def reset(self, normalize=True):
         self.env.reset()
 
         # randomize initial state
@@ -226,21 +224,24 @@ class GameState(object):
             for _ in range(no_op):
                 self.env.step(0)
 
-        _, _, x_t = self._process_frame(0, False)
+        _, _, x_t = self._process_frame(0, normalize=normalize)
+        self.x_t = x_t
 
         self.reward = 0
         self.terminal = False
         self.s_t = np.stack((x_t, x_t, x_t, x_t), axis = 2)
 
-    def process(self, action):
+    def process(self, action, normalize=True):
         if self._display:
             self.env.unwrapped._render()
 
-        r, t, x_t1 = self._process_frame(action, True)
+        r, t, x_t1 = self._process_frame(action, normalize=normalize)
+        self.x_t = x_t1
 
         self.reward = r
         self.terminal = t
-        self.s_t1 = np.append(self.s_t[:,:,1:], x_t1, axis = 2)
+        x_t = np.reshape(x_t1, (84, 84, 1))
+        self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis = 2)
 
     def update(self):
         self.s_t = self.s_t1

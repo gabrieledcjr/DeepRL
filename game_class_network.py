@@ -14,10 +14,10 @@ class GameClassNetwork(object):
     self._thread_index = thread_index
     self._device = device
 
-  def prepare_loss(self, entropy_beta):
+  def prepare_loss(self):
     with tf.device(self._device):
       # taken action (input for policy)
-      self.a = tf.placeholder("float", [None, self._action_size])
+      self.a = tf.placeholder(tf.float32, shape=[None, self._action_size])
 
       #log_pi = tf.log(tf.clip_by_value(self.pi, 1e-20, 1.0))
       log_pi = tf.log(self.pi)
@@ -27,8 +27,9 @@ class GameClassNetwork(object):
 
   def prepare_evaluate(self):
     with tf.device(self._device):
-      correct_prediction = tf.equal(tf.argmax(self.pi, 1), tf.argmax(self.a))
+      correct_prediction = tf.equal(tf.argmax(self.pi, 1), tf.argmax(self.a, 1))
       self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
 
   def run_policy_and_value(self, sess, s_t):
     raise NotImplementedError()
@@ -82,13 +83,13 @@ class GameClassNetwork(object):
     return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "VALID")
 
 # Actor-Critic FF Network
-class GameACFFNetwork(GameACNetwork):
+class GameACFFNetwork(GameClassNetwork):
   use_mnih_2015 = False
   def __init__(self,
                action_size,
                thread_index, # -1 for global
                device="/cpu:0"):
-    GameACNetwork.__init__(self, action_size, thread_index, device)
+    GameClassNetwork.__init__(self, action_size, thread_index, device)
     print (colored("use_mnih_2015: {}".format(self.use_mnih_2015), "green" if self.use_mnih_2015 else "red"))
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
@@ -145,14 +146,14 @@ class GameACFFNetwork(GameACNetwork):
             self.W_fc2, self.b_fc2]
 
 # Actor-Critic LSTM Network
-class GameACLSTMNetwork(GameACNetwork):
+class GameACLSTMNetwork(GameClassNetwork):
   use_mnih_2015 = False
 
   def __init__(self,
                action_size,
                thread_index, # -1 for global
                device="/cpu:0" ):
-    GameACNetwork.__init__(self, action_size, thread_index, device)
+    GameClassNetwork.__init__(self, action_size, thread_index, device)
     print (colored("use_mnih_2015: {}".format(self.use_mnih_2015), "green" if self.use_mnih_2015 else "red"))
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
