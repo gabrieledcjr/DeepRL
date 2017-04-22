@@ -95,8 +95,8 @@ class ClassifyDemo(object):
             batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size)
 
             if self.use_lstm:
-                sess.run(
-                    self.apply_gradients,
+                ls, acc, _ = sess.run(
+                    [self.net.total_loss, self.net.accuracy, self.apply_gradients],
                     feed_dict = {
                         self.net.s: batch_si,
                         self.net.a: batch_a,
@@ -104,19 +104,19 @@ class ClassifyDemo(object):
                         self.net.step_size: [len(batch_a)]} )
             else:
                 ls, acc, _ = sess.run(
-                    self.net.total_loss, self.net.accuracy, self.apply_gradients,
+                    [self.net.total_loss, self.net.accuracy, self.apply_gradients],
                     feed_dict = {
                         self.net.s: batch_si,
                         self.net.a: batch_a} )
-            # summary_str = sess.run(summary_op, feed_dict={
-            #     loss: ls,
-            #     accuracy: acc,
-            # })
-            # summary_writer.add_summary(summary_str, i)
-            # summary_writer.flush()
+            summary_str = sess.run(summary_op, feed_dict={
+                loss: ls,
+                accuracy: acc,
+            })
+            summary_writer.add_summary(summary_str, i)
+            summary_writer.flush()
 
             if i % 100 == 0:
-                print ("t={}".format(i))
+                print ("t={} accuracy={} loss={}".format(i, acc, ls))
 
 def classify_demo(args):
     '''
