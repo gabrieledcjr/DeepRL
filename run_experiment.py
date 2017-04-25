@@ -252,7 +252,11 @@ def run_dqn(args):
                     epsilon=args.epsilon, decay=args.decay, momentum=args.momentum,
                     verbose=args.verbose, path=path, folder=folder,
                     slow=args.use_slow, tau=args.tau,
-                    transfer=True, transfer_folder=transfer_folder)
+                    transfer=True, transfer_folder=transfer_folder,
+                    transfer_conv2=not args.not_transfer_conv2,
+                    transfer_conv3=not args.not_transfer_conv3,
+                    transfer_fc1=not args.not_transfer_fc1,
+                    transfer_fc2=not args.not_transfer_fc2)
 
             demo_memory_folder = None
             if args.load_memory:
@@ -331,6 +335,14 @@ def main():
     parser.add_argument('--use-transfer', action='store_true')
     parser.set_defaults(use_transfer=False)
     parser.add_argument('--transfer-folder', type=str, default=None)
+    parser.add_argument('--not-transfer-conv2', action='store_true')
+    parser.set_defaults(not_transfer_conv2=False)
+    parser.add_argument('--not-transfer-conv3', action='store_true')
+    parser.set_defaults(not_transfer_conv3=False)
+    parser.add_argument('--not-transfer-fc1', action='store_true')
+    parser.set_defaults(not_transfer_fc1=False)
+    parser.add_argument('--not-transfer-fc2', action='store_true')
+    parser.set_defaults(not_transfer_fc2=False)
 
     parser.add_argument('--use-human-model-as-advice', action='store_true')
     parser.set_defaults(use_human_model_as_advice=False)
@@ -346,7 +358,7 @@ def main():
 
     parser.add_argument('--collect-demo', action='store_true')
     parser.set_defaults(collect_demo=False)
-    parser.add_argument('--demo-type', type=int, default=0) # human(0), random(1), from_model(2)
+    parser.add_argument('--demo-type', type=int, default=0, help='[0] human, [1] random, [2] model')
     parser.add_argument('-n', '--file-num', type=int, default=1)
     parser.add_argument('--model-folder', type=str, default=None)
     parser.add_argument('--demo-time-limit', type=int, default=5) # 5 minutes

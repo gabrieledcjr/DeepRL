@@ -19,7 +19,10 @@ class DqnNet(Network):
     def __init__(
         self, sess, height, width, phi_length, n_actions, name, gamma=0.99, copy_interval=4,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0., l2_decay=0.0001, error_clip=1.0,
-        slow=False, tau=0.01, verbose=False, path='', folder='_networks', transfer=False, transfer_folder=''):
+        slow=False, tau=0.01, verbose=False, path='', folder='_networks',
+        transfer=False, transfer_folder='',
+        transfer_conv2=False, transfer_conv3=False,
+        transfer_fc1=False, transfer_fc2=False):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
         self.gamma = gamma
@@ -99,18 +102,21 @@ class DqnNet(Network):
                 self.fast_learnrate_vars.append(self.b_fc2)
 
         if transfer:
-            self.load_transfer_model(folder=transfer_folder)
-            # Scale down the last layer
-            #W_fc2_scaled = tf.scalar_mul(0.01, self.W_fc2)
-            #b_fc2_scaled = tf.scalar_mul(0.01, self.b_fc2)
-            print (colored("Normalizing output layer with max value {}...".format(self.transfer_max_output_val), "yellow"))
-            W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
-            b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
-            print (colored("Output layer normalized", "green"))
-            sleep(3)
-            self.sess.run([
-               self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
-            ])
+            self.load_transfer_model(
+                folder=transfer_folder,
+                transfer_conv2=transfer_conv2, transfer_conv3=transfer_conv3,
+                transfer_fc1=transfer_fc1, transfer_fc2=transfer_fc2)
+
+            if transfer_fc2:
+                # Scale down the last layer if it's transferred
+                print (colored("Normalizing output layer with max value {}...".format(self.transfer_max_output_val), "yellow"))
+                W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
+                b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
+                print (colored("Output layer normalized", "green"))
+                sleep(3)
+                self.sess.run([
+                   self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
+                ])
 
         if verbose:
             self.init_verbosity()
@@ -150,7 +156,6 @@ class DqnNet(Network):
 
         if transfer:
             # only intialize tensor variables that are not loaded from the transfer model
-            #self.sess.run(tf.variables_initializer(fast_learnrate_vars))
             self._global_vars_temp = set(tf.global_variables())
 
         # cost of q network
@@ -386,7 +391,9 @@ class DqnNet(Network):
             self.variable_summaries(self.b_fc2, 'biases')
             tf.summary.histogram('activations', self.action_output)
 
-    def load_transfer_model(self, folder=''):
+    def load_transfer_model(self, folder='',
+        transfer_conv2=True, transfer_conv3=True,
+        transfer_fc1=True, transfer_fc2=True):
         assert folder != ''
         saver_transfer_from = tf.train.Saver()
         checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
@@ -394,9 +401,30 @@ class DqnNet(Network):
             saver_transfer_from.restore(self.sess, checkpoint_transfer_from.model_checkpoint_path)
             print (colored("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green"))
 
-            for v in tf.global_variables():
-                self.sess.run(v)
-                print (colored("{}: LOADED".format(v.op.name), "green"))
-                sleep(.2)
-        with open(folder + "/max_output_value", 'r') as f_max_value:
-            self.transfer_max_output_val = float(f_max_value.readline().split()[0])
+        if transfer_fc2:
+            with open(folder + "/max_output_value", 'r') as f_max_value:
+                self.transfer_max_output_val = float(f_max_value.readline().split()[0])
+            return
+
+        # Overwrite layers that shouldn't be from transfer model
+        # Assumption here is if a layer is not transferred,
+        # then all layers above it are not transferred
+        vars_init = []
+        if not transfer_fc2 or not transfer_fc1 or not transfer_conv3 or not transfer_conv2:
+            vars_init.append(self.W_fc2)
+            vars_init.append(self.b_fc2)
+        if not transfer_fc1 or not transfer_conv3 or not transfer_conv2:
+            vars_init.append(self.W_fc1)
+            vars_init.append(self.b_fc1)
+        if not transfer_conv3 or not transfer_conv2:
+            vars_init.append(self.W_conv3)
+            vars_init.append(self.b_conv3)
+        if not transfer_conv2:
+            vars_init.append(self.W_conv2)
+            vars_init.append(self.b_conv2)
+        temp_str = ''
+        for tf_vars in vars_init:
+            temp_str += '\n' + tf_vars.op.name
+        print ("Overwriting following vars:" + temp_str)
+        sleep(2)
+        self.sess.run(tf.variables_initializer(vars_init))
