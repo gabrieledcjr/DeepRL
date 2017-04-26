@@ -30,6 +30,25 @@ def run_a3c(args):
         v = log_lo * (1-rate) + log_hi * rate
         return math.exp(v)
 
+    if not os.path.exists('results'):
+        os.mkdir('results')
+
+    if args.folder is not None:
+        folder = 'results/{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
+    else:
+        folder = 'results/{}'.format(args.gym_env.replace('-', '_'))
+
+    end_str = ''
+    if args.use_transfer:
+        end_str += '_transfer'
+        if args.not_transfer_fc2:
+            end_str += '_nofc2'
+    if args.use_mnih_2015:
+        end_str += '_use_mnih'
+    if args.use_lstm:
+        end_str += '_use_lstm'
+    folder += end_str
+
     device = "/cpu:0"
     gpu_options = None
     if args.use_gpu:
@@ -100,19 +119,63 @@ def run_a3c(args):
         allow_soft_placement=True)
     sess = tf.Session(config=config)
 
-    init = tf.global_variables_initializer()
-    sess.run(init)
+    if args.use_transfer:
+        if args.transfer_folder is not None:
+            transfer_folder = args.transfer_folder
+        else:
+            transfer_folder = '{}_classifier'.format(args.gym_env.replace('-', '_'))
+            end_str = ''
+            if args.use_mnih_2015:
+                end_str += '_use_mnih'
+            # if args.use_lstm:
+            #     end_str += '_use_lstm'
+            transfer_folder += end_str
+            transfer_folder += '/transfer_model'
+
+        transfer_var_list = [
+            global_network.W_conv1, global_network.b_conv1,
+            global_network.W_conv2, global_network.b_conv2,
+            global_network.W_fc1, global_network.b_fc1
+        ]
+        if args.use_mnih_2015:
+            transfer_var_list += [
+                global_network.W_conv3, global_network.b_conv3
+            ]
+        if not args.not_transfer_fc2 and not args.use_lstm:
+            transfer_var_list += [
+                global_network.W_fc2, global_network.b_fc2
+            ]
+        global_network.load_transfer_model(
+            sess, folder=transfer_folder,
+            transfer_fc2=(False if args.not_transfer_fc2 or args.use_lstm else True),
+            var_list=transfer_var_list
+        )
+
+    def initialize_uninitialized(sess):
+        global_vars = tf.global_variables()
+        is_not_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+        not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
+
+        #print [str(i.name) for i in not_initialized_vars] # only for testing
+        if len(not_initialized_vars):
+            sess.run(tf.variables_initializer(not_initialized_vars))
+
+    if args.use_transfer:
+        initialize_uninitialized(sess)
+    else:
+        init = tf.global_variables_initializer()
+        sess.run(init)
 
     # summary for tensorboard
     score_input = tf.placeholder(tf.int32)
     tf.summary.scalar("score", score_input)
 
     summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(args.log_file, sess.graph)
+    summary_writer = tf.summary.FileWriter('log/{}/'.format(args.gym_env.replace('-', '_')) + folder[8:], sess.graph)
 
     # init or load checkpoint with saver
     saver = tf.train.Saver()
-    checkpoint = tf.train.get_checkpoint_state(args.checkpoint_dir)
+    checkpoint = tf.train.get_checkpoint_state(folder)
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
         print(colored("checkpoint loaded:{}".format(checkpoint.model_checkpoint_path), "green"))
@@ -121,7 +184,7 @@ def run_a3c(args):
         global_t = int(tokens[1])
         print(">>> global step set: ", global_t)
         # set wall time
-        wall_t_fname = args.checkpoint_dir + '/' + 'wall_t.' + str(global_t)
+        wall_t_fname = folder + '/' + 'wall_t.' + str(global_t)
         with open(wall_t_fname, 'r') as f:
             wall_t = float(f.read())
     else:
@@ -175,14 +238,14 @@ def run_a3c(args):
     for t in train_threads:
         t.join()
 
-    if not os.path.exists(args.checkpoint_dir):
-        os.mkdir(args.checkpoint_dir)
+    if not os.path.exists(folder):
+        os.mkdir(folder)
 
     # write wall time
     wall_t = time.time() - start_time
-    wall_t_fname = args.checkpoint_dir + '/' + 'wall_t.' + str(global_t)
+    wall_t_fname = folder + '/' + 'wall_t.' + str(global_t)
     with open(wall_t_fname, 'w') as f:
         f.write(str(wall_t))
 
-    saver.save(sess, args.checkpoint_dir + '/' + 'checkpoint', global_step = global_t)
+    saver.save(sess, folder + '/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step = global_t)
     print (colored('Data saved!', 'green'))

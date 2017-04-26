@@ -2,6 +2,7 @@
 import tensorflow as tf
 import numpy as np
 
+from time import sleep
 from termcolor import colored
 
 # Actor-Critic Network Base Class
@@ -54,8 +55,8 @@ class GameACNetwork(object):
   def get_vars(self):
     raise NotImplementedError()
 
-  def sync_from(self, src_netowrk, name=None):
-    src_vars = src_netowrk.get_vars()
+  def sync_from(self, src_network, name=None):
+    src_vars = src_network.get_vars()
     dst_vars = self.get_vars()
 
     sync_ops = []
@@ -70,28 +71,58 @@ class GameACNetwork(object):
 
   # weight initialization based on muupan's code
   # https://github.com/muupan/async-rl/blob/master/a3c_ale.py
-  def _fc_variable(self, weight_shape):
+  def _fc_variable(self, weight_shape, layer_name=''):
     input_channels  = weight_shape[0]
     output_channels = weight_shape[1]
     d = 1.0 / np.sqrt(input_channels)
     bias_shape = [output_channels]
-    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d))
-    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d))
+    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
+    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d), name=layer_name + '_biases')
     return weight, bias
 
-  def _conv_variable(self, weight_shape):
+  def _conv_variable(self, weight_shape, layer_name=''):
     w = weight_shape[0]
     h = weight_shape[1]
     input_channels  = weight_shape[2]
     output_channels = weight_shape[3]
     d = 1.0 / np.sqrt(input_channels * w * h)
     bias_shape = [output_channels]
-    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d))
-    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d))
+    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
+    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d), name=layer_name + '_biases')
     return weight, bias
 
   def _conv2d(self, x, W, stride):
     return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "VALID")
+
+  def load_transfer_model(self, sess, folder='', transfer_fc2=False, var_list=None):
+    assert folder != ''
+    assert self._thread_index == -1 # only load model to global network
+
+    if transfer_fc2:
+      with open(folder + "/max_output_value", 'r') as f_max_value:
+        transfer_max_output_val = float(f_max_value.readline().split()[0])
+      folder += '/all'
+    else:
+      folder += '/nofc2'
+
+    saver_transfer_from = tf.train.Saver(var_list=var_list)
+    checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
+
+    if checkpoint_transfer_from and checkpoint_transfer_from.model_checkpoint_path:
+      saver_transfer_from.restore(sess, checkpoint_transfer_from.model_checkpoint_path)
+      print (colored("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green"))
+
+      if transfer_fc2:
+        # scale down last layer if it's transferred
+        print (colored("Normalizing output layer with max value {}...".format(transfer_max_output_val), "yellow"))
+        W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
+        b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
+        print (colored("Output layer normalized", "green"))
+        sess.run([
+         self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
+        ])
+
+      sleep(2)
 
 # Actor-Critic FF Network
 class GameACFFNetwork(GameACNetwork):
@@ -105,20 +136,20 @@ class GameACFFNetwork(GameACNetwork):
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
       if self.use_mnih_2015:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32])
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64])
-        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64])
-        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
+        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
+        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
       else:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16])  # stride=4
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32]) # stride=2
-        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
 
       # weight for policy output layer
-      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size])
+      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
 
       # weight for value output layer
-      self.W_fc3, self.b_fc3 = self._fc_variable([256, 1])
+      self.W_fc3, self.b_fc3 = self._fc_variable([256, 1], layer_name='fc3')
 
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
@@ -156,11 +187,19 @@ class GameACFFNetwork(GameACNetwork):
     return v_out[0]
 
   def get_vars(self):
-    return [self.W_conv1, self.b_conv1,
-            self.W_conv2, self.b_conv2,
-            self.W_fc1, self.b_fc1,
-            self.W_fc2, self.b_fc2,
-            self.W_fc3, self.b_fc3]
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
 
 # Actor-Critic LSTM Network
 class GameACLSTMNetwork(GameACNetwork):
@@ -175,23 +214,23 @@ class GameACLSTMNetwork(GameACNetwork):
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
       if self.use_mnih_2015:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32])
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64])
-        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64])
-        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
+        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
+        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
       else:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16])  # stride=4
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32]) # stride=2
-        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
 
       # lstm
       self.lstm = tf.contrib.rnn.BasicLSTMCell(256, state_is_tuple=True)
 
       # weight for policy output layer
-      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size])
+      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
 
       # weight for value output layer
-      self.W_fc3, self.b_fc3 = self._fc_variable([256, 1])
+      self.W_fc3, self.b_fc3 = self._fc_variable([256, 1], layer_name='fc3')
 
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
@@ -291,9 +330,18 @@ class GameACLSTMNetwork(GameACNetwork):
     return v_out[0]
 
   def get_vars(self):
-    return [self.W_conv1, self.b_conv1,
-            self.W_conv2, self.b_conv2,
-            self.W_fc1, self.b_fc1,
-            self.W_lstm, self.b_lstm,
-            self.W_fc2, self.b_fc2,
-            self.W_fc3, self.b_fc3]
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]

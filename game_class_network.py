@@ -15,19 +15,11 @@ class GameClassNetwork(object):
     self._device = device
 
   def prepare_loss(self):
-    with tf.device(self._device):
-      # taken action (input for policy)
-      self.a = tf.placeholder(tf.float32, shape=[None, self._action_size])
-
-      #log_pi = tf.log(tf.clip_by_value(self.pi, 1e-20, 1.0))
-      log_pi = tf.log(self.pi)
-      cross_entropy = -tf.reduce_sum(self.a * log_pi, reduction_indices=1)
-
-      self.total_loss = tf.reduce_mean(cross_entropy)
+    raise NotImplementedError()
 
   def prepare_evaluate(self):
     with tf.device(self._device):
-      correct_prediction = tf.equal(tf.argmax(self.pi, 1), tf.argmax(self.a, 1))
+      correct_prediction = tf.equal(tf.argmax(self._pi, 1), tf.argmax(self.a, 1))
       self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
 
@@ -59,24 +51,24 @@ class GameClassNetwork(object):
 
   # weight initialization based on muupan's code
   # https://github.com/muupan/async-rl/blob/master/a3c_ale.py
-  def _fc_variable(self, weight_shape):
+  def _fc_variable(self, weight_shape, layer_name=''):
     input_channels  = weight_shape[0]
     output_channels = weight_shape[1]
     d = 1.0 / np.sqrt(input_channels)
     bias_shape = [output_channels]
-    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d))
-    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d))
+    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
+    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d), name=layer_name + '_biases')
     return weight, bias
 
-  def _conv_variable(self, weight_shape):
+  def _conv_variable(self, weight_shape, layer_name=''):
     w = weight_shape[0]
     h = weight_shape[1]
     input_channels  = weight_shape[2]
     output_channels = weight_shape[3]
     d = 1.0 / np.sqrt(input_channels * w * h)
     bias_shape = [output_channels]
-    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d))
-    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d))
+    weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
+    bias   = tf.Variable(tf.random_uniform(bias_shape,   minval=-d, maxval=d), name=layer_name + '_biases')
     return weight, bias
 
   def _conv2d(self, x, W, stride):
@@ -94,17 +86,33 @@ class GameACFFNetwork(GameClassNetwork):
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
       if self.use_mnih_2015:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32])
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64])
-        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64])
-        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
+        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
+        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
+        tf.add_to_collection('transfer_params', self.W_conv1)
+        tf.add_to_collection('transfer_params', self.b_conv1)
+        tf.add_to_collection('transfer_params', self.W_conv2)
+        tf.add_to_collection('transfer_params', self.b_conv2)
+        tf.add_to_collection('transfer_params', self.W_conv3)
+        tf.add_to_collection('transfer_params', self.b_conv3)
+        tf.add_to_collection('transfer_params', self.W_fc1)
+        tf.add_to_collection('transfer_params', self.b_fc1)
       else:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16])  # stride=4
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32]) # stride=2
-        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
+        tf.add_to_collection('transfer_params', self.W_conv1)
+        tf.add_to_collection('transfer_params', self.b_conv1)
+        tf.add_to_collection('transfer_params', self.W_conv2)
+        tf.add_to_collection('transfer_params', self.b_conv2)
+        tf.add_to_collection('transfer_params', self.W_fc1)
+        tf.add_to_collection('transfer_params', self.b_fc1)
 
       # weight for policy output layer
-      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size])
+      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
+      tf.add_to_collection('transfer_params', self.W_fc2)
+      tf.add_to_collection('transfer_params', self.b_fc2)
 
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
@@ -129,6 +137,17 @@ class GameACFFNetwork(GameClassNetwork):
 
       self.max_value = tf.reduce_max(self._pi, axis=None)
 
+  def prepare_loss(self):
+    with tf.device(self._device):
+      # taken action (input for policy)
+      self.a = tf.placeholder(tf.float32, shape=[None, self._action_size])
+      cross_entropy = tf.reduce_mean(
+        tf.nn.softmax_cross_entropy_with_logits(
+          _sentinel=None,
+          labels=self.a,
+          logits=self._pi))
+      self.total_loss = cross_entropy
+
   def run_policy_and_value(self, sess, s_t):
     raise NotImplementedError()
 
@@ -140,10 +159,19 @@ class GameACFFNetwork(GameClassNetwork):
     raise NotImplementedError()
 
   def get_vars(self):
-    return [self.W_conv1, self.b_conv1,
-            self.W_conv2, self.b_conv2,
-            self.W_fc1, self.b_fc1,
-            self.W_fc2, self.b_fc2]
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
 
 # Actor-Critic LSTM Network
 class GameACLSTMNetwork(GameClassNetwork):
@@ -158,20 +186,36 @@ class GameACLSTMNetwork(GameClassNetwork):
     scope_name = "net_" + str(self._thread_index)
     with tf.device(self._device), tf.variable_scope(scope_name) as scope:
       if self.use_mnih_2015:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32])
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64])
-        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64])
-        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
+        self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
+        self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
+        tf.add_to_collection('transfer_params', self.W_conv1)
+        tf.add_to_collection('transfer_params', self.b_conv1)
+        tf.add_to_collection('transfer_params', self.W_conv2)
+        tf.add_to_collection('transfer_params', self.b_conv2)
+        tf.add_to_collection('transfer_params', self.W_conv3)
+        tf.add_to_collection('transfer_params', self.b_conv3)
+        tf.add_to_collection('transfer_params', self.W_fc1)
+        tf.add_to_collection('transfer_params', self.b_fc1)
       else:
-        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16])  # stride=4
-        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32]) # stride=2
-        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256])
+        self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+        self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+        self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
+        tf.add_to_collection('transfer_params', self.W_conv1)
+        tf.add_to_collection('transfer_params', self.b_conv1)
+        tf.add_to_collection('transfer_params', self.W_conv2)
+        tf.add_to_collection('transfer_params', self.b_conv2)
+        tf.add_to_collection('transfer_params', self.W_fc1)
+        tf.add_to_collection('transfer_params', self.b_fc1)
 
       # lstm
       self.lstm = tf.contrib.rnn.BasicLSTMCell(256, state_is_tuple=True)
 
       # weight for policy output layer
-      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size])
+      self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
+      tf.add_to_collection('transfer_params', self.W_fc2)
+      tf.add_to_collection('transfer_params', self.b_fc2)
 
       # state (input)
       self.s = tf.placeholder("float", [None, 84, 84, 4])
@@ -225,12 +269,25 @@ class GameACLSTMNetwork(GameClassNetwork):
       scope.reuse_variables()
       self.W_lstm = tf.get_variable("basic_lstm_cell/weights")
       self.b_lstm = tf.get_variable("basic_lstm_cell/biases")
+      tf.add_to_collection('transfer_params', self.W_lstm)
+      tf.add_to_collection('transfer_params', self.b_lstm)
 
       self.reset_state()
 
   def reset_state(self):
     self.lstm_state_out = tf.contrib.rnn.LSTMStateTuple(np.zeros([1, 256]),
                                                         np.zeros([1, 256]))
+
+  def prepare_loss(self):
+    with tf.device(self._device):
+      # taken action (input for policy)
+      self.a = tf.placeholder(tf.float32, shape=[None, self._action_size])
+      #   cross_entropy = tf.reduce_mean(
+      #     tf.nn.softmax_cross_entropy_with_logits(
+      #       labels=self.a,
+      #       logits=self._pi))
+      cross_entropy = tf.reduce_sum( tf.multiply( tf.log(self.pi), self.a ), reduction_indices=1 )
+      self.total_loss = -tf.reduce_sum(cross_entropy)
 
   def run_policy_and_value(self, sess, s_t):
     raise NotImplementedError()
@@ -249,8 +306,18 @@ class GameACLSTMNetwork(GameClassNetwork):
     raise NotImplementedError()
 
   def get_vars(self):
-    return [self.W_conv1, self.b_conv1,
-            self.W_conv2, self.b_conv2,
-            self.W_fc1, self.b_fc1,
-            self.W_lstm, self.b_lstm,
-            self.W_fc2, self.b_fc2]
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]

@@ -18,8 +18,7 @@ def main():
     parser.add_argument('--rmsp-alpha', type=float, default=0.99, help='decay parameter for RMSProp')
     parser.add_argument('--rmsp-epsilon', type=float, default=0.1, help='epsilon parameter for RMSProp')
 
-    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints')
-    parser.add_argument('--log-file', type=str, default='tmp/a3c_log')
+    parser.add_argument('--folder', type=str, default=None)
 
     parser.add_argument('--initial-learn-rate', type=float, default=0, help='initial learning rate for RMSProp')
     parser.add_argument('--initial-alpha-low', type=float, default=1e-4, help='log_uniform low limit for learning rate')
@@ -45,6 +44,12 @@ def main():
     parser.add_argument('--log-interval', type=int, default=100)
     parser.add_argument('--performance-log-interval', type=int, default=1000)
 
+    parser.add_argument('--use-transfer', action='store_true')
+    parser.set_defaults(use_transfer=False)
+    parser.add_argument('--transfer-folder', type=str, default=None)
+    parser.add_argument('--not-transfer-fc2', action='store_true')
+    parser.set_defaults(not_transfer_fc2=False)
+
     parser.add_argument('--collect-demo', action='store_true')
     parser.set_defaults(collect_demo=False)
     parser.add_argument('--num-episodes', type=int, default=5, help='number of episodes')
@@ -67,7 +72,7 @@ def main():
         classify_demo(args)
     else:
         print (colored('Running A3C...', 'green'))
-        time.sleep(2)
+        sleep(2)
         run_a3c(args)
 
 

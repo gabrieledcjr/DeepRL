@@ -10,6 +10,8 @@ from util import get_compressed_images
 from data_set import DataSet
 from game_state import GameState
 
+from termcolor import colored
+
 try:
     import cPickle as pickle
 except ImportError:
@@ -36,15 +38,7 @@ class ClassifyDemo(object):
 
         self.net.prepare_loss()
         self.net.prepare_evaluate()
-        with tf.device(device):
-          var_refs = [v._ref() for v in self.net.get_vars()]
-          self.gradients = tf.gradients(
-            self.net.total_loss, var_refs,
-            gate_gradients=False,
-            aggregation_method=None,
-            colocate_gradients_with_ops=False)
-        grads_vars_updates = zip(self.gradients, self.net.get_vars())
-        self.apply_gradients = grad_applier.apply_gradients(grads_vars_updates)
+        self.apply_gradients = grad_applier.minimize(self.net.total_loss)
 
     def _load_memory(self):
         assert os.path.isfile(self.demo_memory_folder + '/demo.db')
@@ -73,7 +67,7 @@ class ClassifyDemo(object):
         print ("Total memory: {}".format(total_memory))
         print ("Data loaded!")
 
-    def run(self, sess, summary_op, summary_writer, accuracy, loss):
+    def run_ff(self, sess, summary_op, summary_writer, accuracy, loss):
         data = {
             'training_step': [],
             'training_accuracy': [],
@@ -84,39 +78,100 @@ class ClassifyDemo(object):
             'max_accuracy': 0.,
             'max_accuracy_step': 0,
         }
-        max_val = -(sys.maxsize),
-
+        self.max_val = -(sys.maxsize)
         D_size = len(self.D)
+
         for i in range(self.train_max_steps):
-            if self.use_lstm:
-              start_lstm_state = self.net.lstm_state_out
-
             idx = np.random.randint(0, D_size)
-            batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size)
 
-            if self.use_lstm:
-                ls, acc, _ = sess.run(
-                    [self.net.total_loss, self.net.accuracy, self.apply_gradients],
-                    feed_dict = {
-                        self.net.s: batch_si,
-                        self.net.a: batch_a,
-                        self.net.initial_lstm_state: start_lstm_state,
-                        self.net.step_size: [len(batch_a)]} )
-            else:
-                ls, acc, _ = sess.run(
-                    [self.net.total_loss, self.net.accuracy, self.apply_gradients],
-                    feed_dict = {
-                        self.net.s: batch_si,
-                        self.net.a: batch_a} )
+            batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size)
+            train_loss, acc, max_value, _ = sess.run(
+                [self.net.total_loss, self.net.accuracy, self.net.max_value, self.apply_gradients],
+                feed_dict = {
+                    self.net.s: batch_si,
+                    self.net.a: batch_a} )
+
+            if max_value > self.max_val:
+                self.max_val = max_value
+
             summary_str = sess.run(summary_op, feed_dict={
-                loss: ls,
+                loss: train_loss,
                 accuracy: acc,
             })
             summary_writer.add_summary(summary_str, i)
             summary_writer.flush()
 
-            if i % 100 == 0:
-                print ("t={} accuracy={} loss={}".format(i, acc, ls))
+            if i % 500 == 0:
+                print ("i={} accuracy={} loss={} max_val={}".format(i, acc, train_loss, self.max_val))
+
+    def run_lstm(self, sess, summary_op, summary_writer, accuracy, loss):
+        data = {
+            'training_step': [],
+            'training_accuracy': [],
+            'training_entropy': [],
+            'testing_step': [],
+            'testing_accuracy': [],
+            'testing_entropy': [],
+            'max_accuracy': 0.,
+            'max_accuracy_step': 0,
+        }
+        max_val = -(sys.maxsize)
+
+        D_size = len(self.D)
+        terminal = False
+        get_index = True
+        epoch = 0
+        for i in range(self.train_max_steps):
+            if get_index:
+                idx = np.random.randint(0, D_size)
+                get_index = False
+                last_index = 0
+                training_loss = 0.
+                steps = 0
+                accuracy_accum = 0.
+                start_lstm_state = self.net.lstm_state_out
+
+            batch_si = []
+            batch_a = []
+            count_batch = 0
+            while True:
+                s, ai, _, terminal = self.D[idx][last_index]
+                batch_si.append(s)
+                a = np.zeros([self.net._action_size])
+                a[ai] = 1
+                batch_a.append(a)
+                last_index += 1
+                count_batch += 1
+
+                if count_batch == self.batch_size: break
+                if len(self.D[idx]) == last_index:
+                    self.net.reset_state()
+                    get_index = True
+                    break
+
+            ls, acc, start_lstm_state, _ = sess.run(
+                [self.net.total_loss, self.net.accuracy, self.net.lstm_state, self.apply_gradients],
+                feed_dict = {
+                    self.net.s: batch_si,
+                    self.net.a: batch_a,
+                    self.net.initial_lstm_state: start_lstm_state,
+                    self.net.step_size: [len(batch_a)]} )
+
+            training_loss += ls
+            accuracy_accum += acc
+            steps += 1
+            if get_index:
+                accuracy_accum /= steps
+                training_loss /= steps
+                summary_str = sess.run(summary_op, feed_dict={
+                    loss: training_loss,
+                    accuracy: accuracy_accum,
+                })
+                summary_writer.add_summary(summary_str, epoch)
+                summary_writer.flush()
+
+                print ("epoch={} accuracy={} loss={}".format(epoch, accuracy_accum, training_loss))
+                epoch += 1
 
 def classify_demo(args):
     '''
@@ -151,6 +206,11 @@ def classify_demo(args):
     if args.use_lstm:
         end_str += '_use_lstm'
     model_folder += end_str
+
+    if not os.path.exists(model_folder + '/transfer_model'):
+        os.makedirs(model_folder + '/transfer_model')
+        os.makedirs(model_folder + '/transfer_model/all')
+        os.makedirs(model_folder + '/transfer_model/nofc2')
 
     # assert args.initial_learn_rate > 0
     # initial_learning_rate = args.initial_learn_rate
@@ -197,12 +257,38 @@ def classify_demo(args):
     sess.run(init)
 
     # summary for tensorboard
-    accuracy = tf.placeholder(tf.int32)
-    loss = tf.placeholder(tf.int32)
+    accuracy = tf.placeholder(tf.float32)
+    loss = tf.placeholder(tf.float32)
     tf.summary.scalar("accuracy", accuracy)
     tf.summary.scalar("loss", loss)
 
     summary_op = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(model_folder + '/log_tb', sess.graph)
 
-    classify_demo.run(sess, summary_op, summary_writer, accuracy, loss)
+    # init or load checkpoint with saver
+    saver = tf.train.Saver()
+
+    if args.use_lstm:
+        # FIXME: Not working correctly
+        classify_demo.run_lstm(sess, summary_op, summary_writer, accuracy, loss)
+    else:
+        classify_demo.run_ff(sess, summary_op, summary_writer, accuracy, loss)
+
+    print(colored('Now saving data. Please wait', 'yellow'))
+    saver.save(sess, model_folder + '/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')))
+
+    transfer_params = tf.get_collection("transfer_params")
+    transfer_saver = tf.train.Saver(transfer_params)
+    transfer_saver.save(sess, model_folder + '/transfer_model/all/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
+
+    # Remove fc2 weights
+    for param in transfer_params[:]:
+        if param.op.name == "net_-1/fc2_weights" or param.op.name == "net_-1/fc2_biases":
+            transfer_params.remove(param)
+
+    transfer_saver_nofc2 = tf.train.Saver(transfer_params)
+    transfer_saver_nofc2.save(sess, model_folder + '/transfer_model/nofc2/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
+
+    with open(model_folder + '/transfer_model/max_output_value', 'w') as f_max_value:
+        f_max_value.write(str(classify_demo.max_val))
+    print (colored('Data saved!', 'green'))
