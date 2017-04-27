@@ -28,7 +28,8 @@ def main():
 
     parser.add_argument('--gamma', type=float, default=0.99, help='discount factor for rewards')
     parser.add_argument('--entropy-beta', type=float, default=0.01, help='entropy regularization constant')
-    parser.add_argument('--max-time-step', type=float, default=10 * 10**7, help='maximum time step')
+    parser.add_argument('--max-time-step', type=float, default=10 * 10**7, help='maximum time step, also use to anneal learning rate')
+    parser.add_argument('--max-time-step-fraction', type=float, default=1., help='ovverides maximum time step by a fraction')
     parser.add_argument('--grad-norm-clip', type=float, default=40.0, help='gradient norm clipping')
 
     parser.add_argument('--eval-freq', type=int, default=1000000)

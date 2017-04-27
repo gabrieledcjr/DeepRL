@@ -65,9 +65,9 @@ def run_a3c(args):
 
     if args.initial_learn_rate == 0:
         initial_learning_rate = log_uniform(
-            args.initial-alpha-low,
-            args.initial-alpha-high,
-            args.initial-alpha-log-rate)
+            args.initial_alpha_low,
+            args.initial_alpha_high,
+            args.initial_alpha_log_rate)
     else:
         initial_learning_rate = args.initial_learn_rate
     print (colored('Initial Learning Rate={}'.format(initial_learning_rate), 'green'))
@@ -217,7 +217,7 @@ def run_a3c(args):
         while True:
             if stop_requested:
                 break
-            if global_t > args.max_time_step:
+            if global_t > (args.max_time_step * args.max_time_step_fraction):
                 break
 
             for _ in range(diff_global_t):
