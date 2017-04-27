@@ -14,6 +14,11 @@ from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from a3c_training_thread import A3CTrainingThread
 from rmsprop_applier import RMSPropApplier
 
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+
 def run_a3c(args):
     """
     python3 a3c.py --gym-env=PongDeterministic-v3 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015
@@ -49,6 +54,9 @@ def run_a3c(args):
         end_str += '_use_lstm'
     folder += end_str
 
+    if args.append_experiment_num is not None:
+        folder += '_' + args.append_experiment_num
+
     device = "/cpu:0"
     gpu_options = None
     if args.use_gpu:
@@ -66,6 +74,7 @@ def run_a3c(args):
     time.sleep(2)
 
     global_t = 0
+    testing_rewards = {}
 
     stop_requested = False
 
@@ -167,7 +176,7 @@ def run_a3c(args):
         sess.run(init)
 
     # summary for tensorboard
-    score_input = tf.placeholder(tf.int32)
+    score_input = tf.placeholder(tf.float32)
     tf.summary.scalar("score", score_input)
 
     summary_op = tf.summary.merge_all()
@@ -187,19 +196,23 @@ def run_a3c(args):
         wall_t_fname = folder + '/' + 'wall_t.' + str(global_t)
         with open(wall_t_fname, 'r') as f:
             wall_t = float(f.read())
+        testing_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'rb'))
     else:
         print(colored("Could not find old checkpoint", "yellow"))
         # set wall time
         wall_t = 0.0
 
-
+    lock = threading.Lock()
+    test_lock = False
+    last_temp_global_t = global_t
     def train_function(parallel_index):
-        nonlocal global_t
-
+        nonlocal global_t, testing_rewards, test_lock, lock, last_temp_global_t
         training_thread = training_threads[parallel_index]
         # set start_time
         start_time = time.time() - wall_t
         training_thread.set_start_time(start_time)
+
+        diff_global_t = 0
 
         while True:
             if stop_requested:
@@ -207,10 +220,31 @@ def run_a3c(args):
             if global_t > args.max_time_step:
                 break
 
+            for _ in range(diff_global_t):
+                global_t += 1
+                if global_t % args.eval_freq == 0:
+                    temp_global_t = global_t
+                    lock.acquire()
+                    try:
+                        # catch multiple threads getting in at the same time
+                        if last_temp_global_t == temp_global_t:
+                            print(colored("Threading race problem averted!", "blue"))
+                            continue
+                        test_lock = True
+                        test_reward = training_thread.testing(
+                            sess, args.eval_max_steps, temp_global_t,
+                            summary_writer)
+                        testing_rewards[temp_global_t] = test_reward
+                        test_lock = False
+                        last_temp_global_t = temp_global_t
+                    finally:
+                        lock.release()
+                while test_lock:
+                    time.sleep(0.01)
+
             diff_global_t = training_thread.process(
                 sess, global_t, summary_writer,
                 summary_op, score_input)
-            global_t += diff_global_t
 
 
     def signal_handler(signal, frame):
@@ -226,6 +260,12 @@ def run_a3c(args):
 
     # set start time
     start_time = time.time() - wall_t
+
+    if global_t == 0:
+        test_reward = training_threads[0].testing(
+            sess, args.eval_max_steps, global_t,
+            summary_writer)
+        testing_rewards[global_t] = test_reward
 
     for t in train_threads:
         t.start()
@@ -248,4 +288,6 @@ def run_a3c(args):
         f.write(str(wall_t))
 
     saver.save(sess, folder + '/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step = global_t)
+
+    pickle.dump(testing_rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
     print (colored('Data saved!', 'green'))

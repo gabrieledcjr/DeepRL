@@ -8,6 +8,7 @@ import sys
 from termcolor import colored
 from game_state import GameState
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
+from util import get_action_index
 
 
 class A3CTrainingThread(object):
@@ -86,13 +87,74 @@ class A3CTrainingThread(object):
 
   def _record_score(self, sess, summary_writer, summary_op, score_input, score, global_t):
     summary_str = sess.run(summary_op, feed_dict={
-      score_input: score
+      score_input: float(score)
     })
     summary_writer.add_summary(summary_str, global_t)
     summary_writer.flush()
 
   def set_start_time(self, start_time):
     self.start_time = start_time
+
+  def testing(self, sess, max_steps, global_t, summary_writer):
+    # copy weights from shared to local
+    sess.run( self.sync )
+
+    self.game_state.reset()
+    if self.use_lstm:
+      self.local_network.reset_state()
+
+    total_rewards = 0.
+    total_steps = 0.
+    episode_count = 0
+    while True:
+      if self.use_lstm:
+        start_lstm_state = self.local_network.lstm_state_out
+
+      episode_reward = 0
+      while total_steps < max_steps:
+        pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
+        #action = self.choose_action(pi_)
+        action = get_action_index(pi_, is_random=(np.random.random() <= 0.05), n_actions=self.game_state.env.n_actions)
+
+        # process game
+        self.game_state.process(action)
+
+        # receive game result
+        reward = self.game_state.reward
+        terminal = self.game_state.terminal
+
+        episode_reward += reward
+        total_steps += 1
+
+        # s_t1 -> s_t
+        self.game_state.update()
+
+        if terminal:
+          total_rewards += episode_reward
+          episode_count += 1
+          print(colored("test: global_t={} t_idx={} score={} total_steps={}".format(global_t, self.thread_index, episode_reward, total_steps), "yellow"))
+
+          self.game_state.reset()
+          if self.use_lstm:
+            self.local_network.reset_state()
+          break
+
+      if total_steps >= max_steps:
+          break
+
+    testing_reward = total_rewards / episode_count
+    print(colored("test: global_t={} t_idx={} final score={}".format(global_t, self.thread_index, testing_reward), "green"))
+
+    summary = tf.Summary()
+    summary.value.add(tag='Testing/score', simple_value=float(testing_reward))
+    summary_writer.add_summary(summary, global_t)
+    summary_writer.flush()
+
+    self.episode_reward = 0
+    self.game_state.reset()
+    if self.use_lstm:
+      self.local_network.reset_state()
+    return testing_reward
 
   def process(self, sess, global_t, summary_writer, summary_op, score_input):
     states = []

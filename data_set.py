@@ -110,7 +110,7 @@ class DataSet(object):
     def get_item(self, key):
         return self.__getitem__(key)
 
-    def random_batch(self, batch_size):
+    def random_batch_sequential(self, batch_size):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
 
@@ -140,6 +140,35 @@ class DataSet(object):
 
         return states, actions, rewards, terminals
 
+    def random_batch(self, batch_size, normalize=False):
+        """Return corresponding states, actions, rewards, terminal status, and
+        next_states for batch_size randomly chosen state transitions.
+
+        """
+        # Allocate the response.
+        states = np.zeros((batch_size, 84, 84, self.phi_length), dtype=np.uint8)
+        actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
+        rewards = np.zeros(batch_size, dtype=np.float32)
+        terminals = np.zeros(batch_size, dtype=np.int)
+
+        # Randomly choose a time step from the replay memory
+        # within requested batch_size
+        end_range = self.size - self.phi_length
+        assert end_range > 0 # crash if not enough memory
+
+        for count in range(batch_size):
+            index = self.rng.randint(0, end_range)
+            s, a, r, t = self[index]
+            # Add the state transition to the response.
+            states[count] = np.copy(s)
+            if normalize:
+                states[count] *= (1.0/255.0)
+            actions[count][a] = 1. # convert to one-hot vector
+            rewards[count] = r
+            terminals[count] = t
+
+        return states, actions, rewards, terminals
+
 def test_1(env_id):
     from util import get_compressed_images
     try:
@@ -163,8 +192,7 @@ def test_1(env_id):
     print (D)
 
     for i in range(1000):
-        D.random_batch(20)
-        print (D.random_index)
+        states, actions, rewards, terminals = D.random_batch(20)
 
     import cv2
     count = 0

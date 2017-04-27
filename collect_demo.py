@@ -31,6 +31,8 @@ class CollectDemonstration(object):
         self.D = replay_memory
         self.main_folder = folder
 
+        prepare_dir(self.main_folder, empty=False)
+
         # Create or connect to database
         self.conn = sqlite3.connect(self.main_folder + '/demo.db')
         self.db = self.conn.cursor()

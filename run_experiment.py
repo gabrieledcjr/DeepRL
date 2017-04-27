@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--rmsp-epsilon', type=float, default=0.1, help='epsilon parameter for RMSProp')
 
     parser.add_argument('--folder', type=str, default=None)
+    parser.add_argument('--append-experiment-num', type=str, default=None)
 
     parser.add_argument('--initial-learn-rate', type=float, default=0, help='initial learning rate for RMSProp')
     parser.add_argument('--initial-alpha-low', type=float, default=1e-4, help='log_uniform low limit for learning rate')
@@ -29,6 +30,9 @@ def main():
     parser.add_argument('--entropy-beta', type=float, default=0.01, help='entropy regularization constant')
     parser.add_argument('--max-time-step', type=float, default=10 * 10**7, help='maximum time step')
     parser.add_argument('--grad-norm-clip', type=float, default=40.0, help='gradient norm clipping')
+
+    parser.add_argument('--eval-freq', type=int, default=1000000)
+    parser.add_argument('--eval-max-steps', type=int, default=125000)
 
     parser.add_argument('--use-gpu', action='store_true', help='use GPU')
     parser.set_defaults(use_gpu=False)

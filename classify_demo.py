@@ -38,7 +38,19 @@ class ClassifyDemo(object):
 
         self.net.prepare_loss()
         self.net.prepare_evaluate()
-        self.apply_gradients = grad_applier.minimize(self.net.total_loss)
+        grads_vars = grad_applier.compute_gradients(self.net.total_loss)
+        grads = []
+        params = []
+        for p in grads_vars:
+            if p[0] == None:
+                continue
+            grads.append(p[0])
+            params.append(p[1])
+
+        #grads = tf.clip_by_global_norm(grads, 1)[0]
+        grads_vars_updates = zip(grads, params)
+        self.apply_gradients = grad_applier.apply_gradients(grads_vars_updates)
+        #self.apply_gradients = grad_applier.minimize(self.net.total_loss)
 
     def _load_memory(self):
         assert os.path.isfile(self.demo_memory_folder + '/demo.db')
@@ -82,9 +94,18 @@ class ClassifyDemo(object):
         D_size = len(self.D)
 
         for i in range(self.train_max_steps):
-            idx = np.random.randint(0, D_size)
+            # batch_si = []
+            # batch_a = []
+            # for _ in range(self.batch_size):
+            #     idx = np.random.randint(0, D_size)
+            #     samp_idx = np.random.randint(0, len(self.D[idx]))
+            #     s, ai, _, _ = self.D[idx][samp_idx]
+            #     batch_si.append(s * (1.0/255.0))
+            #     a = np.zeros([self.net._action_size])
+            #     a[ai] = 1
+            #     batch_a.append(a)
 
-            batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size)
+            batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size, normalize=True)
             train_loss, acc, max_value, _ = sess.run(
                 [self.net.total_loss, self.net.accuracy, self.net.max_value, self.apply_gradients],
                 feed_dict = {
@@ -136,7 +157,7 @@ class ClassifyDemo(object):
             count_batch = 0
             while True:
                 s, ai, _, terminal = self.D[idx][last_index]
-                batch_si.append(s)
+                batch_si.append(s * (1.0/255.0))
                 a = np.zeros([self.net._action_size])
                 a[ai] = 1
                 batch_a.append(a)
@@ -175,7 +196,7 @@ class ClassifyDemo(object):
 
 def classify_demo(args):
     '''
-    python3 run_experiment.py --gym-env=PongDeterministic-v3 --classify-demo --use-lstm --use-mnih-2015
+    python3 run_experiment.py --gym-env=PongDeterministic-v3 --classify-demo --use-mnih-2015 --max-time-step=150000 --local-t-max=32
     '''
     if args.use_gpu:
         assert args.cuda_devices != ''
