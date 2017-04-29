@@ -286,7 +286,7 @@ class GameACLSTMNetwork(GameClassNetwork):
       #     tf.nn.softmax_cross_entropy_with_logits(
       #       labels=self.a,
       #       logits=self._pi))
-      cross_entropy = tf.reduce_sum( tf.multiply( tf.log(self.pi), self.a ), reduction_indices=1 )
+      cross_entropy = tf.reduce_sum( tf.multiply( tf.log(self.pi), self.a ), axis=1 )
       self.total_loss = -tf.reduce_sum(cross_entropy)
 
   def run_policy_and_value(self, sess, s_t):

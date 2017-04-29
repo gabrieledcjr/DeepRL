@@ -9,6 +9,7 @@ import os
 import time
 
 from termcolor import colored
+from util import load_memory
 from game_state import GameState
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from a3c_training_thread import A3CTrainingThread
@@ -48,6 +49,10 @@ def run_a3c(args):
         end_str += '_transfer'
         if args.not_transfer_fc2:
             end_str += '_nofc2'
+    pretrain_steps = 0
+    if args.train_with_demo_steps > 0:
+        pretrain_steps = int(args.train_with_demo_steps/args.parallel_size)
+        end_str += '_pretrain_ina3c'
     if args.use_mnih_2015:
         end_str += '_use_mnih'
     if args.use_lstm:
@@ -56,6 +61,14 @@ def run_a3c(args):
 
     if args.append_experiment_num is not None:
         folder += '_' + args.append_experiment_num
+
+    demo_memory = None
+    if args.load_memory:
+        if args.demo_memory_folder is not None:
+            demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
+        else:
+            demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
+        demo_memory = load_memory(args.gym_env, demo_memory_folder)
 
     device = "/cpu:0"
     gpu_options = None
@@ -75,6 +88,7 @@ def run_a3c(args):
 
     global_t = 0
     testing_rewards = {}
+    training_rewards = {}
 
     stop_requested = False
 
@@ -197,6 +211,7 @@ def run_a3c(args):
         with open(wall_t_fname, 'r') as f:
             wall_t = float(f.read())
         testing_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'rb'))
+        training_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-train-rewards.pkl', 'rb'))
     else:
         print(colored("Could not find old checkpoint", "yellow"))
         # set wall time
@@ -204,15 +219,47 @@ def run_a3c(args):
 
     lock = threading.Lock()
     test_lock = False
+    if global_t == 0:
+        test_lock = True
+
     last_temp_global_t = global_t
+    ispretrain_markers = [False] * args.parallel_size
     def train_function(parallel_index):
-        nonlocal global_t, testing_rewards, test_lock, lock, last_temp_global_t
+        nonlocal global_t, testing_rewards, training_rewards, test_lock, lock, last_temp_global_t, ispretrain_markers
         training_thread = training_threads[parallel_index]
         # set start_time
         start_time = time.time() - wall_t
         training_thread.set_start_time(start_time)
 
         diff_global_t = 0
+
+        if pretrain_steps > 0:
+            ispretrain_markers[parallel_index] = True and (global_t == 0)
+
+        # Pretraining with demo memory
+        if ispretrain_markers[parallel_index]:
+            print ("t_idx={} pretrain starting".format(parallel_index))
+            training_thread.pretrain(
+                sess, global_t, demo_memory, pretrain_steps)
+            print ("t_idx={} pretrain ended".format(parallel_index))
+            ispretrain_markers[parallel_index] = False
+
+        # Waits for all threads to finish pretraining
+        while any(ispretrain_markers):
+            time.sleep(0.01)
+
+        # Evaluate model before training
+        if global_t == 0:
+            with lock:
+                if parallel_index == 0:
+                    test_reward = training_threads[0].testing(
+                        sess, args.eval_max_steps, global_t,
+                        summary_writer)
+                    testing_rewards[global_t] = test_reward
+                    test_lock = False
+            # all threads wait until evaluation finishes
+            while test_lock:
+                time.sleep(0.01)
 
         while True:
             if stop_requested:
@@ -239,12 +286,13 @@ def run_a3c(args):
                         last_temp_global_t = temp_global_t
                     finally:
                         lock.release()
+                # all threads wait until evaluation finishes
                 while test_lock:
                     time.sleep(0.01)
 
             diff_global_t = training_thread.process(
                 sess, global_t, summary_writer,
-                summary_op, score_input)
+                summary_op, score_input, training_rewards)
 
 
     def signal_handler(signal, frame):
@@ -260,12 +308,6 @@ def run_a3c(args):
 
     # set start time
     start_time = time.time() - wall_t
-
-    if global_t == 0:
-        test_reward = training_threads[0].testing(
-            sess, args.eval_max_steps, global_t,
-            summary_writer)
-        testing_rewards[global_t] = test_reward
 
     for t in train_threads:
         t.start()
@@ -290,4 +332,5 @@ def run_a3c(args):
     saver.save(sess, folder + '/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step = global_t)
 
     pickle.dump(testing_rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
+    pickle.dump(training_rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-train-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
     print (colored('Data saved!', 'green'))

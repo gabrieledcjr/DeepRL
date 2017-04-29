@@ -7,12 +7,46 @@ import os
 import cv2
 import gzip
 import shutil
+import sqlite3
 from math import sqrt
+from data_set import DataSet
 
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
+
+def load_memory(name, demo_memory_folder):
+    assert os.path.isfile(demo_memory_folder + '/demo.db')
+    conn = sqlite3.connect(demo_memory_folder + '/demo.db')
+    db = conn.cursor()
+    datasets = []
+    print ("Loading data")
+    total_memory = 0
+    for demo in db.execute("SELECT * FROM demo_samples"):
+        print (demo)
+        assert demo[2] == name
+        ep = demo[1]
+        total_memory += demo[4]
+        folder = demo_memory_folder + '/{n:03d}/'.format(n=(ep))
+        D = DataSet()
+        data = pickle.load(open(folder + name + '-dqn.pkl', 'rb'))
+        D.width = data['D.width']
+        D.height = data['D.height']
+        D.max_steps = data['D.max_steps']
+        D.phi_length = data['D.phi_length']
+        D.num_actions = data['D.num_actions']
+        D.actions = data['D.actions']
+        D.rewards = data['D.rewards']
+        D.terminal = data['D.terminal']
+        D.size = data['D.size']
+        D.imgs = get_compressed_images(folder + name + '-dqn-images.h5' + '.gz')
+        datasets.append(D)
+    print ("D size: {}".format(len(D)))
+    print ("Total memory: {}".format(total_memory))
+    print ("Data loaded!")
+    conn.close()
+    return datasets
 
 def egreedy(readout_t, n_actions=-1):
     assert n_actions > 1

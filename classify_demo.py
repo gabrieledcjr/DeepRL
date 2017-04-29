@@ -1,28 +1,20 @@
 # -*- coding: utf-8 -*-
 import os
 import time
-import sqlite3
 import numpy as np
 import sys
 
 from game_class_network import GameACFFNetwork, GameACLSTMNetwork
-from util import get_compressed_images
-from data_set import DataSet
+from util import load_memory
 from game_state import GameState
-
 from termcolor import colored
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
 
 class ClassifyDemo(object):
     def __init__(self, tf, net, name, train_max_steps, batch_size, grad_applier,
         eval_freq=100, demo_memory_folder='', folder='', use_lstm=False, device=None):
         """ Initialize Classifying Human Demo Training """
         self.net = net
-        self.D = []
         self.name = name
         self.train_max_steps = train_max_steps
         self.batch_size = batch_size
@@ -31,10 +23,7 @@ class ClassifyDemo(object):
         self.folder = folder
         self.use_lstm = use_lstm
 
-        self.conn = sqlite3.connect(self.demo_memory_folder + '/demo.db')
-        self.db = self.conn.cursor()
-
-        self._load_memory()
+        self.D = load_memory(self.name, self.demo_memory_folder)
 
         self.net.prepare_loss()
         self.net.prepare_evaluate()
@@ -51,33 +40,6 @@ class ClassifyDemo(object):
         grads_vars_updates = zip(grads, params)
         self.apply_gradients = grad_applier.apply_gradients(grads_vars_updates)
         #self.apply_gradients = grad_applier.minimize(self.net.total_loss)
-
-    def _load_memory(self):
-        assert os.path.isfile(self.demo_memory_folder + '/demo.db')
-        print ("Loading data")
-        total_memory = 0
-        for demo in self.db.execute("SELECT * FROM demo_samples"):
-            print (demo)
-            assert demo[2] == self.name
-            ep = demo[1]
-            total_memory += demo[4]
-            folder = self.demo_memory_folder + '/{n:03d}/'.format(n=(ep))
-            D = DataSet()
-            data = pickle.load(open(folder + self.name + '-dqn.pkl', 'rb'))
-            D.width = data['D.width']
-            D.height = data['D.height']
-            D.max_steps = data['D.max_steps']
-            D.phi_length = data['D.phi_length']
-            D.num_actions = data['D.num_actions']
-            D.actions = data['D.actions']
-            D.rewards = data['D.rewards']
-            D.terminal = data['D.terminal']
-            D.size = data['D.size']
-            D.imgs = get_compressed_images(folder + self.name + '-dqn-images.h5' + '.gz')
-            self.D.append(D)
-        print ("D size: {}".format(len(self.D)))
-        print ("Total memory: {}".format(total_memory))
-        print ("Data loaded!")
 
     def run_ff(self, sess, summary_op, summary_writer, accuracy, loss):
         data = {
