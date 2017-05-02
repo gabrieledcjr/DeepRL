@@ -137,6 +137,14 @@ class GameState(object):
             self.action_map[LEFT] = 3
             self.action_map[RIGHTFIRE] = 4
             self.action_map[LEFTFIRE] = 5
+        elif self.env.id[:6] == 'Gopher':
+            self.action_map[FIRE] = 1
+            self.action_map[UP] = 2
+            self.action_map[RIGHT] = 3
+            self.action_map[LEFT] = 4
+            self.action_map[UPFIRE] = 5
+            self.action_map[RIGHTFIRE] = 6
+            self.action_map[LEFTFIRE] = 7
         else:
             # TODO: map ale action_set to right key actions
             pass
