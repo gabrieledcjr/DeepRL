@@ -49,9 +49,7 @@ def run_a3c(args):
         end_str += '_transfer'
         if args.not_transfer_fc2:
             end_str += '_nofc2'
-    pretrain_steps = 0
-    if args.train_with_demo_steps > 0:
-        pretrain_steps = int(args.train_with_demo_steps/args.parallel_size)
+    if args.train_with_demo_epoch > 0:
         end_str += '_pretrain_ina3c'
     if args.use_mnih_2015:
         end_str += '_use_mnih'
@@ -87,6 +85,8 @@ def run_a3c(args):
     time.sleep(2)
 
     global_t = 0
+    pretrain_global_t = 0
+    pretrain_epoch = 0
     testing_rewards = {}
     training_rewards = {}
 
@@ -210,6 +210,8 @@ def run_a3c(args):
         wall_t_fname = folder + '/' + 'wall_t.' + str(global_t)
         with open(wall_t_fname, 'r') as f:
             wall_t = float(f.read())
+        with open(folder + '/pretrain_global_t', 'r') as f:
+            pretrain_global_t = int(f.read())
         testing_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'rb'))
         training_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-train-rewards.pkl', 'rb'))
     else:
@@ -225,31 +227,43 @@ def run_a3c(args):
     last_temp_global_t = global_t
     ispretrain_markers = [False] * args.parallel_size
     def train_function(parallel_index):
-        nonlocal global_t, testing_rewards, training_rewards, test_lock, lock, last_temp_global_t, ispretrain_markers
+        nonlocal global_t, pretrain_global_t, pretrain_epoch, \
+            testing_rewards, training_rewards, test_lock, lock, \
+            last_temp_global_t, ispretrain_markers
         training_thread = training_threads[parallel_index]
-        # set start_time
-        start_time = time.time() - wall_t
-        training_thread.set_start_time(start_time)
 
-        diff_global_t = 0
+        if global_t == 0 and args.train_with_demo_epoch > 0:
+            ispretrain_markers[parallel_index] = True
+            training_thread.pretrain_init(demo_memory)
 
-        if pretrain_steps > 0:
-            ispretrain_markers[parallel_index] = True and (global_t == 0)
-
-        # Pretraining with demo memory
-        if ispretrain_markers[parallel_index]:
+            # Pretraining with demo memory
             print ("t_idx={} pretrain starting".format(parallel_index))
-            training_thread.pretrain(
-                sess, global_t, demo_memory, pretrain_steps)
-            print ("t_idx={} pretrain ended".format(parallel_index))
-            ispretrain_markers[parallel_index] = False
+            while ispretrain_markers[parallel_index]:
+                if stop_requested:
+                    break
+                if pretrain_epoch > args.train_with_demo_epoch:
+                    # At end of pretraining, reset state
+                    training_thread.episode_reward = 0
+                    training_thread.local_t = 0
+                    training_thread.local_network.reset_state()
+                    ispretrain_markers[parallel_index] = False
+                    print ("t_idx={} pretrain ended".format(parallel_index))
+                    break
 
-        # Waits for all threads to finish pretraining
-        while any(ispretrain_markers):
-            time.sleep(0.01)
+                diff_pretrain_global_t = training_thread.demo_process(sess, pretrain_global_t)
+                for _ in range(diff_pretrain_global_t):
+                    pretrain_global_t += 1
+
+                pretrain_epoch += 1
+                if pretrain_epoch % 1000 == 0:
+                    print ("pretrain_epoch={} pretrain_global_t={}".format(pretrain_epoch, pretrain_global_t))
+
+            # Waits for all threads to finish pretraining
+            while not stop_requested and any(ispretrain_markers):
+                time.sleep(0.01)
 
         # Evaluate model before training
-        if global_t == 0:
+        if not stop_requested and global_t == 0:
             with lock:
                 if parallel_index == 0:
                     test_reward = training_threads[0].testing(
@@ -258,14 +272,22 @@ def run_a3c(args):
                     testing_rewards[global_t] = test_reward
                     test_lock = False
             # all threads wait until evaluation finishes
-            while test_lock:
+            while not stop_requested and test_lock:
                 time.sleep(0.01)
 
+        # set start_time
+        start_time = time.time() - wall_t
+        training_thread.set_start_time(start_time)
         while True:
             if stop_requested:
                 break
             if global_t > (args.max_time_step * args.max_time_step_fraction):
                 break
+
+            diff_global_t = training_thread.process(
+                sess, global_t, summary_writer,
+                summary_op, score_input, training_rewards,
+                pretrain_global_t)
 
             for _ in range(diff_global_t):
                 global_t += 1
@@ -287,12 +309,8 @@ def run_a3c(args):
                     finally:
                         lock.release()
                 # all threads wait until evaluation finishes
-                while test_lock:
+                while not stop_requested and test_lock:
                     time.sleep(0.01)
-
-            diff_global_t = training_thread.process(
-                sess, global_t, summary_writer,
-                summary_op, score_input, training_rewards)
 
 
     def signal_handler(signal, frame):
@@ -328,6 +346,8 @@ def run_a3c(args):
     wall_t_fname = folder + '/' + 'wall_t.' + str(global_t)
     with open(wall_t_fname, 'w') as f:
         f.write(str(wall_t))
+    with open(folder + '/pretrain_global_t', 'w') as f:
+        f.write(str(pretrain_global_t))
 
     saver.save(sess, folder + '/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step = global_t)
 

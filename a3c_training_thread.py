@@ -156,139 +156,158 @@ class A3CTrainingThread(object):
       self.local_network.reset_state()
     return testing_reward
 
-  def pretrain(self, sess, global_t, D, pretrain_steps):
+  def pretrain_init(self, D):
+    self.D_size = len(D)
+    self.D = D
+    self.replay_mem_reset()
+
+  def replay_mem_reset(self):
     # new random episode
-    D_size = len(D)
-    D_idx = np.random.randint(0, D_size)
-    D_count = np.random.randint(0, 30) # random start
+    self.D_idx = np.random.randint(0, self.D_size)
+    self.D_count = 0
+    s_t, action, reward, terminal = self.D[self.D_idx][self.D_count]
+    self.D_action = action
+    self.D_reward = reward
+    self.D_terminal = terminal
+    self.D_s_t = s_t * (1.0/255.0)
+
+  def replay_mem_process(self):
+    self.D_count += 1
+    s_t, action, reward, terminal = self.D[self.D_idx][self.D_count]
+    self.D_next_action = action
+    self.D_reward = reward
+    self.D_terminal = terminal
+    self.D_s_t1 = s_t * (1.0/255.0)
+
+  def replay_mem_update(self):
+    self.D_action = self.D_next_action
+    self.D_s_t = self.D_s_t1
+
+  def demo_process(self, sess, global_t):
+    states = []
+    actions = []
+    rewards = []
+    values = []
+
+    terminal_end = False
+
+    # copy weights from shared to local
+    sess.run( self.sync )
+
+    start_local_t = self.local_t
+
     if self.use_lstm:
       reset_lstm_state = False
+      start_lstm_state = self.local_network.lstm_state_out
 
-    s_t, action, _, _ = D[D_idx][D_count]
-    s_t = s_t * (1.0/255.0)
+    # t_max times loop
+    for i in range(self.local_t_max):
+      pi_, value_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
+      action = self.D_action
 
-    while pretrain_steps > 0:
-      states = []
-      actions = []
-      rewards = []
-      values = []
+      states.append(self.D_s_t)
+      actions.append(action)
+      values.append(value_)
 
-      terminal_end = False
+      if (self.thread_index == 0) and (self.local_t % self.log_interval == 0):
+        print("  pi={}".format(pi_))
+        print("   V={}".format(value_))
 
-      # copy weights from shared to local
-      sess.run( self.sync )
+      # process replay memory
+      self.replay_mem_process()
 
-      if self.use_lstm:
-        start_lstm_state = self.local_network.lstm_state_out
+      # receive replay memory result
+      reward = self.D_reward
+      terminal = self.D_terminal
 
-      # t_max times loop
-      for i in range(self.local_t_max):
-        pi_, value_ = self.local_network.run_policy_and_value(sess, s_t)
+      self.episode_reward += reward
 
-        states.append(s_t)
-        actions.append(action)
-        values.append(value_)
+      # clip reward
+      rewards.append( np.clip(reward, -1, 1) )
 
-        # simulate taking action
-        next_s_t, next_action, reward, terminal = D[D_idx][D_count+1]
+      self.local_t += 1
 
-        if (self.thread_index == 0) and (pretrain_steps % self.log_interval == 0):
-          print("{} pretrain steps left".format(pretrain_steps))
-          print("  pi={}".format(pi_))
-          print("   V={}".format(value_))
+      # D_s_t1 -> D_s_t
+      self.replay_mem_update()
+      s_t = self.D_s_t
 
-        # clip reward
-        rewards.append( np.clip(reward, -1, 1) )
+      if terminal or self.D_count == len(self.D[self.D_idx]):
+        if terminal:
+          terminal_end = True
+          if self.use_lstm:
+            self.local_network.reset_state()
 
-        s_t = next_s_t * (1.0/255.0)
-        action = next_action
+        elif self.D_count == len(self.D[self.D_idx]):
+          # some demo episodes doesn't reach terminal state
+          if self.use_lstm:
+            reset_lstm_state = True
 
-        pretrain_steps -= 1
-        D_count += 1
+        self.episode_reward = 0
+        self.replay_mem_reset()
+        break
 
-        if terminal or D_count == len(D[D_idx]):
-          # new random episode
-          D_idx = np.random.randint(0, D_size)
-          D_count = np.random.randint(0, 30) # random start
+    R = 0.0
+    if not terminal_end:
+      R = self.local_network.run_value(sess, s_t)
 
-          s_t, action, _, _ = D[D_idx][D_count]
-          s_t = s_t * (1.0/255.0)
+    actions.reverse()
+    states.reverse()
+    rewards.reverse()
+    values.reverse()
 
-          if terminal:
-            terminal_end = True
-            if self.use_lstm:
-              self.local_network.reset_state()
+    batch_si = []
+    batch_a = []
+    batch_td = []
+    batch_R = []
 
-          elif D_count == len(D[D_idx]):
-            # some demo episodes doesn't reach terminal state
-            if self.use_lstm:
-              reset_lstm_state = True
+    # compute and accmulate gradients
+    for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
+      R = ri + self.gamma * R
+      td = R - Vi
+      a = np.zeros([self.action_size])
+      a[ai] = 1
 
-          break
+      batch_si.append(si)
+      batch_a.append(a)
+      batch_td.append(td)
+      batch_R.append(R)
 
+    cur_learning_rate = self._anneal_learning_rate(global_t)
 
-      R = 0.0
-      if not terminal_end:
-        R = self.local_network.run_value(sess, s_t)
-
-      actions.reverse()
-      states.reverse()
-      rewards.reverse()
-      values.reverse()
-
-      batch_si = []
-      batch_a = []
-      batch_td = []
-      batch_R = []
-
-      # compute and accmulate gradients
-      for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
-        R = ri + self.gamma * R
-        td = R - Vi
-        a = np.zeros([self.action_size])
-        a[ai] = 1
-
-        batch_si.append(si)
-        batch_a.append(a)
-        batch_td.append(td)
-        batch_R.append(R)
-
-      cur_learning_rate = self._anneal_learning_rate(global_t)
-
-      if self.use_lstm:
-        batch_si.reverse()
-        batch_a.reverse()
-        batch_td.reverse()
-        batch_R.reverse()
-
-        sess.run( self.apply_gradients,
-                  feed_dict = {
-                    self.local_network.s: batch_si,
-                    self.local_network.a: batch_a,
-                    self.local_network.td: batch_td,
-                    self.local_network.r: batch_R,
-                    self.local_network.initial_lstm_state: start_lstm_state,
-                    self.local_network.step_size : [len(batch_a)],
-                    self.learning_rate_input: cur_learning_rate } )
-
-        # some demo episodes doesn't reach terminal state
-        if reset_lstm_state:
-          self.local_network.reset_state()
-          reset_lstm_state = False
-      else:
-        sess.run( self.apply_gradients,
-                  feed_dict = {
-                    self.local_network.s: batch_si,
-                    self.local_network.a: batch_a,
-                    self.local_network.td: batch_td,
-                    self.local_network.r: batch_R,
-                    self.learning_rate_input: cur_learning_rate} )
-
-    # At end of pretraining, reset state
     if self.use_lstm:
-      self.local_network.reset_state()
+      batch_si.reverse()
+      batch_a.reverse()
+      batch_td.reverse()
+      batch_R.reverse()
 
-  def process(self, sess, global_t, summary_writer, summary_op, score_input, training_rewards):
+      sess.run( self.apply_gradients,
+                feed_dict = {
+                  self.local_network.s: batch_si,
+                  self.local_network.a: batch_a,
+                  self.local_network.td: batch_td,
+                  self.local_network.r: batch_R,
+                  self.local_network.initial_lstm_state: start_lstm_state,
+                  self.local_network.step_size : [len(batch_a)],
+                  self.learning_rate_input: cur_learning_rate } )
+
+      # some demo episodes doesn't reach terminal state
+      if reset_lstm_state:
+        self.local_network.reset_state()
+        reset_lstm_state = False
+    else:
+      sess.run( self.apply_gradients,
+                feed_dict = {
+                  self.local_network.s: batch_si,
+                  self.local_network.a: batch_a,
+                  self.local_network.td: batch_td,
+                  self.local_network.r: batch_R,
+                  self.learning_rate_input: cur_learning_rate} )
+
+    # return advancd local step size
+    diff_local_t = self.local_t - start_local_t
+    return diff_local_t
+
+  def process(self, sess, global_t, summary_writer, summary_op, score_input, training_rewards, pretrain_global_t):
     states = []
     actions = []
     rewards = []
@@ -373,7 +392,7 @@ class A3CTrainingThread(object):
       batch_td.append(td)
       batch_R.append(R)
 
-    cur_learning_rate = self._anneal_learning_rate(global_t)
+    cur_learning_rate = self._anneal_learning_rate(global_t+pretrain_global_t)
 
     if self.use_lstm:
       batch_si.reverse()

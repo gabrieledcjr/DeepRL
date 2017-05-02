@@ -63,7 +63,7 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
-    parser.add_argument('--train-with-demo-steps', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
+    parser.add_argument('--train-with-demo-epoch', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
 
     parser.add_argument('--classify-demo', action='store_true')
     parser.set_defaults(classify_demo=False)
