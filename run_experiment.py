@@ -65,6 +65,10 @@ def main():
     parser.add_argument('--demo-memory-folder', type=str, default=None)
     parser.add_argument('--train-with-demo-epoch', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
 
+    parser.add_argument('--set-last-threads-as-demo', action='store_true')
+    parser.set_defaults(set_last_threads_as_demo=False)
+    parser.add_argument('--max-steps-threads-as-demo', type=int, default=1000000)
+
     parser.add_argument('--classify-demo', action='store_true')
     parser.set_defaults(classify_demo=False)
     parser.add_argument('--model-folder', type=str, default=None)

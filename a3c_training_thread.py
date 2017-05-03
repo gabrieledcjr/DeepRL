@@ -76,6 +76,8 @@ class A3CTrainingThread(object):
     # variable controling log output
     self.prev_local_t = 0
 
+    self.is_demo_thread = False
+
   def _anneal_learning_rate(self, global_time_step):
     learning_rate = self.initial_learning_rate * (self.max_global_time_step - global_time_step) / self.max_global_time_step
     if learning_rate < 0.0:
@@ -152,6 +154,9 @@ class A3CTrainingThread(object):
 
     self.episode_reward = 0
     self.game_state.reset()
+    if self.is_demo_thread:
+        self.replay_mem_reset()
+
     if self.use_lstm:
       self.local_network.reset_state()
     return testing_reward
@@ -183,7 +188,7 @@ class A3CTrainingThread(object):
     self.D_action = self.D_next_action
     self.D_s_t = self.D_s_t1
 
-  def demo_process(self, sess, global_t):
+  def demo_process(self, sess, global_t, pretrain_global_t=0):
     states = []
     actions = []
     rewards = []
@@ -272,7 +277,7 @@ class A3CTrainingThread(object):
       batch_td.append(td)
       batch_R.append(R)
 
-    cur_learning_rate = self._anneal_learning_rate(global_t)
+    cur_learning_rate = self._anneal_learning_rate(global_t+pretrain_global_t)
 
     if self.use_lstm:
       batch_si.reverse()

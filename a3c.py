@@ -51,6 +51,8 @@ def run_a3c(args):
             end_str += '_nofc2'
     if args.train_with_demo_epoch > 0:
         end_str += '_pretrain_ina3c'
+    if args.set_last_threads_as_demo:
+        end_str += '_demothreads'
     if args.use_mnih_2015:
         end_str += '_use_mnih'
     if args.use_lstm:
@@ -232,6 +234,10 @@ def run_a3c(args):
             last_temp_global_t, ispretrain_markers
         training_thread = training_threads[parallel_index]
 
+        # 1/4 of the threads is used to simulate demo memory
+        if args.load_memory and (args.parallel_size - (args.parallel_size/4)) <= parallel_index:
+            training_thread.is_demo_thread = args.set_last_threads_as_demo
+
         if global_t == 0 and args.train_with_demo_epoch > 0:
             ispretrain_markers[parallel_index] = True
             training_thread.pretrain_init(demo_memory)
@@ -276,6 +282,9 @@ def run_a3c(args):
             while not stop_requested and test_lock:
                 time.sleep(0.01)
 
+        if training_thread.is_demo_thread:
+            training_thread.pretrain_init(demo_memory)
+
         # set start_time
         start_time = time.time() - wall_t
         training_thread.set_start_time(start_time)
@@ -285,10 +294,22 @@ def run_a3c(args):
             if global_t > (args.max_time_step * args.max_time_step_fraction):
                 break
 
-            diff_global_t = training_thread.process(
-                sess, global_t, summary_writer,
-                summary_op, score_input, training_rewards,
-                pretrain_global_t)
+            if training_thread.is_demo_thread:
+                if global_t < args.max_steps_threads_as_demo:
+                    diff_global_t = training_thread.demo_process(
+                        sess, global_t,
+                        pretrain_global_t=pretrain_global_t)
+                else:
+                    diff_global_t = 0
+                    training_thread.episode_reward = 0
+                    if args.use_lstm:
+                        training_thread.local_network.reset_state()
+                    training_thread.is_demo_thread = False
+            else:
+                diff_global_t = training_thread.process(
+                    sess, global_t, summary_writer,
+                    summary_op, score_input, training_rewards,
+                    pretrain_global_t)
 
             for _ in range(diff_global_t):
                 global_t += 1
