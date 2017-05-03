@@ -66,7 +66,7 @@ class ClassifyDemo(object):
             #     a = np.zeros([self.net._action_size])
             #     a[ai] = 1
             #     batch_a.append(a)
-
+            idx = np.random.randint(0, D_size)
             batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size, normalize=True)
             train_loss, acc, max_value, _ = sess.run(
                 [self.net.total_loss, self.net.accuracy, self.net.max_value, self.apply_gradients],

@@ -146,7 +146,7 @@ class DataSet(object):
 
         """
         # Allocate the response.
-        states = np.zeros((batch_size, 84, 84, self.phi_length), dtype=np.uint8)
+        states = np.zeros((batch_size, 84, 84, self.phi_length), dtype=np.float32 if normalize else np.uint8)
         actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
