@@ -245,7 +245,8 @@ def run_a3c(args):
                     # At end of pretraining, reset state
                     training_thread.episode_reward = 0
                     training_thread.local_t = 0
-                    training_thread.local_network.reset_state()
+                    if args.use_lstm:
+                        training_thread.local_network.reset_state()
                     ispretrain_markers[parallel_index] = False
                     print ("t_idx={} pretrain ended".format(parallel_index))
                     break
