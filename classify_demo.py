@@ -23,7 +23,7 @@ class ClassifyDemo(object):
         self.folder = folder
         self.use_lstm = use_lstm
 
-        self.D = load_memory(self.name, self.demo_memory_folder)
+        self.D = load_memory(self.name, self.demo_memory_folder, imgs_normalized=True)
 
         self.net.prepare_loss()
         self.net.prepare_evaluate()
@@ -56,18 +56,18 @@ class ClassifyDemo(object):
         D_size = len(self.D)
 
         for i in range(self.train_max_steps):
-            # batch_si = []
-            # batch_a = []
-            # for _ in range(self.batch_size):
-            #     idx = np.random.randint(0, D_size)
-            #     samp_idx = np.random.randint(0, len(self.D[idx]))
-            #     s, ai, _, _ = self.D[idx][samp_idx]
-            #     batch_si.append(s * (1.0/255.0))
-            #     a = np.zeros([self.net._action_size])
-            #     a[ai] = 1
-            #     batch_a.append(a)
-            idx = np.random.randint(0, D_size)
-            batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size, normalize=True)
+            batch_si = []
+            batch_a = []
+            for _ in range(self.batch_size):
+                idx = np.random.randint(0, D_size)
+                samp_idx = np.random.randint(0, len(self.D[idx]))
+                s, ai, _, _ = self.D[idx][samp_idx]
+                batch_si.append(s)
+                a = np.zeros([self.net._action_size])
+                a[ai] = 1
+                batch_a.append(a)
+            # idx = np.random.randint(0, D_size)
+            # batch_si, batch_a, _, _ = self.D[idx].random_batch(self.batch_size, normalize=True)
             train_loss, acc, max_value, _ = sess.run(
                 [self.net.total_loss, self.net.accuracy, self.net.max_value, self.apply_gradients],
                 feed_dict = {
@@ -220,7 +220,8 @@ def classify_demo(args):
     #     epsilon = args.rmsp_epsilon,
     #     clip_norm = args.grad_norm_clip,
     #     device = device)
-    opt = tf.train.AdamOptimizer(learning_rate=0.0001, epsilon=0.001)
+    with tf.device(device):
+        opt = tf.train.AdamOptimizer(learning_rate=0.0001, epsilon=0.001)
 
     classify_demo = ClassifyDemo(
         tf, network, args.gym_env, int(args.max_time_step),

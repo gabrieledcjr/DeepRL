@@ -43,6 +43,16 @@ class DataSet(object):
         self.terminal = np.zeros(self.max_steps, dtype=np.uint8)
 
         self.size = 0
+        self.imgs_normalized = False
+
+    def normalize_images(self):
+        if not self.imgs_normalized:
+            print ("Normalizing images...")
+            temp = self.imgs
+            self.imgs = temp * (1.0/255.0)
+            del temp
+            self.imgs_normalized = True
+            print ("Images normalized")
 
     def resize(self):
         print ("Resizing replay memory...")
@@ -89,7 +99,9 @@ class DataSet(object):
         indices = np.arange(key, key + self.phi_length)
         end_index = key + self.phi_length - 1
 
-        state = np.zeros((84, 84, self.phi_length), dtype=np.uint8)
+        state = np.zeros(
+            (84, 84, self.phi_length),
+            dtype=np.float32 if self.imgs_normalized else np.uint8)
         temp = self.imgs.take(indices, axis=0)
         for i in range(self.phi_length):
             state[:, :, i] = temp[i]
@@ -116,7 +128,9 @@ class DataSet(object):
 
         """
         # Allocate the response.
-        states = np.zeros((batch_size, 84, 84, self.phi_length), dtype=np.uint8)
+        states = np.zeros(
+            (batch_size, 84, 84, self.phi_length),
+            dtype=np.float32 if self.imgs_normalized else np.uint8)
         actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
@@ -146,7 +160,9 @@ class DataSet(object):
 
         """
         # Allocate the response.
-        states = np.zeros((batch_size, 84, 84, self.phi_length), dtype=np.float32 if normalize else np.uint8)
+        states = np.zeros(
+            (batch_size, 84, 84, self.phi_length),
+            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
         actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
@@ -161,7 +177,7 @@ class DataSet(object):
             s, a, r, t = self[index]
             # Add the state transition to the response.
             states[count] = np.copy(s)
-            if normalize:
+            if normalize and not self.imgs_normalized:
                 states[count] *= (1.0/255.0)
             actions[count][a] = 1. # convert to one-hot vector
             rewards[count] = r

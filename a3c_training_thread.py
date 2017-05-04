@@ -174,7 +174,10 @@ class A3CTrainingThread(object):
     self.D_action = action
     self.D_reward = reward
     self.D_terminal = terminal
-    self.D_s_t = s_t * (1.0/255.0)
+    if not self.D[self.D_idx].imgs_normalized:
+        self.D_s_t = s_t * (1.0/255.0)
+    else:
+        self.D_s_t = s_t
 
   def replay_mem_process(self):
     self.D_count += 1
@@ -182,7 +185,10 @@ class A3CTrainingThread(object):
     self.D_next_action = action
     self.D_reward = reward
     self.D_terminal = terminal
-    self.D_s_t1 = s_t * (1.0/255.0)
+    if not self.D[self.D_idx].imgs_normalized:
+        self.D_s_t1 = s_t * (1.0/255.0)
+    else:
+        self.D_s_t1 = s_t
 
   def replay_mem_update(self):
     self.D_action = self.D_next_action

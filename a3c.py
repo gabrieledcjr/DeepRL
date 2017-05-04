@@ -68,7 +68,7 @@ def run_a3c(args):
             demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
         else:
             demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
-        demo_memory = load_memory(args.gym_env, demo_memory_folder)
+        demo_memory = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True)
 
     device = "/cpu:0"
     gpu_options = None

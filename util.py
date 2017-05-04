@@ -16,7 +16,7 @@ try:
 except ImportError:
     import pickle
 
-def load_memory(name, demo_memory_folder):
+def load_memory(name, demo_memory_folder, imgs_normalized=False):
     assert os.path.isfile(demo_memory_folder + '/demo.db')
     conn = sqlite3.connect(demo_memory_folder + '/demo.db')
     db = conn.cursor()
@@ -41,6 +41,8 @@ def load_memory(name, demo_memory_folder):
         D.terminal = data['D.terminal']
         D.size = data['D.size']
         D.imgs = get_compressed_images(folder + name + '-dqn-images.h5' + '.gz')
+        if imgs_normalized:
+            D.normalize_images()
         datasets.append(D)
     print ("D size: {}".format(len(D)))
     print ("Total memory: {}".format(total_memory))
