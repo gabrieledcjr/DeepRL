@@ -68,7 +68,7 @@ def run_a3c(args):
             demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
         else:
             demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
-        demo_memory = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True)
+        demo_memory, actions_ctr = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True)
 
     device = "/cpu:0"
     gpu_options = None
@@ -234,8 +234,8 @@ def run_a3c(args):
             last_temp_global_t, ispretrain_markers
         training_thread = training_threads[parallel_index]
 
-        # 1/4 of the threads is used to simulate demo memory
-        if args.load_memory and (args.parallel_size - (args.parallel_size/4)) <= parallel_index:
+        # 1/8 of the threads is used to simulate demo memory
+        if args.load_memory and (args.parallel_size - (args.parallel_size/8)) <= parallel_index:
             training_thread.is_demo_thread = args.set_last_threads_as_demo
 
         if global_t == 0 and args.train_with_demo_epoch > 0:

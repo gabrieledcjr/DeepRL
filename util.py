@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 from math import sqrt
 from data_set import DataSet
+from collections import defaultdict
 
 try:
     import cPickle as pickle
@@ -23,6 +24,7 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False):
     datasets = []
     print ("Loading data")
     total_memory = 0
+    actions_ctr = defaultdict(int)
     for demo in db.execute("SELECT * FROM demo_samples"):
         print (demo)
         assert demo[2] == name
@@ -43,12 +45,15 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False):
         D.imgs = get_compressed_images(folder + name + '-dqn-images.h5' + '.gz')
         if imgs_normalized:
             D.normalize_images()
+        for step in range(len(D)):
+            _, a, _, _ = D[step]
+            actions_ctr[a] += 1
         datasets.append(D)
     print ("D size: {}".format(len(D)))
     print ("Total memory: {}".format(total_memory))
     print ("Data loaded!")
     conn.close()
-    return datasets
+    return datasets, actions_ctr
 
 def egreedy(readout_t, n_actions=-1):
     assert n_actions > 1

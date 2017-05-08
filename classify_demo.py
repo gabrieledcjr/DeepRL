@@ -23,7 +23,7 @@ class ClassifyDemo(object):
         self.folder = folder
         self.use_lstm = use_lstm
 
-        self.D = load_memory(self.name, self.demo_memory_folder, imgs_normalized=True)
+        self.D, actions_ctr = load_memory(self.name, self.demo_memory_folder, imgs_normalized=True)
 
         self.net.prepare_loss()
         self.net.prepare_evaluate()
