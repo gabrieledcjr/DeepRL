@@ -257,7 +257,7 @@ def run_a3c(args):
                     print ("t_idx={} pretrain ended".format(parallel_index))
                     break
 
-                diff_pretrain_global_t = training_thread.demo_process(sess, pretrain_global_t)
+                diff_pretrain_global_t, _ = training_thread.demo_process(sess, pretrain_global_t)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
 
