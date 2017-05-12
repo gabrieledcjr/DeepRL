@@ -216,14 +216,15 @@ class A3CTrainingThread(object):
     for i in range(self.local_t_max):
       pi_, value_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
       action = self.D_action
+      time.sleep(0.002)
 
       states.append(self.D_s_t)
       actions.append(action)
       values.append(value_)
 
       if (self.thread_index == 0) and (self.local_t % self.log_interval == 0):
-        print("  pi={}".format(pi_))
-        print("   V={}".format(value_))
+        print(colored("  pi={}".format(pi_),"yellow"))
+        print(colored("   V={}".format(value_), "yellow"))
 
       # process replay memory
       self.replay_mem_process()
@@ -244,6 +245,7 @@ class A3CTrainingThread(object):
       s_t = self.D_s_t
 
       if terminal or self.D_count == len(self.D[self.D_idx]):
+        print(colored("t_idx={} score={}".format(self.thread_index, self.episode_reward), "yellow"))
         demo_ended = True
         if terminal:
           terminal_end = True

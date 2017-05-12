@@ -258,7 +258,6 @@ def run_a3c(args):
                     break
 
                 diff_pretrain_global_t, _ = training_thread.demo_process(sess, pretrain_global_t)
-                time.sleep(0.1)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
 
