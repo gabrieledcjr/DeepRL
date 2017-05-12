@@ -258,6 +258,7 @@ def run_a3c(args):
                     break
 
                 diff_pretrain_global_t, _ = training_thread.demo_process(sess, pretrain_global_t)
+                time.sleep(0.1)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
 
@@ -310,7 +311,7 @@ def run_a3c(args):
                         training_thread.local_network.reset_state()
                     training_thread.is_demo_thread = False
             else:
-                diff_global_t = training_thread.process(
+                diff_global_t, episode_end = training_thread.process(
                     sess, global_t, summary_writer,
                     summary_op, score_input, training_rewards,
                     pretrain_global_t)
