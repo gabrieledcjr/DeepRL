@@ -265,6 +265,10 @@ def run_a3c(args):
                 if pretrain_epoch % 1000 == 0:
                     print ("pretrain_epoch={} pretrain_global_t={}".format(pretrain_epoch, pretrain_global_t))
 
+            training_thread.replay_mem_reset()
+            training_thread.episode_reward = 0
+            if args.use_lstm:
+                training_thread.local_network.reset_state()
             # Waits for all threads to finish pretraining
             while not stop_requested and any(ispretrain_markers):
                 time.sleep(0.01)

@@ -55,12 +55,7 @@ class AtariEnvSkipping(gym.Wrapper):
         print (colored("action space: {}".format(self.n_actions), "green"))
 
     def _step(self, a):
-        if self.env_id[:8] == 'Breakout':
-            if a == 1: act = 3
-            elif a == 2: act = 2
-            elif a == 3: act = 1
-            else: act = 0
-        elif self.env_id[:5] == 'Qbert':
+        if self.env_id[:5] == 'Qbert':
             if a > 0: act = a + 1
             else: act = 0
         else:
@@ -119,9 +114,9 @@ class GameState(object):
             self.action_map[UP] = 1
             self.action_map[DOWN] = 2
         elif self.env_id[:8] == 'Breakout':
-            self.action_map[LEFT] = 1
+            self.action_map[FIRE] = 1
             self.action_map[RIGHT] = 2
-            self.action_map[FIRE] = 3
+            self.action_map[LEFT] = 3
         elif self.env_id[:9] == 'BeamRider':
             self.action_map[FIRE] = 1
             self.action_map[TORPEDO] = self.action_map[UP] = 2
@@ -161,6 +156,7 @@ class GameState(object):
         self.stop_thread = False
         self.keys_thread = threading.Thread(target=(self.update_human_agent_action))
         self.keys_thread.start()
+        print ("Keys thread started")
 
     def update_human_agent_action(self):
         while not self.stop_thread:
@@ -202,9 +198,16 @@ class GameState(object):
         print ("Exited thread loop")
 
     def _process_frame(self, action, normalize=True):
+        info = {'lost_life': False}
         reward = 0
-        observation, r, terminal, _ = self.env.step(action)
+        observation, r, terminal, env_info = self.env.step(action)
         reward += r
+
+        if self.lives < env_info['ale.lives']:
+            self.lives = env_info['ale.lives']
+        elif (self.lives - env_info['ale.lives']) != 0 and r <= 0:
+            self.lives = env_info['ale.lives']
+            info['lost_life'] = True
 
         grayscale_observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
 
@@ -221,33 +224,36 @@ class GameState(object):
         # normalize
         if normalize:
             x_t *= (1.0/255.0)
-        return reward, terminal, x_t
+        return reward, terminal, x_t, info
 
     def reset(self, normalize=True):
         self.env.reset()
+        self.lives = self.env.env.ale.lives()
 
         # randomize initial state
         if self._no_op_max > 0:
-            no_op = np.random.randint(0, self._no_op_max + 1)
+            no_op = np.random.randint(0, self._no_op_max * (4/self._frame_skip) + 1)
             for _ in range(no_op):
                 self.env.step(0)
 
-        _, _, x_t = self._process_frame(0, normalize=normalize)
+        _, _, x_t, info = self._process_frame(0, normalize=normalize)
         self.x_t = x_t
 
         self.reward = 0
         self.terminal = False
+        self.lost_life = info['lost_life']
         self.s_t = np.stack((x_t, x_t, x_t, x_t), axis = 2)
 
     def process(self, action, normalize=True):
         if self._display:
             self.env.unwrapped._render()
 
-        r, t, x_t1 = self._process_frame(action, normalize=normalize)
+        r, t, x_t1, info = self._process_frame(action, normalize=normalize)
         self.x_t = x_t1
 
         self.reward = r
         self.terminal = t
+        self.lost_life = info['lost_life']
         x_t = np.reshape(x_t1, (84, 84, 1))
         self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis = 2)
 

@@ -200,6 +200,7 @@ class A3CTrainingThread(object):
     rewards = []
     values = []
 
+    demo_ended = False
     terminal_end = False
 
     # copy weights from shared to local
@@ -243,6 +244,7 @@ class A3CTrainingThread(object):
       s_t = self.D_s_t
 
       if terminal or self.D_count == len(self.D[self.D_idx]):
+        demo_ended = True
         if terminal:
           terminal_end = True
           if self.use_lstm:
@@ -316,7 +318,7 @@ class A3CTrainingThread(object):
 
     # return advancd local step size
     diff_local_t = self.local_t - start_local_t
-    return diff_local_t
+    return diff_local_t, demo_ended
 
   def process(self, sess, global_t, summary_writer, summary_op, score_input, training_rewards, pretrain_global_t):
     states = []
@@ -438,4 +440,4 @@ class A3CTrainingThread(object):
 
     # return advanced local step size
     diff_local_t = self.local_t - start_local_t
-    return diff_local_t
+    return diff_local_t, terminal_end
