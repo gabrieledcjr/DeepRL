@@ -7,6 +7,7 @@ from termcolor import colored
 from a3c import run_a3c
 from classify_demo import classify_demo
 from collect_demo import get_demo
+from extract_transfer_layers import extract_layers
 
 def main():
     parser = argparse.ArgumentParser()
@@ -54,6 +55,12 @@ def main():
     parser.add_argument('--transfer-folder', type=str, default=None)
     parser.add_argument('--not-transfer-fc2', action='store_true')
     parser.set_defaults(not_transfer_fc2=False)
+    parser.add_argument('--not-transfer-fc1', action='store_true')
+    parser.set_defaults(not_transfer_fc1=False)
+    parser.add_argument('--not-transfer-conv3', action='store_true')
+    parser.set_defaults(not_transfer_conv3=False)
+    parser.add_argument('--not-transfer-conv2', action='store_true')
+    parser.set_defaults(not_transfer_conv2=False)
 
     parser.add_argument('--collect-demo', action='store_true')
     parser.set_defaults(collect_demo=False)
@@ -65,17 +72,24 @@ def main():
     parser.add_argument('--demo-memory-folder', type=str, default=None)
     parser.add_argument('--train-with-demo-epoch', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
 
-    parser.add_argument('--set-last-threads-as-demo', action='store_true')
-    parser.set_defaults(set_last_threads_as_demo=False)
+    parser.add_argument('--use-demo-threads', action='store_true')
+    parser.set_defaults(use_demo_threads=False)
     parser.add_argument('--max-steps-threads-as-demo', type=int, default=1000000)
 
     parser.add_argument('--classify-demo', action='store_true')
     parser.set_defaults(classify_demo=False)
     parser.add_argument('--model-folder', type=str, default=None)
 
+    parser.add_argument('--extract-transfer-layers', action='store_true')
+    parser.set_defaults(extract_transfer_layers=False)
+
     args = parser.parse_args()
 
-    if args.collect_demo:
+    if args.extract_transfer_layers:
+        print (colored('Extracting transfer layers...', 'green'))
+        sleep(2)
+        extract_layers(args)
+    elif args.collect_demo:
         print (colored('Collecting demonstration...', 'green'))
         sleep(2)
         get_demo(args)

@@ -155,7 +155,7 @@ class A3CTrainingThread(object):
     self.episode_reward = 0
     self.game_state.reset()
     if self.is_demo_thread:
-        self.replay_mem_reset()
+      self.replay_mem_reset()
 
     if self.use_lstm:
       self.local_network.reset_state()
@@ -166,18 +166,21 @@ class A3CTrainingThread(object):
     self.D = D
     self.replay_mem_reset()
 
-  def replay_mem_reset(self):
-    # new random episode
-    self.D_idx = np.random.randint(0, self.D_size)
-    self.D_count = 0
+  def replay_mem_reset(self, D_idx=None):
+    if D_idx is not None:
+      self.D_idx = D_idx
+    else:
+      # new random episode
+      self.D_idx = np.random.randint(0, self.D_size)
+    self.D_count = np.random.randint(0, 30)
     s_t, action, reward, terminal = self.D[self.D_idx][self.D_count]
     self.D_action = action
     self.D_reward = reward
     self.D_terminal = terminal
     if not self.D[self.D_idx].imgs_normalized:
-        self.D_s_t = s_t * (1.0/255.0)
+      self.D_s_t = s_t * (1.0/255.0)
     else:
-        self.D_s_t = s_t
+      self.D_s_t = s_t
 
   def replay_mem_process(self):
     self.D_count += 1
@@ -186,15 +189,15 @@ class A3CTrainingThread(object):
     self.D_reward = reward
     self.D_terminal = terminal
     if not self.D[self.D_idx].imgs_normalized:
-        self.D_s_t1 = s_t * (1.0/255.0)
+      self.D_s_t1 = s_t * (1.0/255.0)
     else:
-        self.D_s_t1 = s_t
+      self.D_s_t1 = s_t
 
   def replay_mem_update(self):
     self.D_action = self.D_next_action
     self.D_s_t = self.D_s_t1
 
-  def demo_process(self, sess, global_t, pretrain_global_t=0):
+  def demo_process(self, sess, global_t, pretrain_global_t=0, D_idx=None):
     states = []
     actions = []
     rewards = []
@@ -216,7 +219,7 @@ class A3CTrainingThread(object):
     for i in range(self.local_t_max):
       pi_, value_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
       action = self.D_action
-      time.sleep(0.002)
+      time.sleep(0.0025)
 
       states.append(self.D_s_t)
       actions.append(action)
@@ -258,7 +261,7 @@ class A3CTrainingThread(object):
             reset_lstm_state = True
 
         self.episode_reward = 0
-        self.replay_mem_reset()
+        self.replay_mem_reset(D_idx=D_idx)
         break
 
     R = 0.0
@@ -317,6 +320,9 @@ class A3CTrainingThread(object):
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
                   self.learning_rate_input: cur_learning_rate} )
+
+    if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
+      self.prev_local_t += self.performance_log_interval
 
     # return advancd local step size
     diff_local_t = self.local_t - start_local_t

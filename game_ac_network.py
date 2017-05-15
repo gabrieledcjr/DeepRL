@@ -94,16 +94,28 @@ class GameACNetwork(object):
   def _conv2d(self, x, W, stride):
     return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "VALID")
 
-  def load_transfer_model(self, sess, folder='', transfer_fc2=False, var_list=None):
+  def load_transfer_model(
+    self, sess, folder='',
+    not_transfer_fc2=False, not_transfer_fc1=False,
+    not_transfer_conv3=False, not_transfer_conv2=False,
+    var_list=None):
     assert folder != ''
     assert self._thread_index == -1 # only load model to global network
 
-    if transfer_fc2:
+    transfer_all = False
+    if not_transfer_conv2:
+      folder += '/noconv2'
+    elif not_transfer_conv3:
+      folder += '/noconv3'
+    elif not_transfer_fc1:
+      folder += '/nofc1'
+    elif not_transfer_fc2:
+      folder += '/nofc2'
+    else:
+      transfer_all = True
       with open(folder + "/max_output_value", 'r') as f_max_value:
         transfer_max_output_val = float(f_max_value.readline().split()[0])
       folder += '/all'
-    else:
-      folder += '/nofc2'
 
     saver_transfer_from = tf.train.Saver(var_list=var_list)
     checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
@@ -112,7 +124,14 @@ class GameACNetwork(object):
       saver_transfer_from.restore(sess, checkpoint_transfer_from.model_checkpoint_path)
       print (colored("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green"))
 
-      if transfer_fc2:
+      global_vars = tf.global_variables()
+      is_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+      initialized_vars = [v for (v, f) in zip(global_vars, is_initialized) if f]
+      for var in initialized_vars:
+        print(colored("\t{} loaded".format(var.op.name), "green"))
+        sleep(.5)
+
+      if transfer_all:
         # scale down last layer if it's transferred
         print (colored("Normalizing output layer with max value {}...".format(transfer_max_output_val), "yellow"))
         W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)

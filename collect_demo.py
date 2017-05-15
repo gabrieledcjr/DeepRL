@@ -8,7 +8,7 @@ from datetime import datetime
 from termcolor import colored
 from util import prepare_dir, process_frame, save_compressed_images, get_action_index
 from data_set import DataSet
-from game_state import GameState
+from game_state import GameState, FIRE, LEFT, RIGHT
 
 try:
     import cPickle as pickle
@@ -121,6 +121,27 @@ class CollectDemonstration(object):
         print ("Total # of episodes: {}".format(num_episodes))
         self.conn.close()
 
+    def _pause_lost_life(self, is_breakout=False, is_beamrider=False):
+        start_pause = datetime.now()
+        pause_start = time.time()
+        if is_breakout:
+            key_str = '[FIRE]'
+        elif is_beamrider:
+            key_str = '[LEFT or RIGHT]'
+        print ("You are required to press {} key to continue...".format(key_str))
+        while True:
+            action = self.game_state.human_agent_action
+            if is_breakout and action == self.game_state.action_map[FIRE]:
+                break
+            if is_beamrider and action == self.game_state.action_map[LEFT]:
+                break
+            if is_beamrider and action == self.game_state.action_map[RIGHT]:
+                break
+            self.game_state.process(0, normalize=False)
+        pause_duration = time.time() - pause_start
+        print ("Paused for {}".format(datetime.now() - start_pause))
+        return action, pause_duration
+
     def run(self, minutes_limit=5, demo_type=0, model_net=None, D=None):
         if D is not None:
             self.D = D
@@ -144,6 +165,15 @@ class CollectDemonstration(object):
 
         # re-initialize game for evaluation
         self._reset()
+        time.sleep(2)
+
+        is_breakout = self.game_state.env_id[:8] == 'Breakout'
+        is_beamrider = self.game_state.env_id[:9] == 'BeamRider'
+        override_add_sample = False
+        if demo_type == 0 and (is_breakout or is_beamrider):
+            action, pause_duration = self._pause_lost_life(is_breakout=is_breakout, is_beamrider=is_beamrider)
+            timeout += pause_duration
+            override_add_sample = True
 
         while True:
             if demo_type == 1: # RANDOM AGENT
@@ -154,19 +184,26 @@ class CollectDemonstration(object):
                     readout_t = model_net.evaluate(self.state_input)[0]
                     action = get_action_index(readout_t, is_random=False, n_actions=self.game_state.n_actions)
             else: # HUMAN
-                action = self.game_state.human_agent_action
+                if self.game_state.lost_life and (is_breakout or is_beamrider):
+                    action, pause_duration = self._pause_lost_life(is_breakout=is_breakout, is_beamrider=is_beamrider)
+                    timeout += pause_duration
+                    override_add_sample = True
+                else:
+                    action = self.game_state.human_agent_action
 
             self.game_state.process(action, normalize=False)
             terminal = True if self.game_state.terminal or (time.time() > timeout_start + timeout) else False
 
             # store the transition in D
             # when using frameskip=1, should store every four steps
-            if t % self._skip == 0:
+            # or when lost of life and their is a pause
+            if t % self._skip == 0 or override_add_sample:
                 self.D.add_sample(
                     self.game_state.x_t,
                     action,
                     self.game_state.reward,
                     self.game_state.terminal)
+                override_add_sample = False
             self.game_state.update()
 
             total_reward += self.game_state.reward

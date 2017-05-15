@@ -43,21 +43,26 @@ def run_a3c(args):
         folder = 'results/{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
     else:
         folder = 'results/{}'.format(args.gym_env.replace('-', '_'))
-
-    end_str = ''
-    if args.use_transfer:
-        end_str += '_transfer'
-        if args.not_transfer_fc2:
-            end_str += '_nofc2'
-    if args.train_with_demo_epoch > 0:
-        end_str += '_pretrain_ina3c'
-    if args.set_last_threads_as_demo:
-        end_str += '_demothreads'
-    if args.use_mnih_2015:
-        end_str += '_use_mnih'
-    if args.use_lstm:
-        end_str += '_use_lstm'
-    folder += end_str
+        end_str = ''
+        if args.use_transfer:
+            end_str += '_transfer'
+            if args.not_transfer_conv2:
+                end_str += '_noconv2'
+            elif args.not_transfer_conv3 and args.use_mnih_2015:
+                end_str += '_noconv3'
+            elif args.not_transfer_fc1:
+                end_str += '_nofc1'
+            elif args.not_transfer_fc2 or args.use_lstm:
+                end_str += '_nofc2'
+        if args.train_with_demo_epoch > 0:
+            end_str += '_pretrain_ina3c'
+        if args.use_demo_threads:
+            end_str += '_demothreads'
+        if args.use_mnih_2015:
+            end_str += '_use_mnih'
+        if args.use_lstm:
+            end_str += '_use_lstm'
+        folder += end_str
 
     if args.append_experiment_num is not None:
         folder += '_' + args.append_experiment_num
@@ -157,22 +162,50 @@ def run_a3c(args):
             transfer_folder += end_str
             transfer_folder += '/transfer_model'
 
-        transfer_var_list = [
-            global_network.W_conv1, global_network.b_conv1,
-            global_network.W_conv2, global_network.b_conv2,
-            global_network.W_fc1, global_network.b_fc1
-        ]
-        if args.use_mnih_2015:
-            transfer_var_list += [
-                global_network.W_conv3, global_network.b_conv3
+        if args.not_transfer_conv2:
+            transfer_var_list = [global_network.W_conv1, global_network.b_conv1]
+        elif (args.not_transfer_conv3 and args.use_mnih_2015):
+            transfer_var_list = [
+                global_network.W_conv1, global_network.b_conv1,
+                global_network.W_conv2, global_network.b_conv2
             ]
-        if not args.not_transfer_fc2 and not args.use_lstm:
-            transfer_var_list += [
+        elif args.not_transfer_fc1:
+            transfer_var_list = [
+                global_network.W_conv1, global_network.b_conv1,
+                global_network.W_conv2, global_network.b_conv2,
+            ]
+            if args.use_mnih_2015:
+                transfer_var_list += [
+                    global_network.W_conv3, global_network.b_conv3
+                ]
+        elif args.not_transfer_fc2 and args.use_lstm:
+            transfer_var_list = [
+                global_network.W_conv1, global_network.b_conv1,
+                global_network.W_conv2, global_network.b_conv2,
+                global_network.W_fc1, global_network.b_fc1
+            ]
+            if args.use_mnih_2015:
+                transfer_var_list += [
+                    global_network.W_conv3, global_network.b_conv3
+                ]
+        else:
+            transfer_var_list = [
+                global_network.W_conv1, global_network.b_conv1,
+                global_network.W_conv2, global_network.b_conv2,
+                global_network.W_fc1, global_network.b_fc1,
                 global_network.W_fc2, global_network.b_fc2
             ]
+            if args.use_mnih_2015:
+                transfer_var_list += [
+                    global_network.W_conv3, global_network.b_conv3
+                ]
+
         global_network.load_transfer_model(
             sess, folder=transfer_folder,
-            transfer_fc2=(False if args.not_transfer_fc2 or args.use_lstm else True),
+            not_transfer_fc2=(args.not_transfer_fc2 or args.use_lstm),
+            not_transfer_fc1=args.not_transfer_fc1,
+            not_transfer_conv3=(args.not_transfer_conv3 and args.use_mnih_2015),
+            not_transfer_conv2=args.not_transfer_conv2,
             var_list=transfer_var_list
         )
 
@@ -228,19 +261,23 @@ def run_a3c(args):
 
     last_temp_global_t = global_t
     ispretrain_markers = [False] * args.parallel_size
+    num_demo_thread = 0
+    ctr_demo_thread = 0
     def train_function(parallel_index):
         nonlocal global_t, pretrain_global_t, pretrain_epoch, \
             testing_rewards, training_rewards, test_lock, lock, \
-            last_temp_global_t, ispretrain_markers
+            last_temp_global_t, ispretrain_markers, num_demo_thread, ctr_demo_thread
         training_thread = training_threads[parallel_index]
+        num_demos = len(demo_memory)
 
-        # 1/8 of the threads is used to simulate demo memory
-        if args.load_memory and (args.parallel_size - (args.parallel_size/8)) <= parallel_index:
-            training_thread.is_demo_thread = args.set_last_threads_as_demo
-
-        if global_t == 0 and args.train_with_demo_epoch > 0:
-            ispretrain_markers[parallel_index] = True
+        # set all threads as demo threads
+        training_thread.is_demo_thread = args.load_memory and args.use_demo_threads
+        if training_thread.is_demo_thread or args.train_with_demo_epoch > 0:
             training_thread.pretrain_init(demo_memory)
+
+        if global_t == 0 and args.train_with_demo_epoch > 0 and parallel_index < num_demos:
+            ispretrain_markers[parallel_index] = True
+            training_thread.replay_mem_reset(self, D_idx=parallel_index)
 
             # Pretraining with demo memory
             print ("t_idx={} pretrain starting".format(parallel_index))
@@ -249,6 +286,7 @@ def run_a3c(args):
                     break
                 if pretrain_epoch > args.train_with_demo_epoch:
                     # At end of pretraining, reset state
+                    training_thread.replay_mem_reset()
                     training_thread.episode_reward = 0
                     training_thread.local_t = 0
                     if args.use_lstm:
@@ -257,7 +295,10 @@ def run_a3c(args):
                     print ("t_idx={} pretrain ended".format(parallel_index))
                     break
 
-                diff_pretrain_global_t, _ = training_thread.demo_process(sess, pretrain_global_t)
+                diff_pretrain_global_t, _ = training_thread.demo_process(
+                    sess, global_t,
+                    pretrain_global_t=pretrain_global_t,
+                    D_idx=parallel_index)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
 
@@ -265,10 +306,6 @@ def run_a3c(args):
                 if pretrain_epoch % 1000 == 0:
                     print ("pretrain_epoch={} pretrain_global_t={}".format(pretrain_epoch, pretrain_global_t))
 
-            training_thread.replay_mem_reset()
-            training_thread.episode_reward = 0
-            if args.use_lstm:
-                training_thread.local_network.reset_state()
             # Waits for all threads to finish pretraining
             while not stop_requested and any(ispretrain_markers):
                 time.sleep(0.01)
@@ -286,29 +323,34 @@ def run_a3c(args):
             while not stop_requested and test_lock:
                 time.sleep(0.01)
 
-        if training_thread.is_demo_thread:
-            training_thread.pretrain_init(demo_memory)
-
         # set start_time
         start_time = time.time() - wall_t
         training_thread.set_start_time(start_time)
+        episode_end = True
+        use_demo_thread = False
         while True:
             if stop_requested:
                 break
             if global_t > (args.max_time_step * args.max_time_step_fraction):
                 break
 
-            if training_thread.is_demo_thread:
-                if global_t < args.max_steps_threads_as_demo:
-                    diff_global_t = training_thread.demo_process(
-                        sess, global_t,
-                        pretrain_global_t=pretrain_global_t)
-                else:
-                    diff_global_t = 0
-                    training_thread.episode_reward = 0
-                    if args.use_lstm:
-                        training_thread.local_network.reset_state()
-                    training_thread.is_demo_thread = False
+            if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 2:
+                #if np.random.random() <= 0.03333 and num_demo_thread < 2:
+                if num_demo_thread < 2:
+                    ctr_demo_thread += 1
+                    training_thread.replay_mem_reset(D_idx=ctr_demo_thread%num_demos)
+                    num_demo_thread += 1
+                    print (colored("idx={} as demo thread started ({}/2)".format(parallel_index, num_demo_thread), "yellow"))
+                    use_demo_thread = True
+
+            if use_demo_thread:
+                diff_global_t, episode_end = training_thread.demo_process(
+                    sess, global_t,
+                    pretrain_global_t=pretrain_global_t)
+                if episode_end:
+                    num_demo_thread -= 1
+                    use_demo_thread = False
+                    print (colored("idx={} demo thread concluded ({}/2)".format(parallel_index, num_demo_thread), "green"))
             else:
                 diff_global_t, episode_end = training_thread.process(
                     sess, global_t, summary_writer,

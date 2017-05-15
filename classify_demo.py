@@ -182,18 +182,21 @@ def classify_demo(args):
         model_folder = '{}_{}'.format(args.gym_env.replace('-', '_'), args.model_folder)
     else:
         model_folder = '{}_classifier'.format(args.gym_env.replace('-', '_'))
-
-    end_str = ''
-    if args.use_mnih_2015:
-        end_str += '_use_mnih'
-    if args.use_lstm:
-        end_str += '_use_lstm'
-    model_folder += end_str
+        end_str = ''
+        if args.use_mnih_2015:
+            end_str += '_use_mnih'
+        if args.use_lstm:
+            end_str += '_use_lstm'
+        model_folder += end_str
 
     if not os.path.exists(model_folder + '/transfer_model'):
         os.makedirs(model_folder + '/transfer_model')
         os.makedirs(model_folder + '/transfer_model/all')
         os.makedirs(model_folder + '/transfer_model/nofc2')
+        os.makedirs(model_folder + '/transfer_model/nofc1')
+        if args.use_mnih_2015:
+            os.makedirs(model_folder + '/transfer_model/noconv3')
+        os.makedirs(model_folder + '/transfer_model/noconv2')
 
     # assert args.initial_learn_rate > 0
     # initial_learning_rate = args.initial_learn_rate
@@ -270,8 +273,33 @@ def classify_demo(args):
         if param.op.name == "net_-1/fc2_weights" or param.op.name == "net_-1/fc2_biases":
             transfer_params.remove(param)
 
-    transfer_saver_nofc2 = tf.train.Saver(transfer_params)
-    transfer_saver_nofc2.save(sess, model_folder + '/transfer_model/nofc2/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
+    transfer_saver = tf.train.Saver(transfer_params)
+    transfer_saver.save(sess, model_folder + '/transfer_model/nofc2/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
+
+    # Remove fc1 weights
+    for param in transfer_params[:]:
+        if param.op.name == "net_-1/fc1_weights" or param.op.name == "net_-1/fc1_biases":
+            transfer_params.remove(param)
+
+    transfer_saver = tf.train.Saver(transfer_params)
+    transfer_saver.save(sess, model_folder + '/transfer_model/nofc1/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
+
+    # Remove conv3 weights
+    if args.use_mnih_2015:
+        for param in transfer_params[:]:
+            if param.op.name == "net_-1/conv3_weights" or param.op.name == "net_-1/conv3_biases":
+                transfer_params.remove(param)
+
+        transfer_saver = tf.train.Saver(transfer_params)
+        transfer_saver.save(sess, model_folder + '/transfer_model/noconv3/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
+
+    # Remove conv2 weights
+    for param in transfer_params[:]:
+        if param.op.name == "net_-1/conv2_weights" or param.op.name == "net_-1/conv2_biases":
+            transfer_params.remove(param)
+
+    transfer_saver = tf.train.Saver(transfer_params)
+    transfer_saver.save(sess, model_folder + '/transfer_model/noconv2/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
 
     with open(model_folder + '/transfer_model/max_output_value', 'w') as f_max_value:
         f_max_value.write(str(classify_demo.max_val))

@@ -100,7 +100,7 @@ class DataSet(object):
         end_index = key + self.phi_length - 1
 
         state = np.zeros(
-            (84, 84, self.phi_length),
+            (self.height, self.width, self.phi_length),
             dtype=np.float32 if self.imgs_normalized else np.uint8)
         temp = self.imgs.take(indices, axis=0)
         for i in range(self.phi_length):
@@ -161,7 +161,7 @@ class DataSet(object):
         """
         # Allocate the response.
         states = np.zeros(
-            (batch_size, 84, 84, self.phi_length),
+            (batch_size, self.height, self.width, self.phi_length),
             dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
         actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
         rewards = np.zeros(batch_size, dtype=np.float32)
@@ -232,6 +232,40 @@ def test_1(env_id):
     print ("total transitions:", len(D))
     print ("size:", D.size)
 
+def test_2(env_id):
+    from util import get_compressed_images
+    try:
+        import cPickle as pickle
+    except ImportError:
+        import pickle
+
+    folder = "demo_samples/{}".format(env_id.replace('-', '_'))
+    D = DataSet()
+    data = pickle.load(open(folder + '/001/' + env_id + '-dqn.pkl', 'rb'))
+    D.width = data['D.width']
+    D.height = data['D.height']
+    D.max_steps = data['D.max_steps']
+    D.phi_length = data['D.phi_length']
+    D.num_actions = data['D.num_actions']
+    D.actions = data['D.actions']
+    D.rewards = data['D.rewards']
+    D.terminal = data['D.terminal']
+    D.size = data['D.size']
+    D.imgs = get_compressed_images(folder + '/001/' + env_id + '-dqn-images.h5' + '.gz')
+    print (D)
+
+    state, a, r, t = D[0]
+    print (state)
+    print (a, r, t)
+
+    D.normalize_images()
+    state, a, r, t = D[2]
+    print (state)
+    print (a, r, t)
+
+    for count in range(100):
+        _, a, r, t = D[count]
+        print (a,r,t)
 
 if __name__ == "__main__":
     import argparse
@@ -239,4 +273,4 @@ if __name__ == "__main__":
     parser.add_argument('env', type=str)
     args = parser.parse_args()
 
-    test_1(args.env)
+    test_2(args.env)
