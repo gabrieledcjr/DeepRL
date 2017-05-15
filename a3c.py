@@ -68,12 +68,14 @@ def run_a3c(args):
         folder += '_' + args.append_experiment_num
 
     demo_memory = None
+    num_demos = 0
     if args.load_memory:
         if args.demo_memory_folder is not None:
             demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
         else:
             demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
         demo_memory, actions_ctr = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True)
+        num_demos = len(demo_memory)
 
     device = "/cpu:0"
     gpu_options = None
@@ -268,7 +270,6 @@ def run_a3c(args):
             testing_rewards, training_rewards, test_lock, lock, \
             last_temp_global_t, ispretrain_markers, num_demo_thread, ctr_demo_thread
         training_thread = training_threads[parallel_index]
-        num_demos = len(demo_memory)
 
         # set all threads as demo threads
         training_thread.is_demo_thread = args.load_memory and args.use_demo_threads
