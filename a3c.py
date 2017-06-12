@@ -52,7 +52,7 @@ def run_a3c(args):
                 end_str += '_noconv3'
             elif args.not_transfer_fc1:
                 end_str += '_nofc1'
-            elif args.not_transfer_fc2 or args.use_lstm:
+            elif args.not_transfer_fc2:
                 end_str += '_nofc2'
         if args.train_with_demo_epoch > 0:
             end_str += '_pretrain_ina3c'
@@ -69,12 +69,17 @@ def run_a3c(args):
 
     demo_memory = None
     num_demos = 0
+    loss_weight = None
     if args.load_memory:
         if args.demo_memory_folder is not None:
             demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
         else:
             demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
-        demo_memory, actions_ctr = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True)
+        demo_memory, actions_ctr = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True) #, create_symmetry=True)
+        from statistics import median
+        action_freq = [ actions_ctr[a] for a in range(demo_memory[0].num_actions) ]
+        median_freq = median(action_freq)
+        loss_weight = median_freq / np.array(action_freq)
         num_demos = len(demo_memory)
 
     device = "/cpu:0"
@@ -180,7 +185,7 @@ def run_a3c(args):
                 transfer_var_list += [
                     global_network.W_conv3, global_network.b_conv3
                 ]
-        elif args.not_transfer_fc2 and args.use_lstm:
+        elif args.not_transfer_fc2:
             transfer_var_list = [
                 global_network.W_conv1, global_network.b_conv1,
                 global_network.W_conv2, global_network.b_conv2,
@@ -204,7 +209,7 @@ def run_a3c(args):
 
         global_network.load_transfer_model(
             sess, folder=transfer_folder,
-            not_transfer_fc2=(args.not_transfer_fc2 or args.use_lstm),
+            not_transfer_fc2=args.not_transfer_fc2,
             not_transfer_fc1=args.not_transfer_fc1,
             not_transfer_conv3=(args.not_transfer_conv3 and args.use_mnih_2015),
             not_transfer_conv2=args.not_transfer_conv2,
@@ -276,9 +281,9 @@ def run_a3c(args):
         if training_thread.is_demo_thread or args.train_with_demo_epoch > 0:
             training_thread.pretrain_init(demo_memory)
 
-        if global_t == 0 and args.train_with_demo_epoch > 0 and parallel_index < num_demos:
+        if global_t == 0 and args.train_with_demo_epoch > 0:
             ispretrain_markers[parallel_index] = True
-            training_thread.replay_mem_reset(self, D_idx=parallel_index)
+            training_thread.replay_mem_reset()
 
             # Pretraining with demo memory
             print ("t_idx={} pretrain starting".format(parallel_index))
@@ -298,8 +303,7 @@ def run_a3c(args):
 
                 diff_pretrain_global_t, _ = training_thread.demo_process(
                     sess, global_t,
-                    pretrain_global_t=pretrain_global_t,
-                    D_idx=parallel_index)
+                    pretrain_global_t=pretrain_global_t)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
 
@@ -335,13 +339,13 @@ def run_a3c(args):
             if global_t > (args.max_time_step * args.max_time_step_fraction):
                 break
 
-            if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 2:
-                #if np.random.random() <= 0.03333 and num_demo_thread < 2:
-                if num_demo_thread < 2:
+            if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 1:
+                #if num_demo_thread < 2:
+                if np.random.random() <= 0.03333 and num_demo_thread < 1:
                     ctr_demo_thread += 1
                     training_thread.replay_mem_reset(D_idx=ctr_demo_thread%num_demos)
                     num_demo_thread += 1
-                    print (colored("idx={} as demo thread started ({}/2)".format(parallel_index, num_demo_thread), "yellow"))
+                    print (colored("idx={} as demo thread started ({}/1)".format(parallel_index, num_demo_thread), "yellow"))
                     use_demo_thread = True
 
             if use_demo_thread:
@@ -351,7 +355,7 @@ def run_a3c(args):
                 if episode_end:
                     num_demo_thread -= 1
                     use_demo_thread = False
-                    print (colored("idx={} demo thread concluded ({}/2)".format(parallel_index, num_demo_thread), "green"))
+                    print (colored("idx={} demo thread concluded ({}/1)".format(parallel_index, num_demo_thread), "green"))
             else:
                 diff_global_t, episode_end = training_thread.process(
                     sess, global_t, summary_writer,

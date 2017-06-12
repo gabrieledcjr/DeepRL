@@ -17,7 +17,66 @@ try:
 except ImportError:
     import pickle
 
-def load_memory(name, demo_memory_folder, imgs_normalized=False):
+def _create_symmetry(name, D):
+    lr = False
+    ud = False
+    if name[:4] == "Pong":
+        ud = True
+    elif name[:7] == 'Freeway':
+        return None
+    elif name[:8] == 'Breakout':
+        lr = True
+    elif name[:9] == 'BeamRider':
+        lr = True
+    else:
+        return None
+    D_symmetry = DataSet()
+    D_symmetry.width = D.width
+    D_symmetry.height = D.height
+    D_symmetry.max_steps = D.max_steps
+    D_symmetry.phi_length = D.phi_length
+    D_symmetry.num_actions = D.num_actions
+    D_symmetry.actions = np.copy(D.actions)
+    D_symmetry.rewards = np.copy(D.rewards)
+    D_symmetry.terminal = np.copy(D.terminal)
+    D_symmetry.size = D.size
+    if lr:
+        D_symmetry.imgs = np.copy(D.imgs[:,:,::-1])
+    elif ud:
+        D_symmetry.imgs = np.copy(D.imgs[:,::-1])
+    for i in range(D_symmetry.max_steps):
+        if name[:4] == "Pong":
+            if D_symmetry.actions[i] == 2: # UP -> DOWN
+                D_symmetry.actions[i] = 3
+            elif D_symmetry.actions[i] == 3: # DOWN -> UP
+                D_symmetry.actions[i] = 2
+            elif D_symmetry.actions[i] == 4: # UPFIRE -> DOWNFIRE
+                D_symmetry.actions[i] = 5
+            elif D_symmetry.actions[i] == 5: # DOWNFIRE -> UPFIRE
+                D_symmetry.actions[i] = 4
+        elif name[:8] == 'Breakout':
+            if D_symmetry.actions[i] == 2: # RIGHT -> LEFT
+                D_symmetry.actions[i] = 3
+            elif D_symmetry.actions[i] == 3: # LEFT -> RIGHT
+                D_symmetry.actions[i] = 2
+        elif name[:9] == 'BeamRider':
+            if D_symmetry.actions[i] == 3: # RIGHT -> LEFT
+                D_symmetry.actions[i] = 4
+            elif D_symmetry.actions[i] == 4: # LEFT -> RIGHT
+                D_symmetry.actions[i] = 3
+            elif D_symmetry.actions[i] == 5: # RIGHTTORPEDO -> LEFTTORPEDO
+                D_symmetry.actions[i] = 6
+            elif D_symmetry.actions[i] == 6: # LEFTTORPEDO -> RIGHTTORPEDO
+                D_symmetry.actions[i] = 5
+            elif D_symmetry.actions[i] == 7: # RIGHTFIRE -> LEFTFIRE
+                D_symmetry.actions[i] = 8
+            elif D_symmetry.actions[i] == 8: # LEFTFIRE -> RIGHTFIRE
+                D_symmetry.actions[i] = 7
+        else:
+            return None
+    return D_symmetry
+
+def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry=False):
     assert os.path.isfile(demo_memory_folder + '/demo.db')
     conn = sqlite3.connect(demo_memory_folder + '/demo.db')
     db = conn.cursor()
@@ -49,6 +108,12 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False):
             _, a, _, _ = D[step]
             actions_ctr[a] += 1
         datasets.append(D)
+
+        if create_symmetry:
+            D_symmetry = _create_symmetry(name, D)
+            if D_symmetry is not None:
+                datasets.append(D_symmetry)
+
     print ("D size: {}".format(len(D)))
     print ("Total memory: {}".format(total_memory))
     print ("Data loaded!")

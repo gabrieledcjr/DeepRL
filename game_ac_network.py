@@ -24,8 +24,9 @@ class GameACNetwork(object):
       # temporary difference (R-V) (input for policy)
       self.td = tf.placeholder("float", [None])
 
+      self.clip_min = tf.placeholder(tf.float32, shape=(), name="clip_minimum")
       # avoid NaN with clipping when value in pi becomes zero
-      log_pi = tf.log(tf.clip_by_value(self.pi, 1e-20, 1.0))
+      log_pi = tf.log(tf.clip_by_value(self.pi, self.clip_min, 1.0))
 
       # policy entropy
       entropy = -tf.reduce_sum(self.pi * log_pi, axis=1)

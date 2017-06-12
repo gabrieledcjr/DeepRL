@@ -115,8 +115,8 @@ class A3CTrainingThread(object):
       episode_reward = 0
       while total_steps < max_steps:
         pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
-        #action = self.choose_action(pi_)
-        action = get_action_index(pi_, is_random=(np.random.random() <= 0.05), n_actions=self.game_state.env.n_actions)
+        action = self.choose_action(pi_)
+        #action = get_action_index(pi_, is_random=(np.random.random() <= 0.05), n_actions=self.game_state.env.n_actions)
 
         # process game
         self.game_state.process(action)
@@ -172,7 +172,12 @@ class A3CTrainingThread(object):
     else:
       # new random episode
       self.D_idx = np.random.randint(0, self.D_size)
-    self.D_count = np.random.randint(0, 30)
+    self.D_count = np.random.randint(0, len(self.D[self.D_idx])-self.local_t_max)
+    # if self.D_count+self.local_t_max < len(self.D[self.D_idx]):
+    #     self.D_max_count = np.random.randint(self.D_count+self.local_t_max, len(self.D[self.D_idx]))
+    # else:
+    #     self.D_max_count = len(self.D[self.D_idx])
+    print(colored("t_idx={} mem_reset D_idx={} D_start={}".format(self.thread_index, self.D_idx, self.D_count), "blue"))
     s_t, action, reward, terminal = self.D[self.D_idx][self.D_count]
     self.D_action = action
     self.D_reward = reward
@@ -255,7 +260,7 @@ class A3CTrainingThread(object):
           if self.use_lstm:
             self.local_network.reset_state()
 
-        elif self.D_count == len(self.D[self.D_idx]):
+        else:
           # some demo episodes doesn't reach terminal state
           if self.use_lstm:
             reset_lstm_state = True
@@ -304,6 +309,7 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
+                  self.local_network.clip_min: 1e-1,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate } )
@@ -319,6 +325,7 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
+                  self.local_network.clip_min: 1e-1,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
@@ -427,6 +434,7 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
+                  self.local_network.clip_min: 1e-20,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate } )
@@ -437,6 +445,7 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
+                  self.local_network.clip_min: 1e-20,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
