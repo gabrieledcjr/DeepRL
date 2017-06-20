@@ -21,6 +21,8 @@ class A3CTrainingThread(object):
   gamma = 0.99
   use_mnih_2015 = False
   env_id = None
+  adaptive_reward = False
+  max_reward = [0.]
 
   def __init__(self,
                thread_index,
@@ -41,6 +43,9 @@ class A3CTrainingThread(object):
     print (colored("action_size: {}".format(self.action_size), "green"))
     print (colored("entropy_beta: {}".format(self.entropy_beta), "green"))
     print (colored("gamma: {}".format(self.gamma), "green"))
+    print (colored("adaptive_reward: {}".format(self.adaptive_reward), "green" if self.adaptive_reward else "red"))
+    if self.adaptive_reward:
+      print (colored("max_reward: {}".format(self.max_reward[0]), "green"))
 
     if self.use_lstm:
       GameACLSTMNetwork.use_mnih_2015 = self.use_mnih_2015
@@ -124,6 +129,10 @@ class A3CTrainingThread(object):
         # receive game result
         reward = self.game_state.reward
         terminal = self.game_state.terminal
+
+        if self.adaptive_reward and abs(reward) > self.max_reward[0]:
+          self.max_reward[0] = reward
+          print (colored("max_reward updated: {}".format(self.max_reward[0]), "cyan"))
 
         episode_reward += reward
         total_steps += 1
@@ -243,8 +252,13 @@ class A3CTrainingThread(object):
 
       self.episode_reward += reward
 
-      # clip reward
-      rewards.append( np.clip(reward, -1, 1) )
+      if self.adaptive_reward and self.max_reward[0] > 0:
+        reward = reward / self.max_reward[0]
+      else:
+        # clip reward
+        reward = np.clip(reward, -1, 1)
+
+      rewards.append(reward)
 
       self.local_t += 1
 
@@ -373,8 +387,17 @@ class A3CTrainingThread(object):
 
       self.episode_reward += reward
 
-      # clip reward
-      rewards.append( np.clip(reward, -1, 1) )
+      if self.adaptive_reward and abs(reward) > self.max_reward[0]:
+        self.max_reward[0] = reward
+        print (colored("max_reward updated: {}".format(self.max_reward[0]), "cyan"))
+
+      if self.adaptive_reward and self.max_reward[0] > 0:
+        reward = reward / self.max_reward[0]
+      else:
+        # clip reward
+        reward = np.clip(reward, -1, 1)
+
+      rewards.append(reward)
 
       self.local_t += 1
 

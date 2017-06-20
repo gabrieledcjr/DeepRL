@@ -83,6 +83,9 @@ def main():
     parser.add_argument('--extract-transfer-layers', action='store_true')
     parser.set_defaults(extract_transfer_layers=False)
 
+    parser.add_argument('--adaptive-reward', action='store_true')
+    parser.set_defaults(adaptive_reward=False)
+
     args = parser.parse_args()
 
     if args.extract_transfer_layers:

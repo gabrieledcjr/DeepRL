@@ -84,6 +84,7 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry
     print ("Loading data")
     total_memory = 0
     actions_ctr = defaultdict(int)
+    max_reward = 0
     for demo in db.execute("SELECT * FROM demo_samples"):
         print (demo)
         assert demo[2] == name
@@ -99,6 +100,9 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry
         D.num_actions = data['D.num_actions']
         D.actions = data['D.actions']
         D.rewards = data['D.rewards']
+        temp_max_reward = np.max(np.absolute(D.rewards))
+        if temp_max_reward > max_reward:
+            max_reward = temp_max_reward
         D.terminal = data['D.terminal']
         D.size = data['D.size']
         D.imgs = get_compressed_images(folder + name + '-dqn-images.h5' + '.gz')
@@ -118,7 +122,7 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry
     print ("Total memory: {}".format(total_memory))
     print ("Data loaded!")
     conn.close()
-    return datasets, actions_ctr
+    return datasets, actions_ctr, max_reward
 
 def egreedy(readout_t, n_actions=-1):
     assert n_actions > 1

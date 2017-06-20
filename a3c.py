@@ -62,6 +62,8 @@ def run_a3c(args):
             end_str += '_use_mnih'
         if args.use_lstm:
             end_str += '_use_lstm'
+        if args.adaptive_reward:
+            end_str += '_adapt_reward'
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -70,12 +72,13 @@ def run_a3c(args):
     demo_memory = None
     num_demos = 0
     loss_weight = None
+    max_reward = 0.
     if args.load_memory:
         if args.demo_memory_folder is not None:
             demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
         else:
             demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
-        demo_memory, actions_ctr = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True) #, create_symmetry=True)
+        demo_memory, actions_ctr, max_reward = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True) #, create_symmetry=True)
         from statistics import median
         action_freq = [ actions_ctr[a] for a in range(demo_memory[0].num_actions) ]
         median_freq = median(action_freq)
@@ -141,6 +144,9 @@ def run_a3c(args):
     A3CTrainingThread.gamma = args.gamma
     A3CTrainingThread.use_mnih_2015 = args.use_mnih_2015
     A3CTrainingThread.env_id = args.gym_env
+    if args.adaptive_reward:
+        A3CTrainingThread.adaptive_reward = True
+        A3CTrainingThread.max_reward[0] = max_reward
     for i in range(args.parallel_size):
         training_thread = A3CTrainingThread(
             i, global_network, initial_learning_rate,
