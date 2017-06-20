@@ -46,11 +46,7 @@ class AtariEnvSkipping(gym.Wrapper):
         print (colored("repeat_action_probability: {}".format(self.env.ale.getFloat(b'repeat_action_probability')), "green"))
 
         self.n_actions = self.env.action_space.n
-        if self.env_id[:4] == "Pong":
-            self.n_actions = 6
-        elif self.env_id[:8] == 'Breakout':
-            self.n_actions = 4
-        elif self.env_id[:5] == 'Qbert':
+        if self.env_id[:5] == 'Qbert':
             self.n_actions = 5
         print (colored("action space: {}".format(self.n_actions), "green"))
 
@@ -117,6 +113,8 @@ class GameState(object):
             self.action_map[FIRE] = 1
             self.action_map[RIGHT] = 2
             self.action_map[LEFT] = 3
+            self.action_map[RIGHTFIRE] = 4
+            self.action_map[LEFTFIRE] = 5
         elif self.env_id[:9] == 'BeamRider':
             self.action_map[FIRE] = 1
             self.action_map[TORPEDO] = self.action_map[UP] = 2
