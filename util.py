@@ -17,6 +17,16 @@ try:
 except ImportError:
     import pickle
 
+def solve_weight(numbers):
+    # https://stackoverflow.com/questions/38363764/
+    # class-weight-for-imbalance-data-in-python-scikit-learns-logistic-regression
+    # n_samples / (n_classes * np.bincount(y))
+    # (total # of sample) / ((# of classes) * (# of sample in class i))
+    sum_number = sum(numbers)
+    len_number = len(numbers)
+    solved = [sum_number / (len_number * n) for n in numbers]
+    return solved
+
 def _create_symmetry(name, D):
     lr = False
     ud = False
@@ -87,7 +97,8 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry
     max_reward = 0
     for demo in db.execute("SELECT * FROM demo_samples"):
         print (demo)
-        assert demo[2] == name
+        if demo[2] == name[3:]:
+            name = name[3:]
         ep = demo[1]
         total_memory += demo[4]
         folder = demo_memory_folder + '/{n:03d}/'.format(n=(ep))

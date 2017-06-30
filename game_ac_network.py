@@ -2,12 +2,14 @@
 import tensorflow as tf
 import numpy as np
 
+from abc import ABC, abstractmethod
 from time import sleep
 from termcolor import colored
 
 # Actor-Critic Network Base Class
 # (Policy network and Value network)
-class GameACNetwork(object):
+class GameACNetwork(ABC):
+  use_mnih_2015 = False
   def __init__(self,
                action_size,
                thread_index, # -1 for global
@@ -44,15 +46,19 @@ class GameACNetwork(object):
       # gradienet of policy and value are summed up
       self.total_loss = policy_loss + value_loss
 
+  @abstractmethod
   def run_policy_and_value(self, sess, s_t):
     raise NotImplementedError()
 
+  @abstractmethod
   def run_policy(self, sess, s_t):
     raise NotImplementedError()
 
+  @abstractmethod
   def run_value(self, sess, s_t):
     raise NotImplementedError()
 
+  @abstractmethod
   def get_vars(self):
     raise NotImplementedError()
 
@@ -103,7 +109,7 @@ class GameACNetwork(object):
     assert folder != ''
     assert self._thread_index == -1 # only load model to global network
 
-    transfer_all = False
+    # transfer_all = False
     if not_transfer_conv2:
       folder += '/noconv2'
     elif not_transfer_conv3:
@@ -113,9 +119,9 @@ class GameACNetwork(object):
     elif not_transfer_fc2:
       folder += '/nofc2'
     else:
-      transfer_all = True
-      with open(folder + "/max_output_value", 'r') as f_max_value:
-        transfer_max_output_val = float(f_max_value.readline().split()[0])
+      # transfer_all = True
+      # with open(folder + "/max_output_value", 'r') as f_max_value:
+      #   transfer_max_output_val = float(f_max_value.readline().split()[0])
       folder += '/all'
 
     saver_transfer_from = tf.train.Saver(var_list=var_list)
@@ -132,21 +138,20 @@ class GameACNetwork(object):
         print(colored("\t{} loaded".format(var.op.name), "green"))
         sleep(.5)
 
-      if transfer_all:
-        # scale down last layer if it's transferred
-        print (colored("Normalizing output layer with max value {}...".format(transfer_max_output_val), "yellow"))
-        W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
-        b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
-        print (colored("Output layer normalized", "green"))
-        sess.run([
-         self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
-        ])
+      # if transfer_all:
+      #   # scale down last layer if it's transferred
+      #   print (colored("Normalizing output layer with max value {}...".format(transfer_max_output_val), "yellow"))
+      #   W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
+      #   b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
+      #   print (colored("Output layer normalized", "green"))
+      #   sess.run([
+      #   self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
+      #   ])
 
       sleep(2)
 
 # Actor-Critic FF Network
 class GameACFFNetwork(GameACNetwork):
-  use_mnih_2015 = False
   def __init__(self,
                action_size,
                thread_index, # -1 for global
@@ -223,8 +228,6 @@ class GameACFFNetwork(GameACNetwork):
 
 # Actor-Critic LSTM Network
 class GameACLSTMNetwork(GameACNetwork):
-  use_mnih_2015 = False
-
   def __init__(self,
                action_size,
                thread_index, # -1 for global

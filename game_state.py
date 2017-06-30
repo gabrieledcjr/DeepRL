@@ -48,6 +48,8 @@ class AtariEnvSkipping(gym.Wrapper):
         self.n_actions = self.env.action_space.n
         if self.env_id[:5] == 'Qbert':
             self.n_actions = 5
+        elif self.env_id[:11] == 'NewBreakout':
+            self.n_actions = 4
         print (colored("action space: {}".format(self.n_actions), "green"))
 
     def _step(self, a):
@@ -66,7 +68,7 @@ class AtariEnvSkipping(gym.Wrapper):
         return ob, reward, self.env.ale.game_over(), {"ale.lives": self.env.ale.lives()}
 
 class GameState(object):
-    def __init__(self, env_id=None, display=False, crop_screen=True, frame_skip=4, no_op_max=30, human_demo=False):
+    def __init__(self, env_id=None, display=False, crop_screen=True, frame_skip=4, no_op_max=30, human_demo=False, auto_start=False):
         assert env_id is not None
         self._display = display
         self._crop_screen = crop_screen
@@ -76,8 +78,10 @@ class GameState(object):
         self._no_op_max = no_op_max
         self.env_id = env_id
         self._human_demo = human_demo
+        self._auto_start = auto_start
 
-        self.env = gym.make(self.env_id)
+        env_id = self.env_id if self.env_id[:3] != 'New' else self.env_id[3:]
+        self.env = gym.make(env_id)
         self.env = AtariEnvSkipping(self.env, env_id=self.env_id, frameskip=self._frame_skip)
 
         if self._human_demo:
@@ -106,6 +110,14 @@ class GameState(object):
             self.action_map[DOWNRIGHT] = 2
             self.action_map[UPLEFT] = 3
             self.action_map[DOWNLEFT] = 4
+        elif self.env_id[:6] == 'Gopher':
+            self.action_map[FIRE] = 1
+            self.action_map[UP] = 2
+            self.action_map[RIGHT] = 3
+            self.action_map[LEFT] = 4
+            self.action_map[UPFIRE] = 5
+            self.action_map[RIGHTFIRE] = 6
+            self.action_map[LEFTFIRE] = 7
         elif self.env_id[:7] == 'Freeway':
             self.action_map[UP] = 1
             self.action_map[DOWN] = 2
@@ -124,20 +136,16 @@ class GameState(object):
             self.action_map[LEFTTORPEDO] = self.action_map[UPLEFT] = 6
             self.action_map[RIGHTFIRE] = 7
             self.action_map[LEFTFIRE] = 8
-        elif self.env.id[:13] == 'SpaceInvaders':
+        elif self.env_id[:13] == 'SpaceInvaders':
             self.action_map[FIRE] = 1
             self.action_map[RIGHT] = 2
             self.action_map[LEFT] = 3
             self.action_map[RIGHTFIRE] = 4
             self.action_map[LEFTFIRE] = 5
-        elif self.env.id[:6] == 'Gopher':
+        elif self.env_id[:11] == 'NewBreakout':
             self.action_map[FIRE] = 1
-            self.action_map[UP] = 2
-            self.action_map[RIGHT] = 3
-            self.action_map[LEFT] = 4
-            self.action_map[UPFIRE] = 5
-            self.action_map[RIGHTFIRE] = 6
-            self.action_map[LEFTFIRE] = 7
+            self.action_map[RIGHT] = 2
+            self.action_map[LEFT] = 3
         else:
             # TODO: map ale action_set to right key actions
             pass
@@ -155,6 +163,10 @@ class GameState(object):
         self.keys_thread = threading.Thread(target=(self.update_human_agent_action))
         self.keys_thread.start()
         print ("Keys thread started")
+
+    def close(self):
+        self.stop_thread = True
+        self.keys_thread.join()
 
     def update_human_agent_action(self):
         while not self.stop_thread:
@@ -207,6 +219,11 @@ class GameState(object):
             self.lives = env_info['ale.lives']
             info['lost_life'] = True
 
+        if self._auto_start and info['lost_life']:
+            if self.env_id[:8] == 'Breakout' or self.env_id[:11] == 'NewBreakout':
+                observation, r, terminal, env_info = self.env.step(1)
+                reward += r
+
         grayscale_observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
 
         if self._crop_screen:
@@ -235,6 +252,11 @@ class GameState(object):
                 self.env.step(0)
 
         _, _, x_t, info = self._process_frame(0, normalize=normalize)
+
+        if self._auto_start:
+            if self.env_id[:8] == 'Breakout' or self.env_id[:11] == 'NewBreakout':
+                _, _, x_t, info = self._process_frame(1, normalize=normalize)
+
         self.x_t = x_t
 
         self.reward = 0
@@ -245,6 +267,10 @@ class GameState(object):
     def process(self, action, normalize=True):
         if self._display:
             self.env.unwrapped._render()
+
+        if self._auto_start and not self._human_demo:
+            if self.env_id[:8] == 'Breakout' or self.env_id[:11] == 'NewBreakout':
+                action = action if action == 0 else action+1
 
         r, t, x_t1, info = self._process_frame(action, normalize=normalize)
         self.x_t = x_t1
@@ -259,16 +285,28 @@ class GameState(object):
         self.s_t = self.s_t1
 
 def test_keys(env_id):
-    test_game = GameState(env_id=env_id, display=True, frame_skip=1, human_demo=True)
+    from skimage.measure import compare_ssim
+    from skimage import io, filters
+    test_game = GameState(env_id=env_id, display=True, frame_skip=1, human_demo=True, auto_start=True)
     test_game.reset()
     terminal = False
     skip = 0
+    state = test_game.x_t
     while not test_game.terminal:
         a = test_game.human_agent_action
         test_game.process(a)
-    test.game.env.close()
-    del test.game.env
-    del test.game
+        new_state = test_game.x_t
+        (score, diff) = compare_ssim(state, new_state, full=True)
+        print("SSIM: {}".format(score))
+        state = new_state
+        edges = filters.sobel(state)
+        cv2.imshow("edges", edges)
+        cv2.waitKey(1)
+    cv2.destroyAllWindows()
+    test_game.env.close()
+    test_game.close()
+    del test_game.env
+    del test_game
 
 if __name__ == "__main__":
     import argparse

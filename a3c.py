@@ -64,6 +64,8 @@ def run_a3c(args):
             end_str += '_use_lstm'
         if args.adaptive_reward:
             end_str += '_adapt_reward'
+        if args.auto_start:
+            end_str += '_autostart'
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -71,7 +73,6 @@ def run_a3c(args):
 
     demo_memory = None
     num_demos = 0
-    loss_weight = None
     max_reward = 0.
     if args.load_memory:
         if args.demo_memory_folder is not None:
@@ -79,10 +80,7 @@ def run_a3c(args):
         else:
             demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
         demo_memory, actions_ctr, max_reward = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True) #, create_symmetry=True)
-        from statistics import median
         action_freq = [ actions_ctr[a] for a in range(demo_memory[0].num_actions) ]
-        median_freq = median(action_freq)
-        loss_weight = median_freq / np.array(action_freq)
         num_demos = len(demo_memory)
 
     device = "/cpu:0"
@@ -111,6 +109,8 @@ def run_a3c(args):
 
     game_state = GameState(env_id=args.gym_env)
     action_size = game_state.env.n_actions
+    if args.auto_start:
+        action_size -= 1
     game_state.env.close()
     del game_state.env
     del game_state
@@ -144,6 +144,7 @@ def run_a3c(args):
     A3CTrainingThread.gamma = args.gamma
     A3CTrainingThread.use_mnih_2015 = args.use_mnih_2015
     A3CTrainingThread.env_id = args.gym_env
+    A3CTrainingThread.auto_start = args.auto_start
     if args.adaptive_reward:
         A3CTrainingThread.adaptive_reward = True
         A3CTrainingThread.max_reward[0] = max_reward
