@@ -23,6 +23,7 @@ class A3CTrainingThread(object):
   env_id = None
   adaptive_reward = False
   max_reward = [0.]
+  auto_start = False
 
   def __init__(self,
                thread_index,
@@ -46,6 +47,7 @@ class A3CTrainingThread(object):
     print (colored("adaptive_reward: {}".format(self.adaptive_reward), "green" if self.adaptive_reward else "red"))
     if self.adaptive_reward:
       print (colored("max_reward: {}".format(self.max_reward[0]), "green"))
+    print (colored("auto_start: {}".format(self.auto_start), "green" if self.auto_start else "red"))
 
     if self.use_lstm:
       GameACLSTMNetwork.use_mnih_2015 = self.use_mnih_2015
@@ -70,7 +72,7 @@ class A3CTrainingThread(object):
 
     self.sync = self.local_network.sync_from(global_network)
 
-    self.game_state = GameState(env_id=self.env_id)
+    self.game_state = GameState(env_id=self.env_id, auto_start=self.auto_start)
 
     self.local_t = 0
 
