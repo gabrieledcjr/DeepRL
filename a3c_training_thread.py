@@ -327,6 +327,8 @@ class A3CTrainingThread(object):
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
                   self.local_network.clip_min: float('-inf'),
+                  self.local_network.policy_lr: 1.0,
+                  self.local_network.critic_lr: 0.5,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate} )
@@ -343,6 +345,8 @@ class A3CTrainingThread(object):
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
                   self.local_network.clip_min: float('-inf'),
+                  self.local_network.policy_lr: 1.0,
+                  self.local_network.critic_lr: 0.5,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
@@ -461,6 +465,8 @@ class A3CTrainingThread(object):
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
                   self.local_network.clip_min: 1e-20,
+                  self.local_network.policy_lr: 1.0,
+                  self.local_network.critic_lr: 0.5,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate} )
@@ -472,6 +478,8 @@ class A3CTrainingThread(object):
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
                   self.local_network.clip_min: 1e-20,
+                  self.local_network.policy_lr: 1.0,
+                  self.local_network.critic_lr: 0.5,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
