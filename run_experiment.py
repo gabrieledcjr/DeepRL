@@ -70,7 +70,7 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
-    parser.add_argument('--train-with-demo-epoch', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
+    parser.add_argument('--train-with-demo-num-steps', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
 
     parser.add_argument('--use-demo-threads', action='store_true')
     parser.set_defaults(use_demo_threads=False)
@@ -78,6 +78,8 @@ def main():
 
     parser.add_argument('--classify-demo', action='store_true')
     parser.set_defaults(classify_demo=False)
+    parser.add_argument('--l1-beta', type=float, default=0., help='L1 regularization beta')
+    parser.add_argument('--l2-beta', type=float, default=0., help='L2 regularization beta')
     parser.add_argument('--model-folder', type=str, default=None)
 
     parser.add_argument('--extract-transfer-layers', action='store_true')
@@ -88,6 +90,9 @@ def main():
 
     parser.add_argument('--auto-start', action='store_true')
     parser.set_defaults(auto_start=False)
+
+    parser.add_argument('--not-gae', action='store_true', help='compute gradients for V and pi separately')
+    parser.set_defaults(not_gae=False)
 
     args = parser.parse_args()
 

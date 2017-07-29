@@ -32,7 +32,8 @@ class A3CTrainingThread(object):
                learning_rate_input,
                grad_applier,
                max_global_time_step,
-               device=None):
+               device=None,
+               grad_applier_v=None):
     assert self.action_size != -1
 
     self.thread_index = thread_index
@@ -213,7 +214,7 @@ class A3CTrainingThread(object):
     self.D_action = self.D_next_action
     self.D_s_t = self.D_s_t1
 
-  def demo_process(self, sess, global_t, pretrain_global_t=0, D_idx=None):
+  def demo_process(self, sess, global_t, D_idx=None):
     states = []
     actions = []
     rewards = []
@@ -311,7 +312,7 @@ class A3CTrainingThread(object):
       batch_td.append(td)
       batch_R.append(R)
 
-    cur_learning_rate = self._anneal_learning_rate(global_t+pretrain_global_t)
+    cur_learning_rate = self._anneal_learning_rate(global_t) * .01
 
     if self.use_lstm:
       batch_si.reverse()
@@ -325,10 +326,10 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
-                  self.local_network.clip_min: 1e-1,
+                  self.local_network.clip_min: float('-inf'),
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
-                  self.learning_rate_input: cur_learning_rate } )
+                  self.learning_rate_input: cur_learning_rate} )
 
       # some demo episodes doesn't reach terminal state
       if reset_lstm_state:
@@ -341,7 +342,7 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
-                  self.local_network.clip_min: 1e-1,
+                  self.local_network.clip_min: float('-inf'),
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
@@ -462,7 +463,7 @@ class A3CTrainingThread(object):
                   self.local_network.clip_min: 1e-20,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
-                  self.learning_rate_input: cur_learning_rate } )
+                  self.learning_rate_input: cur_learning_rate} )
     else:
       sess.run( self.apply_gradients,
                 feed_dict = {

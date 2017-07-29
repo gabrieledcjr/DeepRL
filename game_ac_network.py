@@ -10,6 +10,8 @@ from termcolor import colored
 # (Policy network and Value network)
 class GameACNetwork(ABC):
   use_mnih_2015 = False
+  l1_beta = 0.
+  l2_beta = 0.
   def __init__(self,
                action_size,
                thread_index, # -1 for global
@@ -33,8 +35,20 @@ class GameACNetwork(ABC):
       # policy entropy
       entropy = -tf.reduce_sum(self.pi * log_pi, axis=1)
 
+      # net_vars = self.get_vars()
+      # l2_losses = []
+      # l1_losses = []
+      # for i in range(len(net_vars)):
+      # if i%2 == 0:
+      #   l1_losses.append(self.l1_beta * tf.reduce_sum(tf.abs(net_vars[i])))
+      #   l2_losses.append(self.l2_beta * tf.nn.l2_loss(net_vars[i]))
+      # l1_loss = sum(l1_losses)
+      # l2_loss = sum(l2_losses)
+      # l_losses = l1_loss + l2_loss
+
       # policy loss (output)  (Adding minus, because the original paper's objective function is for gradient ascent, but we use gradient descent optimizer.)
       policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ), axis=1 ) * self.td + entropy * entropy_beta )
+      # policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ) + l_losses, axis=1 ) * self.td + entropy * entropy_beta)
 
       # R (input for value)
       self.r = tf.placeholder("float", [None])
@@ -43,7 +57,7 @@ class GameACNetwork(ABC):
       # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
       value_loss = 0.5 * tf.nn.l2_loss(self.r - self.v)
 
-      # gradienet of policy and value are summed up
+      # gradient of policy and value are summed up
       self.total_loss = policy_loss + value_loss
 
   @abstractmethod
@@ -226,6 +240,32 @@ class GameACFFNetwork(GameACNetwork):
               self.W_fc2, self.b_fc2,
               self.W_fc3, self.b_fc3]
 
+  def get_vars_pi(self):
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_fc2, self.b_fc2]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_fc2, self.b_fc2]
+
+  def get_vars_v(self):
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_fc3, self.b_fc3]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_fc3, self.b_fc3]
+
 # Actor-Critic LSTM Network
 class GameACLSTMNetwork(GameACNetwork):
   def __init__(self,
@@ -367,4 +407,34 @@ class GameACLSTMNetwork(GameACNetwork):
               self.W_fc1, self.b_fc1,
               self.W_lstm, self.b_lstm,
               self.W_fc2, self.b_fc2,
+              self.W_fc3, self.b_fc3]
+
+  def get_vars_pi(self):
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc2, self.b_fc2]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc2, self.b_fc2]
+
+  def get_vars_v(self):
+    if self.use_mnih_2015:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_conv3, self.b_conv3,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
+              self.W_fc3, self.b_fc3]
+    else:
+      return [self.W_conv1, self.b_conv1,
+              self.W_conv2, self.b_conv2,
+              self.W_fc1, self.b_fc1,
+              self.W_lstm, self.b_lstm,
               self.W_fc3, self.b_fc3]

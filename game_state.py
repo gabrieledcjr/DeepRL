@@ -297,7 +297,7 @@ def test_keys(env_id):
         test_game.process(a)
         new_state = test_game.x_t
         (score, diff) = compare_ssim(state, new_state, full=True)
-        print("SSIM: {}".format(score))
+        # print("SSIM: {}".format(score))
         state = new_state
         edges = filters.sobel(state)
         cv2.imshow("edges", edges)

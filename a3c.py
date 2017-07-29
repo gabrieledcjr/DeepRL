@@ -11,8 +11,6 @@ import time
 from termcolor import colored
 from util import load_memory
 from game_state import GameState
-from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
-from a3c_training_thread import A3CTrainingThread
 from rmsprop_applier import RMSPropApplier
 
 try:
@@ -22,8 +20,14 @@ except ImportError:
 
 def run_a3c(args):
     """
-    python3 a3c.py --gym-env=PongDeterministic-v3 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015
+    python3 run_experiment.py --gym-env=PongDeterministic-v3 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015
     """
+    if args.not_gae:
+        from game_ac_network_new import GameACFFNetwork, GameACLSTMNetwork
+        from a3c_training_thread_new import A3CTrainingThread
+    else:
+        from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
+        from a3c_training_thread import A3CTrainingThread
     if args.use_gpu:
         assert args.cuda_devices != ''
         os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
@@ -54,7 +58,7 @@ def run_a3c(args):
                 end_str += '_nofc1'
             elif args.not_transfer_fc2:
                 end_str += '_nofc2'
-        if args.train_with_demo_epoch > 0:
+        if args.train_with_demo_num_steps > 0:
             end_str += '_pretrain_ina3c'
         if args.use_demo_threads:
             end_str += '_demothreads'
@@ -66,6 +70,8 @@ def run_a3c(args):
             end_str += '_adapt_reward'
         if args.auto_start:
             end_str += '_autostart'
+        if args.not_gae:
+            end_str += '_notgae'
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -117,9 +123,13 @@ def run_a3c(args):
 
     if args.use_lstm:
         GameACLSTMNetwork.use_mnih_2015 = args.use_mnih_2015
+        GameACLSTMNetwork.l1_beta = args.l1_beta
+        GameACLSTMNetwork.l2_beta = args.l2_beta
         global_network = GameACLSTMNetwork(action_size, -1, device)
     else:
         GameACFFNetwork.use_mnih_2015 = args.use_mnih_2015
+        GameACFFNetwork.l1_beta = args.l1_beta
+        GameACFFNetwork.l2_beta = args.l2_beta
         global_network = GameACFFNetwork(action_size, -1, device)
 
 
@@ -134,6 +144,15 @@ def run_a3c(args):
         epsilon = args.rmsp_epsilon,
         clip_norm = args.grad_norm_clip,
         device = device)
+    grad_applier_v = None
+    if args.not_gae:
+        grad_applier_v = RMSPropApplier(
+            learning_rate = learning_rate_input,
+            decay = args.rmsp_alpha,
+            momentum = 0.0,
+            epsilon = args.rmsp_epsilon,
+            clip_norm = args.grad_norm_clip,
+            device = device)
 
     A3CTrainingThread.log_interval = args.log_interval
     A3CTrainingThread.performance_log_interval = args.performance_log_interval
@@ -153,7 +172,7 @@ def run_a3c(args):
             i, global_network, initial_learning_rate,
             learning_rate_input,
             grad_applier, args.max_time_step,
-            device=device)
+            device=device, grad_applier_v=grad_applier_v)
         training_threads.append(training_thread)
 
     # prepare session
@@ -285,10 +304,10 @@ def run_a3c(args):
 
         # set all threads as demo threads
         training_thread.is_demo_thread = args.load_memory and args.use_demo_threads
-        if training_thread.is_demo_thread or args.train_with_demo_epoch > 0:
+        if training_thread.is_demo_thread or args.train_with_demo_num_steps > 0:
             training_thread.pretrain_init(demo_memory)
 
-        if global_t == 0 and args.train_with_demo_epoch > 0:
+        if global_t == 0 and args.train_with_demo_num_steps > 0:
             ispretrain_markers[parallel_index] = True
             training_thread.replay_mem_reset()
 
@@ -297,7 +316,7 @@ def run_a3c(args):
             while ispretrain_markers[parallel_index]:
                 if stop_requested:
                     break
-                if pretrain_epoch > args.train_with_demo_epoch:
+                if pretrain_global_t > args.train_with_demo_num_steps:
                     # At end of pretraining, reset state
                     training_thread.replay_mem_reset()
                     training_thread.episode_reward = 0
@@ -309,14 +328,15 @@ def run_a3c(args):
                     break
 
                 diff_pretrain_global_t, _ = training_thread.demo_process(
-                    sess, global_t,
-                    pretrain_global_t=pretrain_global_t)
+                    sess, global_t)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
+                    if pretrain_global_t % 10000 == 0:
+                        print ("pretrain_global_t={}".format(pretrain_global_t))
 
                 pretrain_epoch += 1
-                if pretrain_epoch % 1000 == 0:
-                    print ("pretrain_epoch={} pretrain_global_t={}".format(pretrain_epoch, pretrain_global_t))
+                # if pretrain_epoch % 1000 == 0:
+                #     print ("pretrain_epoch={}".format(pretrain_epoch))
 
             # Waits for all threads to finish pretraining
             while not stop_requested and any(ispretrain_markers):
@@ -346,23 +366,26 @@ def run_a3c(args):
             if global_t > (args.max_time_step * args.max_time_step_fraction):
                 break
 
-            if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 1:
+            if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 16:
                 #if num_demo_thread < 2:
-                if np.random.random() <= 0.03333 and num_demo_thread < 1:
+                demo_rate = 1.0 * (args.max_steps_threads_as_demo - global_t) / args.max_steps_threads_as_demo
+                if demo_rate < 0.0333:
+                    demo_rate = 0.0333
+
+                if np.random.random() <= demo_rate and num_demo_thread < 16:
                     ctr_demo_thread += 1
                     training_thread.replay_mem_reset(D_idx=ctr_demo_thread%num_demos)
                     num_demo_thread += 1
-                    print (colored("idx={} as demo thread started ({}/1)".format(parallel_index, num_demo_thread), "yellow"))
+                    print (colored("idx={} as demo thread started ({}/16) rate={}".format(parallel_index, num_demo_thread, demo_rate), "yellow"))
                     use_demo_thread = True
 
             if use_demo_thread:
                 diff_global_t, episode_end = training_thread.demo_process(
-                    sess, global_t,
-                    pretrain_global_t=pretrain_global_t)
+                    sess, global_t)
                 if episode_end:
                     num_demo_thread -= 1
                     use_demo_thread = False
-                    print (colored("idx={} demo thread concluded ({}/1)".format(parallel_index, num_demo_thread), "green"))
+                    print (colored("idx={} demo thread concluded ({}/16)".format(parallel_index, num_demo_thread), "green"))
             else:
                 diff_global_t, episode_end = training_thread.process(
                     sess, global_t, summary_writer,
