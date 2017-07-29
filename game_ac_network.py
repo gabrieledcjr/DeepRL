@@ -46,8 +46,11 @@ class GameACNetwork(ABC):
       # l2_loss = sum(l2_losses)
       # l_losses = l1_loss + l2_loss
 
+      self.policy_lr = tf.placeholder(tf.float32, shape=(), name="policy_lr")
+      self.critic_lr = tf.placeholder(tf.float32, shape=(), name="critic_lr")
+
       # policy loss (output)  (Adding minus, because the original paper's objective function is for gradient ascent, but we use gradient descent optimizer.)
-      policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ), axis=1 ) * self.td + entropy * entropy_beta )
+      policy_loss = self.policy_lr * - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ), axis=1 ) * self.td + entropy * entropy_beta )
       # policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ) + l_losses, axis=1 ) * self.td + entropy * entropy_beta)
 
       # R (input for value)
@@ -55,7 +58,7 @@ class GameACNetwork(ABC):
 
       # value loss (output)
       # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
-      value_loss = 0.5 * tf.nn.l2_loss(self.r - self.v)
+      value_loss = self.critic_lr * tf.nn.l2_loss(self.r - self.v)
 
       # gradient of policy and value are summed up
       self.total_loss = policy_loss + value_loss
