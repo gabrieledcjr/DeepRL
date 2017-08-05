@@ -20,7 +20,7 @@ class GameACNetwork(ABC):
     self._thread_index = thread_index
     self._device = device
 
-  def prepare_loss(self, entropy_beta):
+  def prepare_loss(self):
     with tf.device(self._device):
       # taken action (input for policy)
       self.a = tf.placeholder("float", [None, self._action_size])
@@ -30,7 +30,8 @@ class GameACNetwork(ABC):
 
       self.clip_min = tf.placeholder(tf.float32, shape=(), name="clip_minimum")
       # avoid NaN with clipping when value in pi becomes zero
-      log_pi = tf.log(tf.clip_by_value(self.pi, self.clip_min, 1.0))
+      #log_pi = tf.log(tf.clip_by_value(self.pi, self.clip_min, 1.0))
+      log_pi = tf.nn.log_softmax(tf.clip_by_value(self.logits, -10.0, 10.0))
 
       # policy entropy
       entropy = -tf.reduce_sum(self.pi * log_pi, axis=1)
@@ -48,9 +49,10 @@ class GameACNetwork(ABC):
 
       self.policy_lr = tf.placeholder(tf.float32, shape=(), name="policy_lr")
       self.critic_lr = tf.placeholder(tf.float32, shape=(), name="critic_lr")
+      self.entropy_beta = tf.placeholder(tf.float32, shape=(), name="entropy_beta")
 
       # policy loss (output)  (Adding minus, because the original paper's objective function is for gradient ascent, but we use gradient descent optimizer.)
-      policy_loss = self.policy_lr * - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ), axis=1 ) * self.td + entropy * entropy_beta )
+      policy_loss = self.policy_lr * - tf.reduce_sum( tf.reduce_sum( tf.multiply(log_pi, self.a), axis=1 ) * self.td + entropy * self.entropy_beta)
       # policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ) + l_losses, axis=1 ) * self.td + entropy * entropy_beta)
 
       # R (input for value)
@@ -211,14 +213,15 @@ class GameACFFNetwork(GameACNetwork):
         h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
       # policy (output)
-      self.pi = tf.nn.softmax(tf.matmul(h_fc1, self.W_fc2) + self.b_fc2)
+      self.logits = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
+      self.pi = tf.nn.softmax(self.logits)
       # value (output)
       v_ = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
       self.v = tf.reshape( v_, [-1] )
 
   def run_policy_and_value(self, sess, s_t):
-    pi_out, v_out = sess.run( [self.pi, self.v], feed_dict = {self.s : [s_t]} )
-    return (pi_out[0], v_out[0])
+    pi_out, v_out, logits = sess.run( [self.pi, self.v, self.logits], feed_dict = {self.s : [s_t]} )
+    return (pi_out[0], v_out[0], logits[0])
 
   def run_policy(self, sess, s_t):
     pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t]} )
@@ -342,7 +345,8 @@ class GameACLSTMNetwork(GameACNetwork):
       lstm_outputs = tf.reshape(lstm_outputs, [-1,256])
 
       # policy (output)
-      self.pi = tf.nn.softmax(tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2)
+      self.logits = tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2
+      self.pi = tf.nn.softmax(self.logits)
 
       # value (output)
       v_ = tf.matmul(lstm_outputs, self.W_fc3) + self.b_fc3
@@ -361,13 +365,13 @@ class GameACLSTMNetwork(GameACNetwork):
   def run_policy_and_value(self, sess, s_t):
     # This run_policy_and_value() is used when forward propagating.
     # so the step size is 1.
-    pi_out, v_out, self.lstm_state_out = sess.run( [self.pi, self.v, self.lstm_state],
-                                                   feed_dict = {self.s : [s_t],
-                                                                self.initial_lstm_state0 : self.lstm_state_out[0],
-                                                                self.initial_lstm_state1 : self.lstm_state_out[1],
-                                                                self.step_size : [1]} )
+    pi_out, v_out, self.lstm_state_out, logits = sess.run( [self.pi, self.v, self.lstm_state, self.logits],
+                                                               feed_dict = {self.s : [s_t],
+                                                                            self.initial_lstm_state0 : self.lstm_state_out[0],
+                                                                            self.initial_lstm_state1 : self.lstm_state_out[1],
+                                                                            self.step_size : [1]} )
     # pi_out: (1,3), v_out: (1)
-    return (pi_out[0], v_out[0])
+    return (pi_out[0], v_out[0], logits[0])
 
   def run_policy(self, sess, s_t):
     # This run_policy() is used for displaying the result with display tool.

@@ -70,7 +70,8 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
-    parser.add_argument('--train-with-demo-num-steps', type=int, default=0, help='if >0, will load demo memory folder for pretraining')
+    parser.add_argument('--train-with-demo-num-steps', type=int, default=0, help='pretraining number of steps/frames')
+    parser.add_argument('--train-with-demo-num-epochs', type=int, default=0, help='pretraining number of epochs')
 
     parser.add_argument('--use-demo-threads', action='store_true')
     parser.set_defaults(use_demo_threads=False)

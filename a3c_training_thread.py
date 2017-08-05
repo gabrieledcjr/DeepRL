@@ -57,7 +57,7 @@ class A3CTrainingThread(object):
       GameACFFNetwork.use_mnih_2015 = self.use_mnih_2015
       self.local_network = GameACFFNetwork(self.action_size, thread_index, device)
 
-    self.local_network.prepare_loss(self.entropy_beta)
+    self.local_network.prepare_loss()
 
     with tf.device(device):
       var_refs = [v._ref() for v in self.local_network.get_vars()]
@@ -234,7 +234,7 @@ class A3CTrainingThread(object):
 
     # t_max times loop
     for i in range(self.local_t_max):
-      pi_, value_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
+      pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
       action = self.D_action
       time.sleep(0.0025)
 
@@ -243,8 +243,9 @@ class A3CTrainingThread(object):
       values.append(value_)
 
       if (self.thread_index == 0) and (self.local_t % self.log_interval == 0):
-        print(colored("  pi={}".format(pi_),"yellow"))
-        print(colored("   V={}".format(value_), "yellow"))
+        print(colored("logits={}".format(logits_), "magenta"))
+        print(colored("    pi={}".format(pi_), "yellow"))
+        print(colored("     V={}".format(value_), "yellow"))
 
       # process replay memory
       self.replay_mem_process()
@@ -312,7 +313,7 @@ class A3CTrainingThread(object):
       batch_td.append(td)
       batch_R.append(R)
 
-    cur_learning_rate = self._anneal_learning_rate(global_t) * .01
+    cur_learning_rate = self._anneal_learning_rate(global_t) #* 0.05
 
     if self.use_lstm:
       batch_si.reverse()
@@ -326,9 +327,10 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
-                  self.local_network.clip_min: float('-inf'),
+                  self.local_network.clip_min: 1e-20,
                   self.local_network.policy_lr: 1.0,
                   self.local_network.critic_lr: 0.5,
+                  self.local_network.entropy_beta: self.entropy_beta,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate} )
@@ -344,9 +346,10 @@ class A3CTrainingThread(object):
                   self.local_network.a: batch_a,
                   self.local_network.td: batch_td,
                   self.local_network.r: batch_R,
-                  self.local_network.clip_min: float('-inf'),
+                  self.local_network.clip_min: 1e-20,
                   self.local_network.policy_lr: 1.0,
                   self.local_network.critic_lr: 0.5,
+                  self.local_network.entropy_beta: self.entropy_beta,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
@@ -356,7 +359,7 @@ class A3CTrainingThread(object):
     diff_local_t = self.local_t - start_local_t
     return diff_local_t, demo_ended
 
-  def process(self, sess, global_t, summary_writer, summary_op, score_input, training_rewards, pretrain_global_t):
+  def process(self, sess, global_t, summary_writer, summary_op, score_input, training_rewards):
     states = []
     actions = []
     rewards = []
@@ -374,7 +377,7 @@ class A3CTrainingThread(object):
 
     # t_max times loop
     for i in range(self.local_t_max):
-      pi_, value_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
+      pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
       action = self.choose_action(pi_)
 
       states.append(self.game_state.s_t)
@@ -382,8 +385,9 @@ class A3CTrainingThread(object):
       values.append(value_)
 
       if (self.thread_index == 0) and (self.local_t % self.log_interval == 0):
-        print("pi={}".format(pi_))
-        print(" V={}".format(value_))
+        print(colored("logits={}".format(logits_), "magenta"))
+        print("    pi={}".format(pi_))
+        print("     V={}".format(value_))
 
       # process game
       self.game_state.process(action)
@@ -450,7 +454,7 @@ class A3CTrainingThread(object):
       batch_td.append(td)
       batch_R.append(R)
 
-    cur_learning_rate = self._anneal_learning_rate(global_t+pretrain_global_t)
+    cur_learning_rate = self._anneal_learning_rate(global_t)
 
     if self.use_lstm:
       batch_si.reverse()
@@ -467,6 +471,7 @@ class A3CTrainingThread(object):
                   self.local_network.clip_min: 1e-20,
                   self.local_network.policy_lr: 1.0,
                   self.local_network.critic_lr: 0.5,
+                  self.local_network.entropy_beta: self.entropy_beta,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate} )
@@ -480,6 +485,7 @@ class A3CTrainingThread(object):
                   self.local_network.clip_min: 1e-20,
                   self.local_network.policy_lr: 1.0,
                   self.local_network.critic_lr: 0.5,
+                  self.local_network.entropy_beta: self.entropy_beta,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):

@@ -58,7 +58,7 @@ def run_a3c(args):
                 end_str += '_nofc1'
             elif args.not_transfer_fc2:
                 end_str += '_nofc2'
-        if args.train_with_demo_num_steps > 0:
+        if args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs > 0:
             end_str += '_pretrain_ina3c'
         if args.use_demo_threads:
             end_str += '_demothreads'
@@ -304,10 +304,10 @@ def run_a3c(args):
 
         # set all threads as demo threads
         training_thread.is_demo_thread = args.load_memory and args.use_demo_threads
-        if training_thread.is_demo_thread or args.train_with_demo_num_steps > 0:
+        if training_thread.is_demo_thread or args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs:
             training_thread.pretrain_init(demo_memory)
 
-        if global_t == 0 and args.train_with_demo_num_steps > 0:
+        if global_t == 0 and (args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs > 0):
             ispretrain_markers[parallel_index] = True
             training_thread.replay_mem_reset()
 
@@ -316,7 +316,7 @@ def run_a3c(args):
             while ispretrain_markers[parallel_index]:
                 if stop_requested:
                     break
-                if pretrain_global_t > args.train_with_demo_num_steps:
+                if pretrain_global_t > args.train_with_demo_num_steps and pretrain_epoch > args.train_with_demo_num_epochs:
                     # At end of pretraining, reset state
                     training_thread.replay_mem_reset()
                     training_thread.episode_reward = 0
@@ -335,8 +335,8 @@ def run_a3c(args):
                         print ("pretrain_global_t={}".format(pretrain_global_t))
 
                 pretrain_epoch += 1
-                # if pretrain_epoch % 1000 == 0:
-                #     print ("pretrain_epoch={}".format(pretrain_epoch))
+                if pretrain_epoch % 1000 == 0:
+                    print ("pretrain_epoch={}".format(pretrain_epoch))
 
             # Waits for all threads to finish pretraining
             while not stop_requested and any(ispretrain_markers):
@@ -389,8 +389,7 @@ def run_a3c(args):
             else:
                 diff_global_t, episode_end = training_thread.process(
                     sess, global_t, summary_writer,
-                    summary_op, score_input, training_rewards,
-                    pretrain_global_t)
+                    summary_op, score_input, training_rewards)
 
             for _ in range(diff_global_t):
                 global_t += 1
