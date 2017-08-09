@@ -14,7 +14,8 @@ from util import get_action_index
 class A3CTrainingThread(object):
   log_interval = 100
   performance_log_interval = 1000
-  local_t_max = 5
+  local_t_max = 20
+  demo_t_max = 32
   use_lstm = False
   action_size = -1
   entropy_beta = 0.01
@@ -233,7 +234,7 @@ class A3CTrainingThread(object):
       start_lstm_state = self.local_network.lstm_state_out
 
     # t_max times loop
-    for i in range(self.local_t_max):
+    for i in range(self.demo_t_max):
       pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
       action = self.D_action
       time.sleep(0.0025)

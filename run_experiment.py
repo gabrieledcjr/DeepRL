@@ -72,6 +72,7 @@ def main():
     parser.add_argument('--demo-memory-folder', type=str, default=None)
     parser.add_argument('--train-with-demo-num-steps', type=int, default=0, help='pretraining number of steps/frames')
     parser.add_argument('--train-with-demo-num-epochs', type=int, default=0, help='pretraining number of epochs')
+    parser.add_argument('--demo-t-max', type=int, default=32, help='demo repeat step size')
 
     parser.add_argument('--use-demo-threads', action='store_true')
     parser.set_defaults(use_demo_threads=False)

@@ -157,6 +157,7 @@ def run_a3c(args):
     A3CTrainingThread.log_interval = args.log_interval
     A3CTrainingThread.performance_log_interval = args.performance_log_interval
     A3CTrainingThread.local_t_max = args.local_t_max
+    A3CTrainingThread.demo_t_max = args.demo_t_max
     A3CTrainingThread.use_lstm = args.use_lstm
     A3CTrainingThread.action_size = action_size
     A3CTrainingThread.entropy_beta = args.entropy_beta
