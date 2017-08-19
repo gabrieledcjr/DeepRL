@@ -50,6 +50,9 @@ def main():
     parser.add_argument('--log-interval', type=int, default=100)
     parser.add_argument('--performance-log-interval', type=int, default=1000)
 
+    parser.add_argument('--use-egreedy-threads', action='store_true', help='a quarter of threads are uses egreedy actions during training')
+    parser.set_defaults(use_egreedy_threads=False)
+
     parser.add_argument('--use-transfer', action='store_true')
     parser.set_defaults(use_transfer=False)
     parser.add_argument('--transfer-folder', type=str, default=None)
@@ -72,7 +75,8 @@ def main():
     parser.add_argument('--demo-memory-folder', type=str, default=None)
     parser.add_argument('--train-with-demo-num-steps', type=int, default=0, help='pretraining number of steps/frames')
     parser.add_argument('--train-with-demo-num-epochs', type=int, default=0, help='pretraining number of epochs')
-    parser.add_argument('--demo-t-max', type=int, default=32, help='demo repeat step size')
+    parser.add_argument('--demo-t-max', type=int, default=20, help='demo repeat step size')
+    parser.add_argument('--demo-entropy-beta', type=float, default=0.01, help='demo entropy regularization constant')
 
     parser.add_argument('--use-demo-threads', action='store_true')
     parser.set_defaults(use_demo_threads=False)

@@ -72,6 +72,8 @@ def run_a3c(args):
             end_str += '_autostart'
         if args.not_gae:
             end_str += '_notgae'
+        if args.use_egreedy_threads:
+            end_str += '_use_egreedy'
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -161,6 +163,7 @@ def run_a3c(args):
     A3CTrainingThread.use_lstm = args.use_lstm
     A3CTrainingThread.action_size = action_size
     A3CTrainingThread.entropy_beta = args.entropy_beta
+    A3CTrainingThread.demo_entropy_beta = args.demo_entropy_beta
     A3CTrainingThread.gamma = args.gamma
     A3CTrainingThread.use_mnih_2015 = args.use_mnih_2015
     A3CTrainingThread.env_id = args.gym_env
@@ -308,7 +311,11 @@ def run_a3c(args):
         if training_thread.is_demo_thread or args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs:
             training_thread.pretrain_init(demo_memory)
 
-        if global_t == 0 and (args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs > 0):
+        if args.use_egreedy_threads and parallel_index >= args.parallel_size - args.parallel_size/4:
+            print ("t_idx={} set as egreedy thread".format(parallel_index))
+            training_thread.is_egreedy = True
+
+        if global_t == 0 and (args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs > 0) and parallel_index < 2:
             ispretrain_markers[parallel_index] = True
             training_thread.replay_mem_reset()
 
@@ -329,7 +336,7 @@ def run_a3c(args):
                     break
 
                 diff_pretrain_global_t, _ = training_thread.demo_process(
-                    sess, global_t)
+                    sess, pretrain_global_t)
                 for _ in range(diff_pretrain_global_t):
                     pretrain_global_t += 1
                     if pretrain_global_t % 10000 == 0:

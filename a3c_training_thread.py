@@ -15,10 +15,11 @@ class A3CTrainingThread(object):
   log_interval = 100
   performance_log_interval = 1000
   local_t_max = 20
-  demo_t_max = 32
+  demo_t_max = 20
   use_lstm = False
   action_size = -1
   entropy_beta = 0.01
+  demo_entropy_beta = 0.01
   gamma = 0.99
   use_mnih_2015 = False
   env_id = None
@@ -86,6 +87,7 @@ class A3CTrainingThread(object):
     self.prev_local_t = 0
 
     self.is_demo_thread = False
+    self.is_egreedy = False
 
   def _anneal_learning_rate(self, global_time_step):
     learning_rate = self.initial_learning_rate * (self.max_global_time_step - global_time_step) / self.max_global_time_step
@@ -94,7 +96,14 @@ class A3CTrainingThread(object):
     return learning_rate
 
   def choose_action(self, pi_values):
-    return np.random.choice(range(len(pi_values)), p=pi_values)
+    return np.random.choice(range(self.action_size), p=pi_values)
+
+  def choose_action_egreedy(self, pi_values, global_time_step):
+    if global_time_step < 1000000:
+      epsilon = 0.1 * (10. * (global_time_step//100000)) / 10.
+      if np.random.random() > epsilon:
+        return get_action_index(pi_values, is_random=False, n_actions=self.action_size)
+    return self.choose_action(pi_values)
 
   def _record_score(self, sess, summary_writer, summary_op, score_input, score, global_t):
     summary_str = sess.run(summary_op, feed_dict={
@@ -314,7 +323,7 @@ class A3CTrainingThread(object):
       batch_td.append(td)
       batch_R.append(R)
 
-    cur_learning_rate = self._anneal_learning_rate(global_t) #* 0.05
+    cur_learning_rate = 0.000007 #self._anneal_learning_rate(global_t) * 0.005
 
     if self.use_lstm:
       batch_si.reverse()
@@ -331,7 +340,7 @@ class A3CTrainingThread(object):
                   self.local_network.clip_min: 1e-20,
                   self.local_network.policy_lr: 1.0,
                   self.local_network.critic_lr: 0.5,
-                  self.local_network.entropy_beta: self.entropy_beta,
+                  self.local_network.entropy_beta: self.demo_entropy_beta,
                   self.local_network.initial_lstm_state: start_lstm_state,
                   self.local_network.step_size : [len(batch_a)],
                   self.learning_rate_input: cur_learning_rate} )
@@ -350,7 +359,7 @@ class A3CTrainingThread(object):
                   self.local_network.clip_min: 1e-20,
                   self.local_network.policy_lr: 1.0,
                   self.local_network.critic_lr: 0.5,
-                  self.local_network.entropy_beta: self.entropy_beta,
+                  self.local_network.entropy_beta: self.demo_entropy_beta,
                   self.learning_rate_input: cur_learning_rate} )
 
     if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
@@ -379,7 +388,10 @@ class A3CTrainingThread(object):
     # t_max times loop
     for i in range(self.local_t_max):
       pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
-      action = self.choose_action(pi_)
+      if self.is_egreedy:
+        action = self.choose_action_egreedy(pi_, global_t)
+      else:
+        action = self.choose_action(pi_)
 
       states.append(self.game_state.s_t)
       actions.append(action)
