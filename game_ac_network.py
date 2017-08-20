@@ -61,7 +61,8 @@ class GameACNetwork(ABC):
 
       # value loss (output)
       # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
-      value_loss = self.critic_lr * tf.nn.l2_loss(self.r - self.v)
+      #value_loss = self.critic_lr * tf.nn.l2_loss(self.r - self.v)
+      value_loss = self.critic_lr * tf.reduce_sum((self.r - self.v) ** 2. / 2.)
 
       # gradient of policy and value are summed up
       self.total_loss = policy_loss + value_loss

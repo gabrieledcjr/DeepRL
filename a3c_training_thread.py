@@ -99,8 +99,8 @@ class A3CTrainingThread(object):
     return np.random.choice(range(self.action_size), p=pi_values)
 
   def choose_action_egreedy(self, pi_values, global_time_step):
-    if global_time_step < 1000000:
-      epsilon = 0.1 * (10. * (global_time_step//100000)) / 10.
+    if global_time_step < 2000000:
+      epsilon = 0.1 * (global_time_step//200000)
       if np.random.random() > epsilon:
         return get_action_index(pi_values, is_random=False, n_actions=self.action_size)
     return self.choose_action(pi_values)
