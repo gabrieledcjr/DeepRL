@@ -311,7 +311,7 @@ def run_a3c(args):
         if training_thread.is_demo_thread or args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs:
             training_thread.pretrain_init(demo_memory)
 
-        if args.use_egreedy_threads: # and parallel_index >= args.parallel_size - args.parallel_size/4:
+        if args.use_egreedy_threads and parallel_index >= args.parallel_size - args.parallel_size/2:
             print ("t_idx={} set as egreedy thread".format(parallel_index))
             training_thread.is_egreedy = True
 
