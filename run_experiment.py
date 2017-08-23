@@ -100,6 +100,9 @@ def main():
     parser.add_argument('--not-gae', action='store_true', help='compute gradients for V and pi separately')
     parser.set_defaults(not_gae=False)
 
+    parser.add_argument('--use-dropout', action='store_true', help='use dropout layer')
+    parser.set_defaults(use_dropout=False)
+
     args = parser.parse_args()
 
     if args.extract_transfer_layers:

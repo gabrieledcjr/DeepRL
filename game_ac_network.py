@@ -214,19 +214,22 @@ class GameACFFNetwork(GameACNetwork):
         h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
         h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
+      self.keep_prob = tf.placeholder(tf.float32, shape=(), name="h_fc1_dropout")
+      h_fc1_dropout = tf.nn.dropout(h_fc1, self.keep_prob)
+
       # policy (output)
-      self.logits = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
+      self.logits = tf.matmul(h_fc1_dropout, self.W_fc2) + self.b_fc2
       self.pi = tf.nn.softmax(self.logits)
       # value (output)
       v_ = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
       self.v = tf.reshape( v_, [-1] )
 
   def run_policy_and_value(self, sess, s_t):
-    pi_out, v_out, logits = sess.run( [self.pi, self.v, self.logits], feed_dict = {self.s : [s_t]} )
+    pi_out, v_out, logits = sess.run( [self.pi, self.v, self.logits], feed_dict = {self.s : [s_t], self.keep_prob : 1.0} )
     return (pi_out[0], v_out[0], logits[0])
 
   def run_policy(self, sess, s_t):
-    pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t]} )
+    pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t], self.keep_prob : 1.0} )
     return pi_out[0]
 
   def run_value(self, sess, s_t):
@@ -346,8 +349,11 @@ class GameACLSTMNetwork(GameACNetwork):
 
       lstm_outputs = tf.reshape(lstm_outputs, [-1,256])
 
+      self.keep_prob = tf.placeholder(tf.float32, shape=(), name="lstm_outputs_dropout")
+      lstm_outputs_dropout = tf.nn.dropout(lstm_outputs, self.keep_prob)
+
       # policy (output)
-      self.logits = tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2
+      self.logits = tf.matmul(lstm_outputs_dropout, self.W_fc2) + self.b_fc2
       self.pi = tf.nn.softmax(self.logits)
 
       # value (output)
@@ -371,7 +377,8 @@ class GameACLSTMNetwork(GameACNetwork):
                                                                feed_dict = {self.s : [s_t],
                                                                             self.initial_lstm_state0 : self.lstm_state_out[0],
                                                                             self.initial_lstm_state1 : self.lstm_state_out[1],
-                                                                            self.step_size : [1]} )
+                                                                            self.step_size : [1],
+                                                                            self.keep_prob : 1.0} )
     # pi_out: (1,3), v_out: (1)
     return (pi_out[0], v_out[0], logits[0])
 
@@ -381,7 +388,8 @@ class GameACLSTMNetwork(GameACNetwork):
                                             feed_dict = {self.s : [s_t],
                                                          self.initial_lstm_state0 : self.lstm_state_out[0],
                                                          self.initial_lstm_state1 : self.lstm_state_out[1],
-                                                         self.step_size : [1]} )
+                                                         self.step_size : [1],
+                                                         self.keep_prob : 1.0} )
 
     return pi_out[0]
 
