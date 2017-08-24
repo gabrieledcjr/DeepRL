@@ -103,6 +103,9 @@ def main():
     parser.add_argument('--use-dropout', action='store_true', help='use dropout layer')
     parser.set_defaults(use_dropout=False)
 
+    parser.add_argument('--egreedy-testing', action='store_true', help='testing/evaluation uses egreedy')
+    parser.set_defaults(egreedy_testing=False)
+
     args = parser.parse_args()
 
     if args.extract_transfer_layers:

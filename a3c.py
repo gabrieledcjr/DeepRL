@@ -168,6 +168,7 @@ def run_a3c(args):
     A3CTrainingThread.use_mnih_2015 = args.use_mnih_2015
     A3CTrainingThread.env_id = args.gym_env
     A3CTrainingThread.auto_start = args.auto_start
+    A3CTrainingThread.egreedy_testing = args.egreedy_testing
     if args.adaptive_reward:
         A3CTrainingThread.adaptive_reward = True
         A3CTrainingThread.max_reward[0] = max_reward
