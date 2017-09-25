@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 import numpy as np
+import os
 
 from abc import ABC, abstractmethod
 from time import sleep
@@ -128,6 +129,7 @@ class GameACNetwork(ABC):
     not_transfer_conv3=False, not_transfer_conv2=False,
     var_list=None):
     assert folder != ''
+    assert os.path.isdir(folder)
     assert self._thread_index == -1 # only load model to global network
 
     transfer_all = False
@@ -201,21 +203,21 @@ class GameACFFNetwork(GameACNetwork):
       self.s = tf.placeholder("float", [None, 84, 84, 4])
 
       if self.use_mnih_2015:
-        h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-        h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
-        h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
+        self.h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+        self.h_conv2 = tf.nn.relu(self._conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+        self.h_conv3 = tf.nn.relu(self._conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
 
-        h_conv3_flat = tf.reshape(h_conv3, [-1, 3136])
-        h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
+        self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
+        self.h_fc1 = tf.nn.relu(tf.matmul(self.h_conv3_flat, self.W_fc1) + self.b_fc1)
       else:
-        h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-        h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+        self.h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+        self.h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
-        h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
-        h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
+        h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
+        self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
       self.keep_prob = tf.placeholder(tf.float32, shape=(), name="h_fc1_dropout")
-      h_fc1_dropout = tf.nn.dropout(h_fc1, self.keep_prob)
+      h_fc1_dropout = tf.nn.dropout(self.h_fc1, self.keep_prob)
 
       # policy (output)
       self.logits = tf.matmul(h_fc1_dropout, self.W_fc2) + self.b_fc2
@@ -310,20 +312,20 @@ class GameACLSTMNetwork(GameACNetwork):
       self.s = tf.placeholder("float", [None, 84, 84, 4])
 
       if self.use_mnih_2015:
-        h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-        h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
-        h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
+        self.h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+        self.h_conv2 = tf.nn.relu(self._conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+        self.h_conv3 = tf.nn.relu(self._conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
 
-        h_conv3_flat = tf.reshape(h_conv3, [-1, 3136])
-        h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
+        h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
+        self.h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
       else:
-        h_conv1 = tf.nn.relu(self._conv2d(self.s, self.W_conv1, 4) + self.b_conv1)
-        h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+        self.h_conv1 = tf.nn.relu(self._conv2d(self.s, self.W_conv1, 4) + self.b_conv1)
+        self.h_conv2 = tf.nn.relu(self._conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
 
-        h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
-        h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
+        h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
+        self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
-      h_fc1_reshaped = tf.reshape(h_fc1, [1,-1,256])
+      h_fc1_reshaped = tf.reshape(self.h_fc1, [1,-1,256])
 
       # place holder for LSTM unrolling time step size.
       self.step_size = tf.placeholder(tf.float32, [1])

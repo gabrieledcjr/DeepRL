@@ -4,7 +4,7 @@ import time
 import numpy as np
 import sys
 
-from game_class_network import GameACFFNetwork, GameACLSTMNetwork
+from game_class_network import MultiClassNetwork
 from util import load_memory
 from game_state import GameState
 from termcolor import colored
@@ -51,12 +51,8 @@ def extract_layers(args):
     del game_state.env
     del game_state
 
-    if args.use_lstm:
-        GameACLSTMNetwork.use_mnih_2015 = args.use_mnih_2015
-        network = GameACLSTMNetwork(action_size, -1, device)
-    else:
-        GameACFFNetwork.use_mnih_2015 = args.use_mnih_2015
-        network = GameACFFNetwork(action_size, -1, device)
+    MultiClassNetwork.use_mnih_2015 = args.use_mnih_2015
+    network = MultiClassNetwork(action_size, -1, device)
 
     with tf.device(device):
         opt = tf.train.AdamOptimizer(learning_rate=0.0001, epsilon=0.001)

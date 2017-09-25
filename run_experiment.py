@@ -87,6 +87,12 @@ def main():
     parser.add_argument('--l1-beta', type=float, default=0., help='L1 regularization beta')
     parser.add_argument('--l2-beta', type=float, default=0., help='L2 regularization beta')
     parser.add_argument('--model-folder', type=str, default=None)
+    parser.add_argument('--exclude-num-demo-ep', type=int, default=0, help='exclude number of demo episodes from classification training')
+
+    parser.add_argument('--onevsall-mtl', action='store_true')
+    parser.set_defaults(onevsall_mtl=False)
+    parser.add_argument('--exclude-noop', action='store_true')
+    parser.set_defaults(exclude_noop=False)
 
     parser.add_argument('--extract-transfer-layers', action='store_true')
     parser.set_defaults(extract_transfer_layers=False)
@@ -105,6 +111,10 @@ def main():
 
     parser.add_argument('--egreedy-testing', action='store_true', help='testing/evaluation uses egreedy')
     parser.set_defaults(egreedy_testing=False)
+
+    parser.add_argument('--use-human-model-as-advice', action='store_true')
+    parser.set_defaults(use_human_model_as_advice=False)
+    parser.add_argument('--advice-model-folder', type=str, default=None)
 
     args = parser.parse_args()
 

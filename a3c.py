@@ -74,6 +74,8 @@ def run_a3c(args):
             end_str += '_notgae'
         if args.use_egreedy_threads:
             end_str += '_use_egreedy'
+        if args.use_human_model_as_advice:
+            end_str += '_wadvice'
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -122,6 +124,24 @@ def run_a3c(args):
     game_state.env.close()
     del game_state.env
     del game_state
+
+    config = tf.ConfigProto(
+        gpu_options=gpu_options,
+        log_device_placement=False,
+        allow_soft_placement=True)
+
+    human_net = None
+    human_sess = None
+    if args.use_human_model_as_advice:
+        from game_class_network_1vsall import GameACFFNetwork as HumanGameACFFNetwork
+        if args.advice_model_folder is not None:
+            advice_folder = args.advice_model_folder
+        else:
+            advice_folder = '{}_classifier_use_mnih_onevsall_mtl'.format(args.gym_env.replace('-', '_'))
+        HumanGameACFFNetwork.use_mnih_2015 = args.use_mnih_2015
+        human_net = HumanGameACFFNetwork(action_size, -1, device)
+        human_sess = tf.Session(config=config, graph=human_net.graph)
+        human_net.load(human_sess, '{}/{}_checkpoint'.format(advice_folder, args.gym_env.replace('-', '_')))
 
     if args.use_lstm:
         GameACLSTMNetwork.use_mnih_2015 = args.use_mnih_2015
@@ -177,14 +197,12 @@ def run_a3c(args):
             i, global_network, initial_learning_rate,
             learning_rate_input,
             grad_applier, args.max_time_step,
-            device=device, grad_applier_v=grad_applier_v)
+            device=device, grad_applier_v=grad_applier_v,
+            human_net=human_net, # if i < args.parallel_size/2 else None,
+            human_sess=human_sess) # if i < args.parallel_size/2 else None)
         training_threads.append(training_thread)
 
     # prepare session
-    config = tf.ConfigProto(
-        gpu_options=gpu_options,
-        log_device_placement=False,
-        allow_soft_placement=True)
     sess = tf.Session(config=config)
 
     if args.use_transfer:

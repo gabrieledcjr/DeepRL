@@ -24,7 +24,7 @@ def solve_weight(numbers):
     # (total # of sample) / ((# of classes) * (# of sample in class i))
     sum_number = sum(numbers)
     len_number = len(numbers)
-    solved = [sum_number / (len_number * n) for n in numbers]
+    solved = [sum_number / (len_number * (n+1e-20)) for n in numbers]
     return solved
 
 def _create_symmetry(name, D):
@@ -102,6 +102,7 @@ def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry
         ep = demo[1]
         total_memory += demo[4]
         folder = demo_memory_folder + '/{n:03d}/'.format(n=(ep))
+        print (folder + name + '-dqn.pkl')
         D = DataSet()
         data = pickle.load(open(folder + name + '-dqn.pkl', 'rb'))
         D.width = data['D.width']
@@ -438,3 +439,93 @@ def get_compressed_images(h5file_gz):
 
 def remove_h5file(file_h5):
     os.remove(file_h5)
+
+def get_activations(sess, layer, s_t, s, keep_prob):
+  units = sess.run(layer, feed_dict={s: [s_t], keep_prob:1.0})
+  plot_nnfilter(units)
+
+def plot_nnfilter(units):
+  import matplotlib.pyplot as plt
+  import math
+  filters = units.shape[3]
+  plt.figure(1, figsize=(20,20))
+  n_columns = 6
+  n_rows = math.ceil(filters / n_columns) + 1
+  for i in range(filters):
+    plt.subplot(n_rows, n_columns, i+1)
+    plt.title('Filter ' + str(i))
+    plt.imshow(units[0,:,:,i], interpolation="nearest", cmap="gray")
+
+# def montage(images, saveto='montage.png'):
+#   """Draw all images as a montage separated by 1 pixel borders.
+#   Also saves the file to the destination specified by `saveto`.
+#   Parameters
+#   ----------
+#   images : numpy.ndarray
+#       Input array to create montage of.  Array should be:
+#       batch x height x width x channels.
+#   saveto : str
+#       Location to save the resulting montage image.
+#   Returns
+#   -------
+#   m : numpy.ndarray
+#       Montage image.
+#   src: https://github.com/pkmital/CADL/blob/master/session-2/libs/utils.py
+#   """
+#   from scipy.misc import imsave
+#   if isinstance(images, list):
+#     images = np.array(images)
+#   img_h = images.shape[1]
+#   img_w = images.shape[2]
+#   n_plots = int(np.ceil(np.sqrt(images.shape[0])))
+#   if len(images.shape) == 4 and images.shape[3] == 3:
+#     m = np.ones(
+#       (images.shape[1] * n_plots + n_plots + 1,
+#        images.shape[2] * n_plots + n_plots + 1, 3)) * 0.5
+#   elif len(images.shape) == 4 and images.shape[3] == 1:
+#     m = np.ones(
+#       (images.shape[1] * n_plots + n_plots + 1,
+#        images.shape[2] * n_plots + n_plots + 1, 1)) * 0.5
+#   elif len(images.shape) == 3:
+#     m = np.ones(
+#       (images.shape[1] * n_plots + n_plots + 1,
+#        images.shape[2] * n_plots + n_plots + 1)) * 0.5
+#   else:
+#     raise ValueError('Could not parse image shape of {}'.format(
+#       images.shape))
+#   for i in range(n_plots):
+#     for j in range(n_plots):
+#       this_filter = i * n_plots + j
+#       if this_filter < images.shape[0]:
+#         this_img = images[this_filter]
+#         m[1 + i + i * img_h:1 + i + (i + 1) * img_h,
+#           1 + j + j * img_w:1 + j + (j + 1) * img_w] = this_img
+#   imsave(arr=np.squeeze(m), name=saveto)
+#   return m
+
+def montage(W):
+    """Draws all filters (n_input * n_output filters) as a
+    montage image separated by 1 pixel borders.
+    Parameters
+    ----------
+    W : numpy.ndarray
+        Input array to create montage of.
+    Returns
+    -------
+    m : numpy.ndarray
+        Montage image.
+    src: https://github.com/pkmital/tensorflow_tutorials/blob/master/python/libs/utils.py
+    """
+    W = np.reshape(W, [W.shape[0], W.shape[1], 1, W.shape[2] * W.shape[3]])
+    n_plots = int(np.ceil(np.sqrt(W.shape[-1])))
+    m = np.ones(
+        (W.shape[0] * n_plots + n_plots + 1,
+         W.shape[1] * n_plots + n_plots + 1)) * 0.5
+    for i in range(n_plots):
+        for j in range(n_plots):
+            this_filter = i * n_plots + j
+            if this_filter < W.shape[-1]:
+                m[1 + i + i * W.shape[0]:1 + i + (i + 1) * W.shape[0],
+                  1 + j + j * W.shape[1]:1 + j + (j + 1) * W.shape[1]] = (
+                    np.squeeze(W[:, :, :, this_filter]))
+    return m

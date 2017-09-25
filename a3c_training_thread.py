@@ -36,7 +36,8 @@ class A3CTrainingThread(object):
                grad_applier,
                max_global_time_step,
                device=None,
-               grad_applier_v=None):
+               grad_applier_v=None,
+               human_net=None, human_sess=None):
     assert self.action_size != -1
 
     self.thread_index = thread_index
@@ -92,6 +93,12 @@ class A3CTrainingThread(object):
     self.use_dropout = False
     self.keep_prob = 1.0
 
+    self.human_net = human_net
+    self.human_sess = human_sess
+    self.use_human_advice = True if self.human_net is not None else False
+    self.psi = 1.0
+    self.advice_ctr = 0
+
   def _anneal_learning_rate(self, global_time_step):
     learning_rate = self.initial_learning_rate * (self.max_global_time_step - global_time_step) / self.max_global_time_step
     if learning_rate < 0.0:
@@ -108,6 +115,15 @@ class A3CTrainingThread(object):
       if np.random.random() > epsilon:
         return get_action_index(pi_values, is_random=False, n_actions=self.action_size)
     return self.choose_action(pi_values)
+
+  def extract_advice(self, pi_values):
+    action_advice = []
+    # exclude NOOP action
+    for action in range(1, self.action_size):
+      action_advice.append(pi_values[action][0][0])
+    action_human = np.argmax(action_advice)
+    confidence = action_advice[action_human]
+    return (action_human+1), confidence
 
   def _record_score(self, sess, summary_writer, summary_op, score_input, score, global_t):
     summary_str = sess.run(summary_op, feed_dict={
@@ -395,6 +411,7 @@ class A3CTrainingThread(object):
 
     terminal_end = False
 
+
     # copy weights from shared to local
     sess.run( self.sync )
 
@@ -410,6 +427,14 @@ class A3CTrainingThread(object):
         action = self.choose_action_egreedy(pi_, global_t)
       else:
         action = self.choose_action(pi_)
+        if self.use_human_advice and self.psi > 0.1:
+          self.psi = 0.999995 * (0.999995 ** global_t)
+          if self.psi > np.random.rand():
+            human_pi = self.human_net.run_policy(self.human_sess, self.game_state.s_t)
+            human_action, confidence = self.extract_advice(human_pi)
+            if human_action > 0 and confidence > 0.75:
+              action = human_action
+              self.advice_ctr += 1
 
       states.append(self.game_state.s_t)
       actions.append(action)
@@ -419,6 +444,8 @@ class A3CTrainingThread(object):
         print(colored("logits={}".format(logits_), "magenta"))
         print("    pi={}".format(pi_))
         print("     V={}".format(value_))
+        if self.use_human_advice and self.psi > 0.1:
+          print("   psi={}".format(self.psi))
 
       # process game
       self.game_state.process(action)
@@ -448,7 +475,7 @@ class A3CTrainingThread(object):
 
       if terminal:
         terminal_end = True
-        print("t_idx={} score={} keep_prob={}".format(self.thread_index, self.episode_reward, self.keep_prob))
+        print("t_idx={} score={} keep_prob={} advice_ctr={}/{}".format(self.thread_index, self.episode_reward, self.keep_prob, self.advice_ctr, self.local_t))
         training_rewards[global_t] = self.episode_reward
         self._record_score(sess, summary_writer, summary_op, score_input,
                            self.episode_reward, global_t)
