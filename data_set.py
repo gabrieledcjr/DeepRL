@@ -107,8 +107,8 @@ class DataSet(object):
             state[:, :, i] = temp[i]
 
         action = self.actions.take(end_index, axis=0)
-        reward = self.rewards.take(end_index)
-        terminal = self.terminal.take(end_index)
+        reward = self.rewards.take(end_index+1)
+        terminal = self.terminal.take(end_index+1)
 
         return state, action, reward, terminal
 
@@ -169,7 +169,7 @@ class DataSet(object):
 
         # Randomly choose a time step from the replay memory
         # within requested batch_size
-        end_range = self.size - self.phi_length
+        end_range = self.size - (self.phi_length + 1)
         assert end_range > 0 # crash if not enough memory
 
         for count in range(batch_size):

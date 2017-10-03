@@ -33,56 +33,24 @@ TORPEDO = 18
 RIGHTTORPEDO = 19
 LEFTTORPEDO = 20
 
-class AtariEnvSkipping(gym.Wrapper):
-    def __init__(self, env, env_id=None, frameskip=4):
-        self.env = env
-        self.env_id = env_id
-        self.env.ale.setFloat('frame_skip'.encode('utf-8'), frameskip)
-        self.env.ale.setFloat('repeat_action_probability'.encode('utf-8'), 0.0)
-        self.env._seed()
-
-        print (colored("lives: {}".format(self.env.ale.lives()), "green"))
-        print (colored("frameskip: {}".format(self.env.ale.getFloat(b'frame_skip')), "green"))
-        print (colored("repeat_action_probability: {}".format(self.env.ale.getFloat(b'repeat_action_probability')), "green"))
-
-        self.n_actions = self.env.action_space.n
-        if self.env_id[:5] == 'Qbert':
-            self.n_actions = 5
-        elif self.env_id[:11] == 'NewBreakout':
-            self.n_actions = 4
-        print (colored("action space: {}".format(self.n_actions), "green"))
-
-    def _step(self, a):
-        if self.env_id[:5] == 'Qbert':
-            if a > 0: act = a + 1
-            else: act = 0
-        else:
-            act = a
-
-        reward = 0.0
-        action = self.env._action_set[act]
-
-        reward += self.env.ale.act(action)
-        ob = self.env._get_obs()
-
-        return ob, reward, self.env.ale.game_over(), {"ale.lives": self.env.ale.lives()}
-
 class GameState(object):
-    def __init__(self, env_id=None, display=False, crop_screen=True, frame_skip=4, no_op_max=30, human_demo=False, auto_start=False):
+    def __init__(self, env_id=None, display=False, crop_screen=True, no_op_max=30, human_demo=False, auto_start=False):
         assert env_id is not None
         self._display = display
         self._crop_screen = crop_screen
-        self._frame_skip = frame_skip
-        if self._frame_skip < 1:
-            self._frame_skip = 1
         self._no_op_max = no_op_max
         self.env_id = env_id
         self._human_demo = human_demo
         self._auto_start = auto_start
 
-        env_id = self.env_id if self.env_id[:3] != 'New' else self.env_id[3:]
-        self.env = gym.make(env_id)
-        self.env = AtariEnvSkipping(self.env, env_id=self.env_id, frameskip=self._frame_skip)
+        self.env = gym.make(self.env_id)
+
+        print (colored("ale_lives: {}".format(self.env.env.ale.lives()), "green"))
+        print (colored("ale_frameskip: {}".format(self.env.env.ale.getFloat(b'frame_skip')), "green"))
+        print (colored("ale_repeat_action_probability: {}".format(self.env.env.ale.getFloat(b'repeat_action_probability')), "green"))
+        print (colored("gym_frameskip: {}".format(self.env.env.frameskip), "green"))
+        print (colored("gym_action_space: {}".format(self.env.action_space), "green"))
+
 
         if self._human_demo:
             self.action_map = {
@@ -125,8 +93,6 @@ class GameState(object):
             self.action_map[FIRE] = 1
             self.action_map[RIGHT] = 2
             self.action_map[LEFT] = 3
-            self.action_map[RIGHTFIRE] = 4
-            self.action_map[LEFTFIRE] = 5
         elif self.env_id[:9] == 'BeamRider':
             self.action_map[FIRE] = 1
             self.action_map[TORPEDO] = self.action_map[UP] = 2
@@ -142,10 +108,6 @@ class GameState(object):
             self.action_map[LEFT] = 3
             self.action_map[RIGHTFIRE] = 4
             self.action_map[LEFTFIRE] = 5
-        elif self.env_id[:11] == 'NewBreakout':
-            self.action_map[FIRE] = 1
-            self.action_map[RIGHT] = 2
-            self.action_map[LEFT] = 3
         else:
             # TODO: map ale action_set to right key actions
             pass
@@ -155,10 +117,10 @@ class GameState(object):
         self.human_agent_action_code = 0
         self.human_wants_restart = False
         self.human_sets_pause = False
-        self.env.unwrapped._render(mode='human')
+        self.env.render(mode='human')
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
-        self.env.unwrapped.env.viewer.window.push_handlers(self.keys)
+        self.env.env.viewer.window.push_handlers(self.keys)
         self.stop_thread = False
         self.keys_thread = threading.Thread(target=(self.update_human_agent_action))
         self.keys_thread.start()
@@ -207,23 +169,7 @@ class GameState(object):
             sleep(0.01)
         print ("Exited thread loop")
 
-    def _process_frame(self, action, normalize=True):
-        info = {'lost_life': False}
-        reward = 0
-        observation, r, terminal, env_info = self.env.step(action)
-        reward += r
-
-        if self.lives < env_info['ale.lives']:
-            self.lives = env_info['ale.lives']
-        elif (self.lives - env_info['ale.lives']) != 0 and r <= 0:
-            self.lives = env_info['ale.lives']
-            info['lost_life'] = True
-
-        if self._auto_start and info['lost_life']:
-            if self.env_id[:8] == 'Breakout' or self.env_id[:11] == 'NewBreakout':
-                observation, r, terminal, env_info = self.env.step(1)
-                reward += r
-
+    def _process_frame(self, observation, normalize=True):
         grayscale_observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
 
         if self._crop_screen:
@@ -239,7 +185,7 @@ class GameState(object):
         # normalize
         if normalize:
             x_t *= (1.0/255.0)
-        return reward, terminal, x_t, info
+        return x_t
 
     def reset(self, normalize=True):
         self.env.reset()
@@ -247,15 +193,19 @@ class GameState(object):
 
         # randomize initial state
         if self._no_op_max > 0:
-            no_op = np.random.randint(0, self._no_op_max * (4/self._frame_skip) + 1)
+            skip = 4 if self.env_id[:13] != 'SpaceInvaders' else 3
+            no_op = np.random.randint(0, self._no_op_max * (skip//self.env.env.frameskip) + 1)
             for _ in range(no_op):
                 self.env.step(0)
+            print ("no_op: {}".format(no_op))
 
-        _, _, x_t, info = self._process_frame(0, normalize=normalize)
+        observation, _, _, info = self._step(0)
+        x_t = self._process_frame(observation, normalize=normalize)
 
         if self._auto_start:
-            if self.env_id[:8] == 'Breakout' or self.env_id[:11] == 'NewBreakout':
-                _, _, x_t, info = self._process_frame(1, normalize=normalize)
+            if self.env_id[:8] == 'Breakout':
+                observation, _, _, info = self._step(1)
+                x_t = self._process_frame(observation, normalize=normalize)
 
         self.x_t = x_t
 
@@ -264,22 +214,42 @@ class GameState(object):
         self.lost_life = info['lost_life']
         self.s_t = np.stack((x_t, x_t, x_t, x_t), axis = 2)
 
+    def _step(self, action):
+        info = {'lost_life': False}
+        reward = 0
+        observation, r, terminal, env_info = self.env.step(action)
+        reward += r
+
+        if self.lives < env_info['ale.lives']:
+            self.lives = env_info['ale.lives']
+        elif (self.lives - env_info['ale.lives']) != 0 and r <= 0:
+            self.lives = env_info['ale.lives']
+            info['lost_life'] = True
+
+        if self._auto_start and info['lost_life']:
+            if self.env_id[:8] == 'Breakout':
+                observation, r, terminal, env_info = self.env.step(1)
+                reward += r
+
+        return observation, reward, terminal, info
+
     def process(self, action, normalize=True):
         if self._display:
-            self.env.unwrapped._render()
+            self.env.render()
 
         if self._auto_start and not self._human_demo:
-            if self.env_id[:8] == 'Breakout' or self.env_id[:11] == 'NewBreakout':
+            if self.env_id[:8] == 'Breakout':
                 action = action if action == 0 else action+1
 
-        r, t, x_t1, info = self._process_frame(action, normalize=normalize)
+        observation, reward, terminal, info = self._step(action)
+        x_t1 = self._process_frame(observation, normalize=normalize)
         self.x_t = x_t1
 
-        self.reward = r
-        self.terminal = t
+        self.reward = reward
+        self.terminal = terminal
         self.lost_life = info['lost_life']
         x_t = np.reshape(x_t1, (84, 84, 1))
-        self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis = 2)
+        self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis=2)
 
     def update(self):
         self.s_t = self.s_t1
@@ -287,8 +257,7 @@ class GameState(object):
 def test_keys(env_id):
     from skimage.measure import compare_ssim
     from skimage import io, filters
-    test_game = GameState(env_id=env_id, display=True, frame_skip=1, human_demo=True, auto_start=True)
-    test_game.reset()
+    test_game = GameState(env_id=env_id, display=True, human_demo=True, auto_start=True)
     terminal = False
     skip = 0
     state = test_game.x_t
@@ -299,10 +268,11 @@ def test_keys(env_id):
         (score, diff) = compare_ssim(state, new_state, full=True)
         # print("SSIM: {}".format(score))
         state = new_state
-        edges = filters.sobel(state)
-        cv2.imshow("edges", edges)
-        cv2.waitKey(1)
-    cv2.destroyAllWindows()
+        # edges = filters.sobel(state)
+        # cv2.imshow("edges", edges)
+        # cv2.waitKey(1)
+
+    # cv2.destroyAllWindows()
     test_game.env.close()
     test_game.close()
     del test_game.env

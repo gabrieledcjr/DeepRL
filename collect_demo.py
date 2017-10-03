@@ -39,8 +39,10 @@ class CollectDemonstration(object):
         self._create_table()
 
         self._skip = 1
-        if self.game_state._frame_skip == 1:
+        if self.game_state.env.env.frameskip == 1:
             self._skip = 4
+            if self.game_state.env_id[:13] == 'SpaceInvaders':
+                self._skip = 3 # NIPS (makes laser always visible)
 
     def _create_table(self):
         # Create table if doesn't exist
@@ -89,7 +91,7 @@ class CollectDemonstration(object):
                 np.random.RandomState(),
                 max_steps=100000,
                 phi_length=self.phi_length,
-                num_actions=self.game_state.env.n_actions)
+                num_actions=self.game_state.env.action_space.n)
 
             self.folder = self.main_folder + '/{n:03d}/'.format(n=(ep))
             prepare_dir(self.folder, empty=True)
@@ -156,11 +158,16 @@ class CollectDemonstration(object):
         # regular game
         start_time = datetime.now()
         timeout_start = time.time()
+        full_episode = False
+        if minutes_limit < 0:
+            minutes_limit = 0
+            full_episode = True
         timeout = 60 * minutes_limit
         t = 0
         terminal = False
         is_reset = True
         total_reward = 0.0
+        rew = 0
         score1 = score2 = 0
 
         # re-initialize game for evaluation
@@ -176,37 +183,31 @@ class CollectDemonstration(object):
             override_add_sample = True
 
         while True:
-            if demo_type == 1: # RANDOM AGENT
-                action = np.random.randint(self.game_state.n_actions)
-            elif demo_type == 2: # MODEL AGENT
-                if sub_t % self._skip == 0:
-                    self._update_state_input(self.game_state.s_t)
-                    readout_t = model_net.evaluate(self.state_input)[0]
-                    action = get_action_index(readout_t, is_random=False, n_actions=self.game_state.n_actions)
-            else: # HUMAN
-                if self.game_state.lost_life and (is_breakout or is_beamrider):
-                    action, pause_duration = self._pause_lost_life(is_breakout=is_breakout, is_beamrider=is_beamrider)
-                    timeout += pause_duration
-                    override_add_sample = True
-                else:
-                    action = self.game_state.human_agent_action
-
-            self.game_state.process(action, normalize=False)
-            terminal = True if self.game_state.terminal or (time.time() > timeout_start + timeout) else False
+            if not terminal:
+                if demo_type == 1: # RANDOM AGENT
+                    action = np.random.randint(self.game_state.n_actions)
+                elif demo_type == 2: # MODEL AGENT
+                    if sub_t % self._skip == 0:
+                        self._update_state_input(self.game_state.s_t)
+                        readout_t = model_net.evaluate(self.state_input)[0]
+                        action = get_action_index(readout_t, is_random=False, n_actions=self.game_state.n_actions)
+                else: # HUMAN
+                    if self.game_state.lost_life and (is_breakout or is_beamrider):
+                        # when lost of life and their is a pause
+                        action, pause_duration = self._pause_lost_life(is_breakout=is_breakout, is_beamrider=is_beamrider)
+                        timeout += pause_duration
+                        override_add_sample = True
+                    else:
+                        action = self.game_state.human_agent_action
 
             # store the transition in D
-            # when using frameskip=1, should store every four steps
-            # or when lost of life and their is a pause
-            if t % self._skip == 0 or override_add_sample:
-                self.D.add_sample(
-                    self.game_state.x_t,
-                    action,
-                    self.game_state.reward,
-                    self.game_state.terminal)
-                override_add_sample = False
-            self.game_state.update()
+            self.D.add_sample(
+                self.game_state.x_t,
+                action,
+                rew,
+                self.game_state.terminal)
 
-            total_reward += self.game_state.reward
+            total_reward += rew
             t += 1
 
             # Ensure that D does not reach max memory that mitigate
@@ -217,6 +218,20 @@ class CollectDemonstration(object):
 
             if terminal:
                 break
+
+            rew = 0
+            # when using frameskip=1, should repeat action four times
+            for _ in range(self._skip):
+                self.game_state.process(action, normalize=False)
+                rew += self.game_state.reward
+                if not full_episode:
+                    terminal = True if self.game_state.terminal or (time.time() > timeout_start + timeout) else False
+                else:
+                    terminal = self.game_state.terminal
+                if terminal: break
+
+            self.game_state.update()
+
 
         duration = datetime.now() - start_time
         print ("Duration: {}".format(duration))
@@ -247,14 +262,14 @@ class CollectDemonstration(object):
 
 def get_demo(args):
     """
-    python3 run_experiment.py --gym-env=PongDeterministic-v3 --collect-demo --num-episodes=5 --demo-time-limit=5
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --collect-demo --num-episodes=5 --demo-time-limit=5
     """
     if args.demo_memory_folder is not None:
         demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
     else:
         demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
 
-    game_state = GameState(env_id=args.gym_env, display=True, frame_skip=1, human_demo=True)
+    game_state = GameState(env_id=args.gym_env, display=True, human_demo=True)
     collect_demo = CollectDemonstration(
         game_state,
         84, 84, 4,
@@ -267,7 +282,7 @@ def get_demo(args):
         demo_type=0)
 
 def test_collect(env_id):
-    game_state = GameState(env_id=env_id, display=True, frame_skip=1, human_demo=True)
+    game_state = GameState(env_id=env_id, display=True, human_demo=True)
     test_folder = env_id.replace('-', '_') + "_test_demo_samples"
     collect_demo = CollectDemonstration(
         game_state,
