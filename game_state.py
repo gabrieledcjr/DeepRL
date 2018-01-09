@@ -2,115 +2,40 @@
 import sys
 import numpy as np
 import gym
+from gym.envs.atari.atari_env import ACTION_MEANING
 
 import cv2
 import pyglet
 import threading
+import coloredlogs, logging
 
 from time import sleep
 from termcolor import colored
+from atari_wrapper import AtariWrapper
 
-NOOP = 0
-FIRE = 1
-UP = 2
-RIGHT = 3
-LEFT = 4
-DOWN = 5
-UPRIGHT = 6
-UPLEFT = 7
-DOWNRIGHT = 8
-DOWNLEFT = 9
-UPFIRE = 10
-RIGHTFIRE = 11
-LEFTFIRE = 12
-DOWNFIRE = 13
-UPRIGHTFIRE = 14
-UPLEFTFIRE = 15
-DOWNRIGHTFIRE = 16
-DOWNLEFTFIRE = 17
-
-TORPEDO = 18
-RIGHTTORPEDO = 19
-LEFTTORPEDO = 20
+logger = logging.getLogger("a3c")
 
 class GameState(object):
-    def __init__(self, env_id=None, display=False, crop_screen=True, no_op_max=30, human_demo=False, auto_start=False):
+    def __init__(self, env_id=None, display=False, crop_screen=True, no_op_max=30, human_demo=False):
         assert env_id is not None
         self._display = display
         self._crop_screen = crop_screen
         self._no_op_max = no_op_max
         self.env_id = env_id
         self._human_demo = human_demo
-        self._auto_start = auto_start
 
-        self.env = gym.make(self.env_id)
-
-        print (colored("ale_lives: {}".format(self.env.env.ale.lives()), "green"))
-        print (colored("ale_frameskip: {}".format(self.env.env.ale.getFloat(b'frame_skip')), "green"))
-        print (colored("ale_repeat_action_probability: {}".format(self.env.env.ale.getFloat(b'repeat_action_probability')), "green"))
-        print (colored("gym_frameskip: {}".format(self.env.env.frameskip), "green"))
-        print (colored("gym_action_space: {}".format(self.env.action_space), "green"))
-
+        env = gym.make(self.env_id)
+        if "Deterministic" in self.env_id or "NoFrameskip" in self.env_id:
+            # necessary for faster simulation and to override keyboard controls
+            self.env = AtariWrapper(env)
+        else:
+            self.env = env
 
         if self._human_demo:
-            self.action_map = {
-                NOOP: 0, FIRE: 0, UP: 0, RIGHT: 0, LEFT: 0, DOWN: 0,
-                UPRIGHT: 0, UPLEFT: 0, DOWNRIGHT: 0, DOWNLEFT: 0,
-                UPFIRE: 0, RIGHTFIRE: 0, LEFTFIRE: 0, DOWNFIRE: 0,
-                UPRIGHTFIRE: 0, UPLEFTFIRE: 0, DOWNRIGHTFIRE: 0, DOWNLEFTFIRE: 0,
-                TORPEDO: 0, RIGHTTORPEDO: 0, LEFTTORPEDO: 0
-            }
             self._display = True
-            self._remap_actions()
             self._init_keyboard()
 
         self.reset()
-
-    def _remap_actions(self):
-        if self.env_id[:4] == "Pong":
-            self.action_map[FIRE] = 1
-            self.action_map[UP] = 2
-            self.action_map[DOWN] = 3
-            self.action_map[UPFIRE] = 4
-            self.action_map[DOWNFIRE] = 5
-        elif self.env_id[:5] == 'Qbert':
-            self.action_map[UPRIGHT] = 1
-            self.action_map[DOWNRIGHT] = 2
-            self.action_map[UPLEFT] = 3
-            self.action_map[DOWNLEFT] = 4
-        elif self.env_id[:6] == 'Gopher':
-            self.action_map[FIRE] = 1
-            self.action_map[UP] = 2
-            self.action_map[RIGHT] = 3
-            self.action_map[LEFT] = 4
-            self.action_map[UPFIRE] = 5
-            self.action_map[RIGHTFIRE] = 6
-            self.action_map[LEFTFIRE] = 7
-        elif self.env_id[:7] == 'Freeway':
-            self.action_map[UP] = 1
-            self.action_map[DOWN] = 2
-        elif self.env_id[:8] == 'Breakout':
-            self.action_map[FIRE] = 1
-            self.action_map[RIGHT] = 2
-            self.action_map[LEFT] = 3
-        elif self.env_id[:9] == 'BeamRider':
-            self.action_map[FIRE] = 1
-            self.action_map[TORPEDO] = self.action_map[UP] = 2
-            self.action_map[RIGHT] = 3
-            self.action_map[LEFT] = 4
-            self.action_map[RIGHTTORPEDO] = self.action_map[UPRIGHT] = 5
-            self.action_map[LEFTTORPEDO] = self.action_map[UPLEFT] = 6
-            self.action_map[RIGHTFIRE] = 7
-            self.action_map[LEFTFIRE] = 8
-        elif self.env_id[:13] == 'SpaceInvaders':
-            self.action_map[FIRE] = 1
-            self.action_map[RIGHT] = 2
-            self.action_map[LEFT] = 3
-            self.action_map[RIGHTFIRE] = 4
-            self.action_map[LEFTFIRE] = 5
-        else:
-            # TODO: map ale action_set to right key actions
-            pass
 
     def _init_keyboard(self):
         self.human_agent_action = 0
@@ -120,11 +45,14 @@ class GameState(object):
         self.env.render(mode='human')
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
-        self.env.env.viewer.window.push_handlers(self.keys)
+        self.action_map = self.env.get_keys_to_action(self.key)
+        logger.info(self.env.unwrapped.get_action_meanings())
+        self.env.unwrapped.viewer.window.push_handlers(self.keys)
+        self.env.render(mode='human')
         self.stop_thread = False
         self.keys_thread = threading.Thread(target=(self.update_human_agent_action))
         self.keys_thread.start()
-        print ("Keys thread started")
+        logger.info("Keys thread started")
 
     def close(self):
         self.stop_thread = True
@@ -132,44 +60,20 @@ class GameState(object):
 
     def update_human_agent_action(self):
         while not self.stop_thread:
-            action = NOOP
-            if self.keys[self.key.DOWN] and self.keys[self.key.LEFT]:
-                action = self.action_map[DOWNLEFT]
-            elif self.keys[self.key.DOWN] and self.keys[self.key.RIGHT]:
-                action = self.action_map[DOWNRIGHT]
-            elif self.keys[self.key.DOWN] and self.keys[self.key.SPACE]:
-                action = self.action_map[DOWNFIRE]
-            elif self.keys[self.key.UP] and self.keys[self.key.LEFT]:
-                action = self.action_map[UPLEFT]
-            elif self.keys[self.key.UP] and self.keys[self.key.RIGHT]:
-                action = self.action_map[UPRIGHT]
-            elif self.keys[self.key.UP] and self.keys[self.key.SPACE]:
-                action = self.action_map[UPFIRE]
-            elif self.keys[self.key.LEFT] and self.keys[self.key.SPACE]:
-                action = self.action_map[LEFTFIRE]
-            elif self.keys[self.key.RIGHT] and self.keys[self.key.SPACE]:
-                action = self.action_map[RIGHTFIRE]
-            elif self.keys[self.key.LEFT] and self.keys[self.key.ENTER]: # Torpedo in Beamrider
-                action = self.action_map[UPLEFT]
-            elif self.keys[self.key.RIGHT] and self.keys[self.key.ENTER]: # Torpedo in Beamrider
-                action = self.action_map[UPRIGHT]
-            elif self.keys[self.key.LEFT]:
-                action = self.action_map[LEFT]
-            elif self.keys[self.key.RIGHT]:
-                action = self.action_map[RIGHT]
-            elif self.keys[self.key.UP]:
-                action = self.action_map[UP]
-            elif self.keys[self.key.DOWN]:
-                action = self.action_map[DOWN]
-            elif self.keys[self.key.SPACE]:
-                action = self.action_map[FIRE]
-            elif self.keys[self.key.ENTER]: # Torpedo in Beamrider
-                action = self.action_map[UP]
+            action = 0
+            key = []
+            for k in [self.key.UP, self.key.DOWN, self.key.LEFT, self.key.RIGHT, self.key.SPACE]:
+                if self.keys[k]:
+                    key.append(k)
+            key = tuple(sorted(key))
+            if key in self.action_map:
+                action = self.action_map[key]
             self.human_agent_action = action
-            sleep(0.01)
-        print ("Exited thread loop")
+            sleep(0.001)
+        logger.warn("Exited thread loop")
 
     def _process_frame(self, observation, normalize=True):
+        self.x_t_rgb = observation
         grayscale_observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
 
         if self._crop_screen:
@@ -189,47 +93,37 @@ class GameState(object):
 
     def reset(self, normalize=True):
         self.env.reset()
-        self.lives = self.env.env.ale.lives()
+        self.lives = self.env.unwrapped.ale.lives()
 
         # randomize initial state
         if self._no_op_max > 0:
             skip = 4 if self.env_id[:13] != 'SpaceInvaders' else 3
-            no_op = np.random.randint(0, self._no_op_max * (skip//self.env.env.frameskip) + 1)
+            no_op = np.random.randint(0, self._no_op_max * (skip//self.env.unwrapped.frameskip) + 1)
             for _ in range(no_op):
                 self.env.step(0)
-            print ("no_op: {}".format(no_op))
 
         observation, _, _, info = self._step(0)
         x_t = self._process_frame(observation, normalize=normalize)
-
-        if self._auto_start:
-            if self.env_id[:8] == 'Breakout':
-                observation, _, _, info = self._step(1)
-                x_t = self._process_frame(observation, normalize=normalize)
-
         self.x_t = x_t
 
         self.reward = 0
         self.terminal = False
-        self.lost_life = info['lost_life']
+        self.lives = info['lives']
+        self.loss_life = info['loss_life']
+        self.gain_life = info['gain_life']
         self.s_t = np.stack((x_t, x_t, x_t, x_t), axis = 2)
 
     def _step(self, action):
-        info = {'lost_life': False}
+        info = {'loss_life': False, 'gain_life': False}
         reward = 0
         observation, r, terminal, env_info = self.env.step(action)
         reward += r
+        info['lives'] = env_info['ale.lives']
 
         if self.lives < env_info['ale.lives']:
-            self.lives = env_info['ale.lives']
-        elif (self.lives - env_info['ale.lives']) != 0 and r <= 0:
-            self.lives = env_info['ale.lives']
-            info['lost_life'] = True
-
-        if self._auto_start and info['lost_life']:
-            if self.env_id[:8] == 'Breakout':
-                observation, r, terminal, env_info = self.env.step(1)
-                reward += r
+            info['gain_life'] = True
+        elif (self.lives - env_info['ale.lives']) != 0:
+            info['loss_life'] = True
 
         return observation, reward, terminal, info
 
@@ -237,17 +131,15 @@ class GameState(object):
         if self._display:
             self.env.render()
 
-        if self._auto_start and not self._human_demo:
-            if self.env_id[:8] == 'Breakout':
-                action = action if action == 0 else action+1
-
         observation, reward, terminal, info = self._step(action)
         x_t1 = self._process_frame(observation, normalize=normalize)
         self.x_t = x_t1
 
         self.reward = reward
         self.terminal = terminal
-        self.lost_life = info['lost_life']
+        self.lives = info['lives']
+        self.loss_life = info['loss_life']
+        self.gain_life = info['gain_life']
         x_t = np.reshape(x_t1, (84, 84, 1))
         self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis=2)
 
@@ -257,7 +149,7 @@ class GameState(object):
 def test_keys(env_id):
     from skimage.measure import compare_ssim
     from skimage import io, filters
-    test_game = GameState(env_id=env_id, display=True, human_demo=True, auto_start=True)
+    test_game = GameState(env_id=env_id, display=True, human_demo=True)
     terminal = False
     skip = 0
     state = test_game.x_t
@@ -271,6 +163,13 @@ def test_keys(env_id):
         # edges = filters.sobel(state)
         # cv2.imshow("edges", edges)
         # cv2.waitKey(1)
+        print (a)
+        if test_game.gain_life:
+            print ("Gain Life")
+        if test_game.loss_life:
+            print ("Lost life!")
+        if test_game.reward < 0:
+            print (test_game.reward)
 
     # cv2.destroyAllWindows()
     test_game.env.close()
@@ -279,6 +178,16 @@ def test_keys(env_id):
     del test_game
 
 if __name__ == "__main__":
+    coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
+    from log_formatter import LogFormatter
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler('test.log')
+    fh.setLevel(logging.DEBUG)
+    formatter = LogFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('env', type=str)

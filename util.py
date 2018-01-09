@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import random
 import tables
 import numpy as np
@@ -8,9 +8,12 @@ import cv2
 import gzip
 import shutil
 import sqlite3
+import logging
+
 from math import sqrt
-from data_set import DataSet
 from collections import defaultdict
+
+logger = logging.getLogger("a3c")
 
 try:
     import cPickle as pickle
@@ -27,114 +30,63 @@ def solve_weight(numbers):
     solved = [sum_number / (len_number * (n+1e-20)) for n in numbers]
     return solved
 
-def _create_symmetry(name, D):
-    lr = False
-    ud = False
-    if name[:4] == "Pong":
-        ud = True
-    elif name[:7] == 'Freeway':
-        return None
-    elif name[:8] == 'Breakout':
-        lr = True
-    elif name[:9] == 'BeamRider':
-        lr = True
-    else:
-        return None
-    D_symmetry = DataSet()
-    D_symmetry.width = D.width
-    D_symmetry.height = D.height
-    D_symmetry.max_steps = D.max_steps
-    D_symmetry.phi_length = D.phi_length
-    D_symmetry.num_actions = D.num_actions
-    D_symmetry.actions = np.copy(D.actions)
-    D_symmetry.rewards = np.copy(D.rewards)
-    D_symmetry.terminal = np.copy(D.terminal)
-    D_symmetry.size = D.size
-    if lr:
-        D_symmetry.imgs = np.copy(D.imgs[:,:,::-1])
-    elif ud:
-        D_symmetry.imgs = np.copy(D.imgs[:,::-1])
-    for i in range(D_symmetry.max_steps):
-        if name[:4] == "Pong":
-            if D_symmetry.actions[i] == 2: # UP -> DOWN
-                D_symmetry.actions[i] = 3
-            elif D_symmetry.actions[i] == 3: # DOWN -> UP
-                D_symmetry.actions[i] = 2
-            elif D_symmetry.actions[i] == 4: # UPFIRE -> DOWNFIRE
-                D_symmetry.actions[i] = 5
-            elif D_symmetry.actions[i] == 5: # DOWNFIRE -> UPFIRE
-                D_symmetry.actions[i] = 4
-        elif name[:8] == 'Breakout':
-            if D_symmetry.actions[i] == 2: # RIGHT -> LEFT
-                D_symmetry.actions[i] = 3
-            elif D_symmetry.actions[i] == 3: # LEFT -> RIGHT
-                D_symmetry.actions[i] = 2
-        elif name[:9] == 'BeamRider':
-            if D_symmetry.actions[i] == 3: # RIGHT -> LEFT
-                D_symmetry.actions[i] = 4
-            elif D_symmetry.actions[i] == 4: # LEFT -> RIGHT
-                D_symmetry.actions[i] = 3
-            elif D_symmetry.actions[i] == 5: # RIGHTTORPEDO -> LEFTTORPEDO
-                D_symmetry.actions[i] = 6
-            elif D_symmetry.actions[i] == 6: # LEFTTORPEDO -> RIGHTTORPEDO
-                D_symmetry.actions[i] = 5
-            elif D_symmetry.actions[i] == 7: # RIGHTFIRE -> LEFTFIRE
-                D_symmetry.actions[i] = 8
-            elif D_symmetry.actions[i] == 8: # LEFTFIRE -> RIGHTFIRE
-                D_symmetry.actions[i] = 7
-        else:
-            return None
-    return D_symmetry
-
-def load_memory(name, demo_memory_folder, imgs_normalized=False, create_symmetry=False):
+def load_memory(name=None, demo_memory_folder=None, imgs_normalized=False, rewards_propagated=False, exclude_outlier_reward=False):
+    from data_set import DataSet
     assert os.path.isfile(demo_memory_folder + '/demo.db')
-    conn = sqlite3.connect(demo_memory_folder + '/demo.db')
+    conn = sqlite3.connect(
+        demo_memory_folder + '/demo.db',
+        detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     db = conn.cursor()
     datasets = []
-    print ("Loading data")
+    logger.info("Loading data from memory")
     total_memory = 0
     actions_ctr = defaultdict(int)
     max_reward = 0
+    max_reward_norm = 0.
+    total_rewards = defaultdict(float)
     for demo in db.execute("SELECT * FROM demo_samples"):
-        print (demo)
-        if demo[2] == name[3:]:
-            name = name[3:]
+        logger.info(demo)
+        if name is None:
+            name = demo[2]
         ep = demo[1]
         total_memory += demo[4]
-        folder = demo_memory_folder + '/{n:03d}/'.format(n=(ep))
-        print (folder + name + '-dqn.pkl')
+        folder = demo_memory_folder + '/{n:03d}'.format(n=(ep))
+        logger.info(folder + '/' + name + '-dqn.pkl')
         D = DataSet()
-        data = pickle.load(open(folder + name + '-dqn.pkl', 'rb'))
-        D.width = data['D.width']
-        D.height = data['D.height']
-        D.max_steps = data['D.max_steps']
-        D.phi_length = data['D.phi_length']
-        D.num_actions = data['D.num_actions']
-        D.actions = data['D.actions']
-        D.rewards = data['D.rewards']
-        temp_max_reward = np.max(np.absolute(D.rewards))
-        if temp_max_reward > max_reward:
-            max_reward = temp_max_reward
-        D.terminal = data['D.terminal']
-        D.size = data['D.size']
-        D.imgs = get_compressed_images(folder + name + '-dqn-images.h5' + '.gz')
+        D.load(name=name, folder=folder)
         if imgs_normalized:
             D.normalize_images()
+
+        temp_max_reward = np.linalg.norm(D.rewards, np.inf)
+        if temp_max_reward > max_reward:
+            max_reward = temp_max_reward
+
+        if exclude_outlier_reward:
+            rewards = D.rewards[np.nonzero(D.rewards)]
+            rewards = rewards[np.abs(rewards - np.mean(rewards)) < 2 * np.std(rewards)]
+            if np.shape(rewards)[0] > 0:
+                temp_max_reward_norm = np.linalg.norm(rewards, np.inf)
+            else:
+                temp_max_reward_norm = max_reward
+            if temp_max_reward_norm > max_reward_norm:
+                max_reward_norm = temp_max_reward_norm
+
         for step in range(len(D)):
-            _, a, _, _ = D[step]
+            _, a, r, _, _, _, _ = D[step]
             actions_ctr[a] += 1
+            total_rewards[len(datasets)] += r
         datasets.append(D)
 
-        if create_symmetry:
-            D_symmetry = _create_symmetry(name, D)
-            if D_symmetry is not None:
-                datasets.append(D_symmetry)
+    if rewards_propagated:
+        for i in range(len(datasets)):
+            #datasets[i].propagate_rewards(normalize=True, exclude_outlier=exclude_outlier_reward, max_reward=max_reward_norm)
+            datasets[i].propagate_rewards(clip=True)
 
-    print ("D size: {}".format(len(D)))
-    print ("Total memory: {}".format(total_memory))
-    print ("Data loaded!")
+    logger.info("D size: {}".format(len(datasets)))
+    logger.info("Total memory: {}".format(total_memory))
+    logger.info("Data loaded!")
     conn.close()
-    return datasets, actions_ctr, max_reward
+    return datasets, actions_ctr, max_reward, total_rewards
 
 def egreedy(readout_t, n_actions=-1):
     assert n_actions > 1
@@ -273,7 +225,6 @@ def get_grid_dim(x):
     i = len(factors) // 2
     return factors[i], factors[i]
 
-
 def prime_powers(n):
     """
     Compute the factors of a positive integer
@@ -288,7 +239,6 @@ def prime_powers(n):
             factors.add(int(x))
             factors.add(int(n // x))
     return sorted(factors)
-
 
 def empty_dir(path):
     """
@@ -305,8 +255,7 @@ def empty_dir(path):
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
         except Exception as e:
-            print ('Warning: {}'.format(e))
-
+            logger.warn('Warning: {}'.format(e))
 
 def create_dir(path):
     """
@@ -320,7 +269,6 @@ def create_dir(path):
     except OSError as exc:
         if exc.errno != errno.EEXIST:
             raise
-
 
 def prepare_dir(path, empty=False):
     """
@@ -455,53 +403,6 @@ def plot_nnfilter(units):
     plt.subplot(n_rows, n_columns, i+1)
     plt.title('Filter ' + str(i))
     plt.imshow(units[0,:,:,i], interpolation="nearest", cmap="gray")
-
-# def montage(images, saveto='montage.png'):
-#   """Draw all images as a montage separated by 1 pixel borders.
-#   Also saves the file to the destination specified by `saveto`.
-#   Parameters
-#   ----------
-#   images : numpy.ndarray
-#       Input array to create montage of.  Array should be:
-#       batch x height x width x channels.
-#   saveto : str
-#       Location to save the resulting montage image.
-#   Returns
-#   -------
-#   m : numpy.ndarray
-#       Montage image.
-#   src: https://github.com/pkmital/CADL/blob/master/session-2/libs/utils.py
-#   """
-#   from scipy.misc import imsave
-#   if isinstance(images, list):
-#     images = np.array(images)
-#   img_h = images.shape[1]
-#   img_w = images.shape[2]
-#   n_plots = int(np.ceil(np.sqrt(images.shape[0])))
-#   if len(images.shape) == 4 and images.shape[3] == 3:
-#     m = np.ones(
-#       (images.shape[1] * n_plots + n_plots + 1,
-#        images.shape[2] * n_plots + n_plots + 1, 3)) * 0.5
-#   elif len(images.shape) == 4 and images.shape[3] == 1:
-#     m = np.ones(
-#       (images.shape[1] * n_plots + n_plots + 1,
-#        images.shape[2] * n_plots + n_plots + 1, 1)) * 0.5
-#   elif len(images.shape) == 3:
-#     m = np.ones(
-#       (images.shape[1] * n_plots + n_plots + 1,
-#        images.shape[2] * n_plots + n_plots + 1)) * 0.5
-#   else:
-#     raise ValueError('Could not parse image shape of {}'.format(
-#       images.shape))
-#   for i in range(n_plots):
-#     for j in range(n_plots):
-#       this_filter = i * n_plots + j
-#       if this_filter < images.shape[0]:
-#         this_img = images[this_filter]
-#         m[1 + i + i * img_h:1 + i + (i + 1) * img_h,
-#           1 + j + j * img_w:1 + j + (j + 1) * img_w] = this_img
-#   imsave(arr=np.squeeze(m), name=saveto)
-#   return m
 
 def montage(W):
     """Draws all filters (n_input * n_output filters) as a

@@ -18,24 +18,25 @@ from constants import USE_GPU
 from constants import USE_LSTM
 
 def choose_action(pi_values):
-  return np.random.choice(range(len(pi_values)), p=pi_values)
+    return np.random.choice(range(len(pi_values)), p=pi_values)
 
 # use CPU for display tool
 device = "/cpu:0"
 
 if USE_LSTM:
-  global_network = GameACLSTMNetwork(ACTION_SIZE, -1, device)
+    global_network = GameACLSTMNetwork(ACTION_SIZE, -1, device)
 else:
-  global_network = GameACFFNetwork(ACTION_SIZE, -1, device)
+    global_network = GameACFFNetwork(ACTION_SIZE, -1, device)
 
 learning_rate_input = tf.placeholder("float")
 
-grad_applier = RMSPropApplier(learning_rate = learning_rate_input,
-                              decay = RMSP_ALPHA,
-                              momentum = 0.0,
-                              epsilon = RMSP_EPSILON,
-                              clip_norm = GRAD_NORM_CLIP,
-                              device = device)
+grad_applier = RMSPropApplier(
+    learning_rate = learning_rate_input,
+    decay = RMSP_ALPHA,
+    momentum = 0.0,
+    epsilon = RMSP_EPSILON,
+    clip_norm = GRAD_NORM_CLIP,
+    device = device)
 
 sess = tf.Session()
 init = tf.global_variables_initializer()
@@ -44,20 +45,20 @@ sess.run(init)
 saver = tf.train.Saver()
 checkpoint = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
 if checkpoint and checkpoint.model_checkpoint_path:
-  saver.restore(sess, checkpoint.model_checkpoint_path)
-  print("checkpoint loaded:", checkpoint.model_checkpoint_path)
+    saver.restore(sess, checkpoint.model_checkpoint_path)
+    print("checkpoint loaded:", checkpoint.model_checkpoint_path)
 else:
-  print("Could not find old checkpoint")
+    print("Could not find old checkpoint")
 
 game_state = GameState(0, display=True, no_op_max=0)
 
 while True:
-  pi_values = global_network.run_policy(sess, game_state.s_t)
+    pi_values = global_network.run_policy(sess, game_state.s_t)
 
-  action = choose_action(pi_values)
-  game_state.process(action)
+    action = choose_action(pi_values)
+    game_state.process(action)
 
-  if game_state.terminal:
-    game_state.reset()
-  else:
-    game_state.update()
+    if game_state.terminal:
+        game_state.reset()
+    else:
+        game_state.update()

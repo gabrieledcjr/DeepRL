@@ -3,12 +3,13 @@ import os
 import time
 import numpy as np
 import sys
+import logging
 
 from game_class_network import MultiClassNetwork
 from util import load_memory
 from game_state import GameState
-from termcolor import colored
 
+logger = logging.getLogger("a3c")
 
 def extract_layers(args):
     '''
@@ -30,7 +31,7 @@ def extract_layers(args):
             end_str += '_use_lstm'
         model_folder += end_str
 
-    print ("Model folder:{}".format(model_folder))
+    logger.debug("Model folder:{}".format(model_folder))
 
     if not os.path.exists(model_folder + '/transfer_model'):
         os.makedirs(model_folder + '/transfer_model')
@@ -68,61 +69,61 @@ def extract_layers(args):
     checkpoint = tf.train.get_checkpoint_state(model_folder)
     if checkpoint and checkpoint.model_checkpoint_path:
         saver.restore(sess, checkpoint.model_checkpoint_path)
-        print(colored("checkpoint loaded:{}".format(checkpoint.model_checkpoint_path), "green"))
+        logger.info("checkpoint loaded:{}".format(checkpoint.model_checkpoint_path))
 
-    print ("Saving all layers...")
+    logger.info("Saving all layers...")
     transfer_params = tf.get_collection("transfer_params")
     transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(sess, model_folder + '/transfer_model/all/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
-    print ("All layers saved")
+    logger.info("All layers saved")
 
-    print ("Saving without fc2 layer...")
+    logger.info("Saving without fc2 layer...")
     # Remove fc2 weights
     for param in transfer_params[:]:
-        print (colored("\t{}".format(param.op.name), "green"))
+        logger.debug("\t{}".format(param.op.name))
         if param.op.name == "net_-1/fc2_weights" or param.op.name == "net_-1/fc2_biases":
             transfer_params.remove(param)
-            print (colored("\t{} removed".format(param.op.name), "red"))
+            logger.debug("\t{} removed".format(param.op.name))
 
     transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(sess, model_folder + '/transfer_model/nofc2/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
-    print ("Without fc2 layer saved")
+    logger.info("Without fc2 layer saved")
 
-    print ("Saving without fc1 layer...")
+    logger.info("Saving without fc1 layer...")
     # Remove fc1 weights
     for param in transfer_params[:]:
-        print (colored("\t{}".format(param.op.name), "green"))
+        logger.debug("\t{}".format(param.op.name))
         if param.op.name == "net_-1/fc1_weights" or param.op.name == "net_-1/fc1_biases":
             transfer_params.remove(param)
-            print (colored("\t{} removed".format(param.op.name), "red"))
+            logger.debug("\t{} removed".format(param.op.name))
 
     transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(sess, model_folder + '/transfer_model/nofc1/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
-    print ("Without fc1 layer saved")
+    logger.info("Without fc1 layer saved")
 
     # Remove conv3 weights
     if args.use_mnih_2015:
-        print ("Saving without conv3 layer...")
+        logger.info("Saving without conv3 layer...")
         for param in transfer_params[:]:
-            print (colored("\t{}".format(param.op.name), "green"))
+            logger.debug("\t{}".format(param.op.name))
             if param.op.name == "net_-1/conv3_weights" or param.op.name == "net_-1/conv3_biases":
                 transfer_params.remove(param)
-                print (colored("\t{} removed".format(param.op.name), "red"))
+                logger.debug("\t{} removed".format(param.op.name))
 
         transfer_saver = tf.train.Saver(transfer_params)
         transfer_saver.save(sess, model_folder + '/transfer_model/noconv3/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
-        print ("Without conv3 layer saved")
+        logger.info("Without conv3 layer saved")
 
-    print ("Saving without conv2 layer...")
+    logger.info("Saving without conv2 layer...")
     # Remove conv2 weights
     for param in transfer_params[:]:
-        print (colored("\t{}".format(param.op.name), "green"))
+        logger.debug("\t{}".format(param.op.name))
         if param.op.name == "net_-1/conv2_weights" or param.op.name == "net_-1/conv2_biases":
             transfer_params.remove(param)
-            print (colored("\t{} removed".format(param.op.name), "red"))
+            logger.debug("\t{} removed".format(param.op.name))
 
     transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(sess, model_folder + '/transfer_model/noconv2/' + '{}_transfer_params'.format(args.gym_env.replace('-', '_')))
-    print ("Without conv2 layer saved")
+    logger.info("Without conv2 layer saved")
 
-    print (colored('Data saved!', 'green'))
+    logger.info('Data saved!')
