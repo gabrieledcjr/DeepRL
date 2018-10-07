@@ -1,0 +1,10 @@
+*.png
+results/*
+log/*
+demo_samples/*
+*_classifier_*/*
+*_demo_samples/*
+*.pyc
+tmp/*
+old/*
+checkpoints*/*
