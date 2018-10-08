@@ -29,7 +29,7 @@ class ReplayMemory(object):
     def __init__(self,
         width=1, height=1, rng=np.random.RandomState(),
         max_steps=10, phi_length=4, num_actions=1, wrap_memory=False,
-        full_state_size=1021):
+        full_state_size=1013, clip_reward=True):
         """Construct a replay memory.
 
         Arguments:
@@ -48,6 +48,7 @@ class ReplayMemory(object):
         self.num_actions = num_actions
         self.rng = rng
         self.full_state_size = full_state_size
+        self.clip_reward = clip_reward
 
         # Allocate the circular buffers and indices.
         self.imgs = np.zeros((self.max_steps, height, width), dtype=np.uint8)
@@ -70,7 +71,7 @@ class ReplayMemory(object):
         if not self.imgs_normalized:
             logger.info("Normalizing images...")
             temp = self.imgs
-            self.imgs = temp * (1.0/255.0)
+            self.imgs = temp.astype(np.float32) / 255.0
             del temp
             self.imgs_normalized = True
             logger.info("Images normalized")
@@ -205,18 +206,23 @@ class ReplayMemory(object):
             dtype=np.float32 if self.imgs_normalized else np.uint8)
 
         if self.wrap_memory:
-            if np.any(self.terminal.take(indices[0:self.phi_length-1], mode='wrap')):
+            if np.any(self.terminal.take(indices[:-1], mode='wrap')):
                 return None, None, None, None, None
             temp = self.imgs.take(indices, axis=0, mode='wrap')
             for i in range(self.phi_length):
                 states[:, :, i] = temp[i]
         else:
+            if end_index >= self.size or np.any(self.terminal.take(indices[:-1], axis=0)):
+                return None, None, None, None, None
             temp = self.imgs.take(indices, axis=0)
             for i in range(self.phi_length):
                 state[:, :, i] = temp[i]
 
         action = self.actions.take(end_index, axis=0)
-        reward = self.rewards.take(end_index)
+        if self.clip_reward:
+            reward = np.sign(self.rewards.take(end_index))
+        else:
+            reward = self.rewards.take(end_index)
         terminal = self.terminal.take(end_index)
         lives = self.lives.take(end_index)
         losslife = self.loss_life.take(end_index)
@@ -253,10 +259,17 @@ class ReplayMemory(object):
 
         # Randomly choose a time step from the replay memory
         # within requested batch_size
-        end_range = self.size - (self.phi_length-1 + batch_size)
-        assert end_range > 0 # crash if not enough memory
-        self.random_index = self.rng.randint(0, end_range)
-        index = self.random_index
+        # randint low (inclusive) to high (exclusive)
+        high = (self.size + 1) - (self.phi_length - 1 + batch_size)
+        assert high > 0 # crash if not enough memory
+
+        # ensure no terminal besides the last index
+        while True:
+            self.random_index = self.rng.randint(0, high)
+            indices = np.arange(self.random_index, self.random_index + batch_size + (self.phi_length - 1))
+            if not np.any(self.terminal.take(indices[:-1], axis=0)):
+                index = self.random_index
+                break
         #end_index = (index + self.phi_length-1) + (batch_size - 1)
 
         for count in range(batch_size):
@@ -293,25 +306,28 @@ class ReplayMemory(object):
 
         # Randomly choose a time step from the replay memory
         # within requested batch_size
-        end_range = self.size - (self.phi_length + 1)
-        assert end_range > 0 # crash if not enough memory
+        # randint low (inclusive) to high (exclusive)
+        high = (self.size + 1) - self.phi_length
+        assert high > 0 # crash if not enough memory
 
         count = 0
         while count < batch_size:
-            index = self.rng.randint(0, end_range)
+            index = self.rng.randint(0, high)
             if k_bad_states:
                 # do not train k steps to a bad state (negative reward or loss life)
-                st_idx = index + (self.phi_length-1) + 1
-                en_idx = index + (self.phi_length-1) + 1 + k_bad_states
+                st_idx = index + (self.phi_length-1)
+                en_idx = index + (self.phi_length-1) + k_bad_states
                 if (np.any(self.rewards[st_idx:en_idx] < 0) or \
                     np.any(self.loss_life[st_idx:en_idx] == 1)):
                     continue
 
             s, a, r, t, l, ll, gl = self[index]
+            if s == None or a == None or r == None or t == None:
+                continue
             # Add the state transition to the response.
             states[count] = np.copy(s)
             if normalize and not self.imgs_normalized:
-                states[count] *= (1.0/255.0)
+                states[count] /= 255.0
             if onevsall:
                 if a == n_class:
                     actions[count][0] = 1
