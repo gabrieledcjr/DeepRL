@@ -329,7 +329,7 @@ class A3CTrainingThread(object):
                 reward = np.sign(reward) * np.log(1 + np.abs(reward))
             else:
                 # clip reward
-                reward = np.clip(reward, -1., 1.)
+                reward = np.sign(reward)
 
             rewards.append(reward)
 
@@ -521,7 +521,7 @@ class A3CTrainingThread(object):
                 reward = np.sign(reward) * np.log(1 + np.abs(reward))
             else:
                 # clip reward
-                reward = np.clip(reward, -1, 1)
+                reward = np.sign(reward)
 
             rewards.append(reward)
 
