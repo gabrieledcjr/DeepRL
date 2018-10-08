@@ -21,10 +21,13 @@ class AtariWrapper(gym.Wrapper):
     in order to speed up game simulation
     Should only be used for Deterministic and NoFrameskip version of Atari gym
     """
-    def __init__(self, env, noop_max=30):
+    def __init__(self, env, noop_max=30, skip=4):
         gym.Wrapper.__init__(self, env)
 
         self.noop_max = noop_max
+        self.override_num_noops = None
+        self.noop_action = 0
+        self._skip = skip
 
         # set frame skip in ALE
         # self.unwrapped.ale.setInt('frame_skip'.encode('utf-8'), self.unwrapped.frameskip)
@@ -36,26 +39,31 @@ class AtariWrapper(gym.Wrapper):
         logger.info("action_space: {}".format(self.env.action_space))
 
     def step(self, a):
-        # frame skip is taken cared by ALE
-        action = self.unwrapped._action_set[a]
-        reward = self.unwrapped.ale.act(action)
-        obs = self.unwrapped._get_obs()
-        return obs, reward, self.unwrapped.ale.game_over(), {"ale.lives": self.unwrapped.ale.lives()}
+        return self.env.step(a)
 
     def reset(self, **kwargs):
         self.env.reset(**kwargs)
 
-        if self.env.unwrapped.frameskip == 4:
-            skip = 3 if "SpaceInvaders" in self.env.spec.id else 4
-            no_op = np.random.randint(1, self.noop_max * (skip//self.unwrapped.frameskip) + 1)
+        skip = 3 if "SpaceInvaders" in self.env.spec.id else 4
+        if self.override_num_noops is not None:
+            noops = self.override_num_noops
         else:
-            no_op = 30
+            noops = np.random.randint(1, self.noop_max + 1)
 
-        assert no_op > 0
-        for _ in range(no_op):
-            obs, _, done, _ = self.env.step(0)
-            if done:
-                obs = self.env.reset(**kwargs)
+        assert noops > 0
+        if self._skip == 1:
+            for _ in range(noops):
+                for i in range(skip):
+                    obs, _, done, _ = self.env.step(self.noop_action)
+                    if done:
+                        break
+                if done:
+                    obs = self.env.reset(**kwargs)
+        else:
+            for _ in range(noops):
+                obs, _, done, _ = self.env.step(self.noop_action)
+                if done:
+                    obs = self.env.reset(**kwargs)
 
         return obs
 
