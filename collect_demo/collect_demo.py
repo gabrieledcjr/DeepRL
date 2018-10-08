@@ -5,10 +5,12 @@ import random
 import sqlite3
 import os
 import logging
+import cv2
 
 from datetime import datetime
 from common.util import prepare_dir, process_frame, get_action_index, make_gif
 from common.replay_memory import ReplayMemory
+from common.game_state.atari_wrapper import get_wrapper_by_name
 
 logger = logging.getLogger("collect_demo")
 
@@ -33,13 +35,12 @@ class CollectDemonstration(object):
         self.db = self.conn.cursor()
         self._create_table()
 
-        self._skip = 1
-        if self.game_state.env.unwrapped.frameskip == 1:
-            self._skip = 4
-            if "SpaceInvaders" in self.game_state.env.spec.id:
-                self._skip = 3 # NIPS (makes laser always visible)
+        self._skip = 4
+        if "SpaceInvaders" in self.game_state.env.spec.id:
+            self._skip = 3 # NIPS (makes laser always visible)
 
         self.create_gif = create_gif
+        self.obs_buffer = np.zeros((2, 84 , 84), dtype=np.uint8)
 
     def _create_table(self):
         # Create table if doesn't exist
@@ -114,7 +115,10 @@ class CollectDemonstration(object):
             self.folder = self.main_folder + '/{n:03d}/'.format(n=(ep))
             prepare_dir(self.folder, empty=True)
 
-            total_reward, total_steps, start_time, end_time, duration, mem_size = self.run(minutes_limit=minutes_limit, ep_num=ep, num_episodes=(num_episodes+start_ep)-1, demo_type=demo_type, model_net=model_net, replay_memory=replay_memory)
+            total_reward, total_steps, start_time, end_time, duration, mem_size = self.run(
+                minutes_limit=minutes_limit, ep_num=ep, num_episodes=(num_episodes+start_ep)-1,
+                demo_type=demo_type, model_net=model_net, replay_memory=replay_memory)
+
             rewards.append(total_reward)
             steps.append(total_steps)
             durations.append(duration)
@@ -165,6 +169,7 @@ class CollectDemonstration(object):
         lives = self.game_state.lives
         loss_life = self.game_state.loss_life
         gain_life = self.game_state.gain_life and not loss_life
+        prev_x_t = self.game_state.x_t
 
         import tkinter
         from tkinter import messagebox
@@ -204,15 +209,20 @@ class CollectDemonstration(object):
                 logger.warn("Memory max limit reached!")
                 terminal = True
             elif not full_episode:
-                terminal = True if self.game_state.terminal or (time.time() > timeout_start + timeout) else False
-            else:
-                terminal = self.game_state.terminal
+                terminal = True if (time.time() > timeout_start + timeout) else False
 
             # add memory every 4th frame even if demo uses skip=1
-            if self.game_state.get_episode_frame_number() % self._skip == 0 or terminal:
+            if self.game_state.get_episode_frame_number() % self._skip == 0 or terminal or self.game_state.terminal:
+                self.obs_buffer[0] = prev_x_t
+                self.obs_buffer[1] = self.game_state.x_t
+                max_obs = self.obs_buffer.max(axis=0)
+                # cv2.imshow('max obs', max_obs)
+                # cv2.imshow('current', self.game_state.x_t)
+                # cv2.waitKey(1)
+
                 # store the transition in D
                 replay_memory.add(
-                    self.game_state.x_t,
+                    max_obs,
                     action,
                     rew,
                     terminal,
@@ -224,12 +234,16 @@ class CollectDemonstration(object):
                 loss_life = False
                 gain_life = False
 
+                if self.game_state.terminal:
+                    self.game_state.reset()
+
             if self.create_gif:
                 gif_images.append(self.game_state.get_screen_rgb())
 
-            if terminal:
+            if terminal or get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
                 break
 
+            prev_x_t = self.game_state.x_t
             self.game_state.update()
             time.sleep(.02 * self.game_state.env.unwrapped.frameskip)
 
