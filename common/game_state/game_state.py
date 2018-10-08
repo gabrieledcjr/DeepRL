@@ -7,58 +7,72 @@ import coloredlogs, logging
 
 from time import sleep
 from termcolor import colored
-from .atari_wrapper import AtariWrapper, FireResetEnv, HumanDemoEnv, WarpFrame
+from common.game_state.atari_wrapper import AtariWrapper, FireResetEnv, \
+    HumanDemoEnv, WarpFrame, MaxAndSkipEnv, EpisodicLifeEnv, \
+    get_wrapper_by_name
 
 logger = logging.getLogger("game_state")
 
 class GameState(object):
-    def __init__(self, env_id=None, display=False, crop_screen=True, no_op_max=30, human_demo=False):
+    def __init__(self, env_id=None, display=False, no_op_max=30, human_demo=False, episode_life=True):
         assert env_id is not None
         self.display = display or human_demo
         self.env_id = env_id
         self.human_demo = human_demo
         self.fire_reset = False
+        self.episode_life = episode_life
 
         env = gym.make(self.env_id)
-        assert "Deterministic" in env.spec.id or "NoFrameskip" in env.spec.id
+        assert "NoFrameskip" in env.spec.id
+
+        skip = 3 if "SpaceInvaders" in env.spec.id else 4
 
         # necessary for faster simulation
-        self.env = AtariWrapper(env, noop_max=no_op_max)
+        env = AtariWrapper(env, noop_max=no_op_max, skip=1 if human_demo else skip)
+        if not human_demo:
+            env = MaxAndSkipEnv(env, skip=skip)
+        if episode_life:
+            env = EpisodicLifeEnv(env)
         if 'FIRE' in env.unwrapped.get_action_meanings():
             self.fire_reset = True
-            self.env = FireResetEnv(self.env)
-        self.env = WarpFrame(self.env, crop_screen=crop_screen)
+            env = FireResetEnv(env)
+        env = WarpFrame(env)
         # override keyboard controls for human demo
         if self.human_demo:
-            self.env = HumanDemoEnv(self.env)
-            logger.info(self.env.unwrapped.get_action_meanings())
+            env = HumanDemoEnv(env)
+            logger.info(env.unwrapped.get_action_meanings())
+        self.env = env
 
         self.reset()
 
     def reset(self):
+        if self.episode_life:
+            # Hard env reset
+            get_wrapper_by_name(test_game.env, 'EpisodicLifeEnv').was_real_done = True
         x_t = self.env.reset()
+        self.x_t = x_t
         self.x_t1 = x_t
+        self.s_t1 = np.stack((x_t, x_t, x_t, x_t), axis = 2)
         self.full_state1 = self.env.unwrapped.clone_full_state()
         self.lives = self.env.unwrapped.ale.lives()
         self.reward = 0
         self.terminal = False
         self.loss_life = False
         self.gain_life = False
-        self.s_t1 = np.stack((x_t, x_t, x_t, x_t), axis = 2)
         self.update()
 
-    # def _step(self, action):
-    #     info = {'loss_life': False, 'gain_life': False}
-    #     obs, reward, terminal, env_info = self.env.step(action)
-    #
-    #     info['lives'] = env_info['ale.lives']
-    #
-    #     if self.lives < env_info['ale.lives']:
-    #         info['gain_life'] = True
-    #     elif (self.lives - env_info['ale.lives']) != 0:
-    #         info['loss_life'] = True
-    #
-    #     return obs, reward, terminal, info
+    def reset2(self):
+        x_t = self.env.reset()
+        self.x_t1 = x_t
+        x_t = np.reshape(obs, (84, 84, 1))
+        self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis=2)
+        self.full_state1 = self.env.unwrapped.clone_full_state()
+        self.lives = self.env.unwrapped.ale.lives()
+        self.reward = 0
+        self.terminal = False
+        self.loss_life = False
+        self.gain_life = False
+        self.update()
 
     def process(self, action):
         if self.display:
@@ -82,6 +96,7 @@ class GameState(object):
         self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis=2)
 
     def update(self):
+        self.prev_x_t = self.x_t
         self.x_t = self.x_t1
         self.full_state = self.full_state1
         self.s_t = self.s_t1
@@ -115,7 +130,7 @@ def test_keys(env_id):
     last_num_steps = 0
     last_num_ctr = 0
     max_repeat = 5
-    while not test_game.terminal:
+    while True:
         sys_state = test_game.clone_full_state()
         sys_states.append((sys_state, test_game.get_episode_frame_number()))
         print("frame number: ", test_game.get_episode_frame_number())
@@ -168,6 +183,11 @@ def test_keys(env_id):
                 test_game.restore_full_state(full_state)
             steps = 0
             sys_states.clear()
+
+        if get_wrapper_by_name(test_game.env, 'EpisodicLifeEnv').was_real_done:
+            break
+        elif test_game.terminal:
+            test_game.reset()
         sleep(.02 * test_game.env.unwrapped.frameskip)
 
     # cv2.destroyAllWindows()
