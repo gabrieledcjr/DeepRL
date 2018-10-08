@@ -113,9 +113,6 @@ def main():
     parser.add_argument('--log-scale-reward', action='store_true', help='use log scale reward r = sign(r) * log(1 + abs(r)) from DQfD (Hester et. al)')
     parser.set_defaults(log_scale_reward=False)
 
-    parser.add_argument('--use-dropout', action='store_true', help='use dropout layer')
-    parser.set_defaults(use_dropout=False)
-
     parser.add_argument('--egreedy-testing', action='store_true', help='testing/evaluation uses egreedy')
     parser.set_defaults(egreedy_testing=False)
 

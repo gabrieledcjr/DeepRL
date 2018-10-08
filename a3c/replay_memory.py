@@ -21,14 +21,15 @@ except ImportError:
 
 logger = logging.getLogger("a3c")
 
-class DataSet(object):
+class ReplayMemory(object):
     """
     This replay memory assumes it's a single episode of memory in sequence
     """
     def __init__(self,
         width=1, height=1, rng=np.random.RandomState(),
-        max_steps=10, phi_length=4, num_actions=1, wrap_memory=False):
-        """Construct a DataSet.
+        max_steps=10, phi_length=4, num_actions=1, wrap_memory=False,
+        full_state_size=1021):
+        """Construct a replay memory.
 
         Arguments:
             width, height - image size
@@ -45,6 +46,7 @@ class DataSet(object):
         self.phi_length = phi_length
         self.num_actions = num_actions
         self.rng = rng
+        self.full_state_size = full_state_size
 
         # Allocate the circular buffers and indices.
         self.imgs = np.zeros((self.max_steps, height, width), dtype=np.uint8)
@@ -54,6 +56,7 @@ class DataSet(object):
         self.lives = np.zeros(self.max_steps, dtype=np.int32)
         self.loss_life = np.zeros(self.max_steps, dtype=np.uint8)
         self.gain_life = np.zeros(self.max_steps, dtype=np.uint8)
+        self.full_state = np.zeros((self.max_steps, full_state_size), dtype=np.uint8)
 
         self.size = 0
         self.imgs_normalized = False
@@ -120,6 +123,7 @@ class DataSet(object):
         logger.debug("    lives shape: {}".format(np.shape(self.lives)))
         logger.debug("    loss_life shape: {}".format(np.shape(self.loss_life)))
         logger.debug("    gain_life shape: {}".format(np.shape(self.gain_life)))
+        logger.debug("    full_state shape: {}".format(np.shape(self.full_state)))
         tmp_imgs = np.delete(self.imgs, range(self.size,self.max_steps), axis=0)
         tmp_actions = np.delete(self.actions, range(self.size, self.max_steps), axis=0)
         tmp_rewards = np.delete(self.rewards, range(self.size, self.max_steps), axis=0)
@@ -127,7 +131,9 @@ class DataSet(object):
         tmp_lives = np.delete(self.lives, range(self.size, self.max_steps), axis=0)
         tmp_losslife = np.delete(self.loss_life, range(self.size, self.max_steps), axis=0)
         tmp_gainlife = np.delete(self.gain_life, range(self.size, self.max_steps), axis=0)
-        del self.imgs, self.actions, self.rewards, self.terminal, self.lives, self.loss_life
+        tmp_fullstate = np.delete(self.full_state, range(self.size, self.max_steps), axis=0)
+        del self.imgs, self.actions, self.rewards, self.terminal, \
+            self.lives, self.loss_life, self.gain_life, self.full_state
         self.imgs = tmp_imgs
         self.actions = tmp_actions
         self.rewards = tmp_rewards
@@ -135,6 +141,7 @@ class DataSet(object):
         self.lives = tmp_lives
         self.loss_life = tmp_losslife
         self.gain_life = tmp_gainlife
+        self.full_state = tmp_fullstate
         self.max_steps = self.size
         logger.info("Resizing completed!")
         logger.debug("Updated specs: size={} max_steps={}".format(self.size, self.max_steps))
@@ -145,26 +152,9 @@ class DataSet(object):
         logger.debug("    lives shape: {}".format(np.shape(self.lives)))
         logger.debug("    loss_life shape: {}".format(np.shape(self.loss_life)))
         logger.debug("    gain_life shape: {}".format(np.shape(self.gain_life)))
+        logger.debug("    full_state shape: {}".format(np.shape(self.full_state)))
 
-    # def fix_size(self):
-    #     if self.max_steps == self.size:
-    #         if np.shape(self.actions)[0] > self.size:
-    #             max_size = np.shape(self.actions)[0]
-    #             tmp_actions = np.delete(self.actions, range(self.size, max_size), axis=0)
-    #             del self.actions
-    #             self.actions = tmp_actions
-    #         if np.shape(self.rewards)[0] > self.size:
-    #             max_size = np.shape(self.rewards)[0]
-    #             tmp_rewards = np.delete(self.rewards, range(self.size, max_size), axis=0)
-    #             del self.rewards
-    #             self.rewards = tmp_rewards
-    #         if np.shape(self.terminal)[0] > self.size:
-    #             max_size = np.shape(self.terminal)[0]
-    #             tmp_terminal = np.delete(self.terminal, range(self.size, max_size), axis=0)
-    #             del self.terminal
-    #             self.terminal = tmp_terminal
-
-    def add_sample(self, img, action, reward, terminal, lives, losslife=False, gainlife=False):
+    def add(self, img, action, reward, terminal, lives, losslife=False, gainlife=False, fullstate=np.zeros(1021)):
         """Add a time step record.
 
         Arguments:
@@ -190,6 +180,7 @@ class DataSet(object):
         self.lives[idx] = lives
         self.loss_life[idx] = losslife
         self.gain_life[idx] = gainlife
+        self.full_state[idx] = fullstate
 
         if self.wrap_memory == self.max_steps and self.size == self.max_steps:
             self.bottom = (self.bottom + 1) % self.max_steps
@@ -217,18 +208,18 @@ class DataSet(object):
                 return None, None, None, None, None
             temp = self.imgs.take(indices, axis=0, mode='wrap')
             for i in range(self.phi_length):
-                states[:, :, i] = termp[i]
+                states[:, :, i] = temp[i]
         else:
             temp = self.imgs.take(indices, axis=0)
             for i in range(self.phi_length):
                 state[:, :, i] = temp[i]
 
         action = self.actions.take(end_index, axis=0)
-        reward = self.rewards.take(end_index+1)
-        terminal = self.terminal.take(end_index+1)
-        lives = self.lives.take(end_index+1)
-        losslife = self.loss_life.take(end_index+1)
-        gainlife = self.gain_life.take(end_index+1)
+        reward = self.rewards.take(end_index)
+        terminal = self.terminal.take(end_index)
+        lives = self.lives.take(end_index)
+        losslife = self.loss_life.take(end_index)
+        gainlife = self.gain_life.take(end_index)
 
         return state, action, reward, terminal, lives, losslife, gainlife
 
@@ -242,10 +233,9 @@ class DataSet(object):
     def get_item(self, key):
         return self.__getitem__(key)
 
-    def random_batch_sequential(self, batch_size):
+    def sample_sequential(self, batch_size):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
-
         """
         assert not self.wrap_memory
 
@@ -282,10 +272,9 @@ class DataSet(object):
 
         return states, actions, rewards, terminals #, lives, losslifes, gainlifes
 
-    def random_batch(self, batch_size, normalize=False, k_bad_states=0, onevsall=False, n_class=None):
+    def sample(self, batch_size, normalize=False, k_bad_states=0, onevsall=False, n_class=None):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
-
         """
         # Allocate the response.
         states = np.zeros(
@@ -356,6 +345,7 @@ class DataSet(object):
                 'lives':self.lives,
                 'loss_life':self.loss_life,
                 'gain_life':self.gain_life,
+                'full_state': self.full_state,
                 'size':self.size,
                 'wrap_memory':self.wrap_memory,
                 'top':self.top,
@@ -388,9 +378,10 @@ class DataSet(object):
         self.actions = data['actions']
         self.rewards = data['rewards']
         self.terminal = data['terminal']
-        self.lives = data['lives'] if 'lives' in data else np.zeros(D.max_steps, dtype=np.int32)
-        self.loss_life = data['loss_life'] if 'loss_life' in data else np.zeros(D.max_steps, dtype=np.uint8)
-        self.gain_life = data['gain_life'] if 'gain_life' in data else np.zeros(D.max_steps, dtype=np.uint8)
+        self.lives = data.get('lives', np.zeros(self.max_steps, dtype=np.int32))
+        self.loss_life = data.get('loss_life', np.zeros(self.max_steps, dtype=np.uint8))
+        self.gain_life = data.get('gain_life', np.zeros(self.max_steps, dtype=np.uint8))
+        self.full_state = data.get('full_state', np.zeros((self.max_steps, self.full_state_size), dtype=np.uint8))
         self.size = data['size']
         self.wrap_memory = data['wrap_memory']
         self.top = data['top']
@@ -407,20 +398,19 @@ def test_1(env_id):
         import pickle
 
     folder = env_id.replace('-', '_') + "_test_demo_samples"
-    D = DataSet()
-    D.load(name=env_id, folder=(folder + '/001'))
-    #data = pickle.load(open(folder + '/001/' + env_id + '-dqn.pkl', 'rb'))
-    print (D)
+    rm = ReplayMemory()
+    rm.load(name=env_id, folder=(folder + '/001'))
+    print (rm)
 
     for i in range(1000):
-        states, actions, rewards, terminals, lives, losslife, gainlife = D.random_batch(20)
+        states, actions, rewards, terminals, lives, losslife, gainlife = rm.random_batch(20)
 
     import cv2
     count = 0
-    state, _, _, _, _, _, _ = D[count]
+    state, _, _, _, _, _, _ = rm[count]
     print ("shape:", np.shape(state))
-    while count < len(D):
-        state, _, _, _, _ = D[count]
+    while count < len(rm):
+        state, _, _, _, _ = rm[count]
         cv2.imshow(env_id, state)
         # cv2.imshow("one", state[:,:,0])
         # cv2.imshow("two", state[:,:,1])
@@ -434,8 +424,8 @@ def test_1(env_id):
         cv2.imshow("difference", diff)
         cv2.waitKey(20)
         count += 1
-    print ("total transitions:", len(D))
-    print ("size:", D.size)
+    print ("total transitions:", len(rm))
+    print ("size:", rm.size)
 
 def test_2(env_id):
     from util import get_compressed_images
@@ -445,21 +435,21 @@ def test_2(env_id):
         import pickle
 
     folder = "demo_samples/{}".format(env_id.replace('-', '_'))
-    D = DataSet()
-    D.load(name=env_id, folder=(folder + '/001'))
-    print (D)
+    rm = ReplayMemory()
+    rm.load(name=env_id, folder=(folder + '/001'))
+    print (rm)
 
-    state, a, r, t, l, ll, gl = D[0]
+    state, a, r, t, l, ll, gl = rm[0]
     print (state)
     print (a, r, t, l, ll, gl)
 
-    D.normalize_images()
-    state, a, r, t, l, ll, gl = D[2]
+    rm.normalize_images()
+    state, a, r, t, l, ll, gl = rm[2]
     print (state)
     print (a, r, t, l, ll, gl)
 
     for count in range(100):
-        _, a, r, t, l, ll, gl = D[count]
+        _, a, r, t, l, ll, gl = rm[count]
         print (a,r,t,l,ll,gl)
 
 if __name__ == "__main__":

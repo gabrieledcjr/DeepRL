@@ -31,7 +31,7 @@ class ClassifyDemo(object):
         self.use_onevsall = use_onevsall
         self.stop_requested = False
 
-        self.D, actions_ctr, _, total_rewards = load_memory(
+        self.demo_memory, actions_ctr, _, total_rewards = load_memory(
             name=None,
             demo_memory_folder=self.demo_memory_folder,
             imgs_normalized=True,
@@ -39,7 +39,7 @@ class ClassifyDemo(object):
 
 
         if weighted_cross_entropy:
-            action_freq = [ actions_ctr[a] for a in range(self.D[0].num_actions) ]
+            action_freq = [ actions_ctr[a] for a in range(self.demo_memory[0].num_actions) ]
             logger.debug("Action frequency: {}".format(action_freq))
             loss_weight = solve_weight(action_freq)
             logger.debug("Class weights: {}".format(loss_weight))
@@ -61,17 +61,17 @@ class ClassifyDemo(object):
         self.prepare_compute_gradients(grad_applier)
 
         max_idx, _ = max(total_rewards.items(), key=lambda a: a[1])
-        size_max_idx_D = len(self.D[max_idx])
+        size_max_idx_mem = len(self.demo_memory[max_idx])
         self.test_batch_si = np.zeros(
-            (size_max_idx_D, self.D[max_idx].height, self.D[max_idx].width, self.D[max_idx].phi_length),
+            (size_max_idx_mem, self.demo_memory[max_idx].height, self.demo_memory[max_idx].width, self.demo_memory[max_idx].phi_length),
             dtype=np.float32)
         if self.use_onevsall:
-            self.test_batch_a = np.zeros((self.net._action_size, size_max_idx_D, 2), dtype=np.float32)
+            self.test_batch_a = np.zeros((self.net._action_size, size_max_idx_mem, 2), dtype=np.float32)
         else:
-            self.test_batch_a = np.zeros((size_max_idx_D, self.num_actions), dtype=np.float32)
+            self.test_batch_a = np.zeros((size_max_idx_mem, self.num_actions), dtype=np.float32)
 
-        for i in range(size_max_idx_D):
-            s, ai, _, _, _, _, _ = self.D[max_idx][i]
+        for i in range(size_max_idx_mem):
+            s, ai, _, _, _, _, _ = self.demo_memory[max_idx][i]
             self.test_batch_si[i] = np.copy(s)
             if self.use_onevsall:
                 for n_class in range(self.net._action_size):
@@ -86,7 +86,7 @@ class ClassifyDemo(object):
         with self.net.graph.as_default():
             if self.use_onevsall:
                 self.apply_gradients = []
-                for n_class in range(self.D[0].num_actions):
+                for n_class in range(self.demo_memory[0].num_actions):
                     grads_vars = grad_applier[n_class].compute_gradients(self.net.total_loss[n_class])
                     grads = []
                     params = []
@@ -123,8 +123,8 @@ class ClassifyDemo(object):
             'max_accuracy_step': 0,
         }
         self.max_val = -(sys.maxsize)
-        D_size = len(self.D) - self.exclude_num_demo_ep
-        logger.info("Training with a set of {} demos".format(D_size))
+        mem_size = len(self.demo_memory) - self.exclude_num_demo_ep
+        logger.info("Training with a set of {} demos".format(mem_size))
 
         for i in range(self.train_max_steps):
             if self.stop_requested:
@@ -133,8 +133,8 @@ class ClassifyDemo(object):
             batch_a = []
 
             for _ in range(self.batch_size):
-                idx = np.random.randint(0, D_size)
-                s, a, _, _ = self.D[idx].random_batch(1, normalize=True, k_bad_states=exclude_bad_state_k)
+                idx = np.random.randint(0, mem_size)
+                s, a, _, _ = self.demo_memory[idx].sample(1, normalize=True, k_bad_states=exclude_bad_state_k)
                 batch_si.append(s[0])
                 batch_a.append(a[0])
 
@@ -142,9 +142,7 @@ class ClassifyDemo(object):
                 [self.net.total_loss, self.net.accuracy, self.net.max_value, self.apply_gradients],
                 feed_dict = {
                     self.net.s: batch_si,
-                    self.net.a: batch_a,
-                    self.net.keep_prob_fc: 0.5 if self.use_dropout else 1.0,
-                    self.net.keep_prob_conv: 0.7 if self.use_dropout else 1.0} )
+                    self.net.a: batch_a} )
 
             if max_value > self.max_val:
                 self.max_val = max_value
@@ -158,9 +156,7 @@ class ClassifyDemo(object):
                     self.net.accuracy,
                     feed_dict = {
                         self.net.s: self.test_batch_si,
-                        self.net.a: self.test_batch_a,
-                        self.net.keep_prob_fc: 1.0,
-                        self.net.keep_prob_conv: 1.0} )
+                        self.net.a: self.test_batch_a} )
                 summary.value.add(tag='Accuracy', simple_value=float(acc))
 
             summary_writer.add_summary(summary, i)
@@ -177,10 +173,10 @@ class ClassifyDemo(object):
             'max_accuracy': 0.,
             'max_accuracy_step': 0,
         }
-        self.max_val = [-(sys.maxsize) for _ in range(self.D[0].num_actions)]
-        D_size = len(self.D) - self.exclude_num_demo_ep
-        logger.info("Training with a set of {} demos".format(D_size))
-        train_class_ctr = [0 for _ in range(self.D[0].num_actions)]
+        self.max_val = [-(sys.maxsize) for _ in range(self.demo_memory[0].num_actions)]
+        mem_size = len(self.demo_memory) - self.exclude_num_demo_ep
+        logger.info("Training with a set of {} demos".format(mem_size))
+        train_class_ctr = [0 for _ in range(self.demo_memory[0].num_actions)]
         for i in range(self.train_max_steps):
             if self.stop_requested:
                 break
@@ -189,15 +185,15 @@ class ClassifyDemo(object):
 
             # alternating randomly between classes and reward
             if exclude_noop:
-                n_class = np.random.randint(1, self.D[0].num_actions)
+                n_class = np.random.randint(1, self.demo_memory[0].num_actions)
             else:
-                n_class = np.random.randint(0, self.D[0].num_actions)
+                n_class = np.random.randint(0, self.demo_memory[0].num_actions)
             train_class_ctr[n_class] += 1
 
             # train action network branches with logistic regression
             for _ in range(self.batch_size):
-                idx = np.random.randint(0, D_size)
-                s, a, _, _ = self.D[idx].random_batch(
+                idx = np.random.randint(0, mem_size)
+                s, a, _, _ = self.demo_memory[idx].sample(
                     1, normalize=True,
                     k_bad_states=exclude_bad_state_k,
                     n_class=n_class, onevsall=True)
@@ -208,9 +204,7 @@ class ClassifyDemo(object):
                 [self.net.total_loss[n_class], self.net.max_value[n_class], self.apply_gradients[n_class]],
                 feed_dict = {
                     self.net.s: batch_si,
-                    self.net.a: batch_a,
-                    self.net.keep_prob_fc: 0.5 if self.use_dropout else 1.0,
-                    self.net.keep_prob_conv: 0.7 if self.use_dropout else 1.0} )
+                    self.net.a: batch_a} )
 
             if max_value > self.max_val[n_class]:
                 self.max_val[n_class] = max_value
@@ -221,14 +215,12 @@ class ClassifyDemo(object):
             if i % 5000 == 0:
                 logger.debug("i={0:} class={1:} loss={2:.4f} max_val={3:}".format(i, n_class, train_loss, self.max_val))
                 logger.debug("branch_ctrs={}".format(train_class_ctr))
-                for n in range(self.D[0].num_actions):
+                for n in range(self.demo_memory[0].num_actions):
                     acc = sess.run(
                         self.net.accuracy[n],
                         feed_dict = {
                             self.net.s: self.test_batch_si,
-                            self.net.a: self.test_batch_a[n],
-                            self.net.keep_prob_fc: 1.0,
-                            self.net.keep_prob_conv: 1.0} )
+                            self.net.a: self.test_batch_a[n]} )
                     summary.value.add(tag='Accuracy/action {}'.format(n), simple_value=float(acc))
                     logger.debug("    class={0:} accuracy={1:.4f}".format(n, acc))
 
@@ -236,7 +228,7 @@ class ClassifyDemo(object):
             summary_writer.flush()
 
         logger.debug("Training stats:")
-        for i in range(self.D[0].num_actions):
+        for i in range(self.demo_memory[0].num_actions):
             logger.debug("class {} counter={}".format(i, train_class_ctr[i]))
 
 def classify_demo(args):
@@ -326,12 +318,14 @@ def classify_demo(args):
         MTLBinaryClassNetwork.use_mnih_2015 = args.use_mnih_2015
         MTLBinaryClassNetwork.l1_beta = args.l1_beta
         MTLBinaryClassNetwork.l2_beta = args.l2_beta
+        MTLBinaryClassNetwork.use_gpu = args.use_gpu
         network = MTLBinaryClassNetwork(action_size, -1, device)
     else:
         from game_class_network import MultiClassNetwork
         MultiClassNetwork.use_mnih_2015 = args.use_mnih_2015
         MultiClassNetwork.l1_beta = args.l1_beta
         MultiClassNetwork.l2_beta = args.l2_beta
+        MultiClassNetwork.use_gpu = args.use_gpu
         network = MultiClassNetwork(action_size, -1, device)
 
     with tf.device(device):

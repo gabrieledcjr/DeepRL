@@ -13,6 +13,8 @@ class GameClassNetwork(ABC):
     use_mnih_2015 = False
     l1_beta = 0. #NOT USED
     l2_beta = 0. #0.0001
+    use_gpu = True
+
     def __init__(self,
                  action_size,
                  thread_index, # -1 for global
@@ -63,30 +65,30 @@ class GameClassNetwork(ABC):
 
                 return tf.group(*sync_ops, name=name)
 
-    # weight initialization based on muupan's code
-    # https://github.com/muupan/async-rl/blob/master/a3c_ale.py
-    def _fc_variable(self, weight_shape, layer_name=''):
-        input_channels  = weight_shape[0]
-        output_channels = weight_shape[1]
-        d = 1.0 / np.sqrt(input_channels)
-        bias_shape = [output_channels]
-        weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
-        bias     = tf.Variable(tf.random_uniform(bias_shape,     minval=-d, maxval=d), name=layer_name + '_biases')
+    def conv_variable(self, shape, layer_name=''):
+        std = self._xavier_std(
+            shape[2] * shape[0] * shape[1], # fan in
+            shape[3] * shape[0] * shape[1]  # fan out
+        )
+        initial = tf.random_uniform(shape, minval=-std, maxval=std)
+        weight = tf.Variable(initial, name=layer_name + '_weights')
+        bias = tf.Variable(tf.zeros([shape[3]]), name=layer_name + '_biases')
         return weight, bias
 
-    def _conv_variable(self, weight_shape, layer_name=''):
-        w = weight_shape[0]
-        h = weight_shape[1]
-        input_channels  = weight_shape[2]
-        output_channels = weight_shape[3]
-        d = 1.0 / np.sqrt(input_channels * w * h)
-        bias_shape = [output_channels]
-        weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
-        bias     = tf.Variable(tf.random_uniform(bias_shape,     minval=-d, maxval=d), name=layer_name + '_biases')
+    def fc_variable(self, shape, layer_name=''):
+        std = self._xavier_std(shape[0], shape[1])
+        initial = tf.random_uniform(shape, minval=-std, maxval=std)
+        weight = tf.Variable(initial, name=layer_name + '_weights')
+        bias = tf.Variable(tf.zeros([shape[1]]), name=layer_name + '_biases')
         return weight, bias
 
-    def _conv2d(self, x, W, stride):
-        return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "VALID")
+    def _xavier_std(self, fan_in, fan_out):
+        # sampling from a uniform distribution
+        return np.sqrt(6. / (fan_in + fan_out))
+
+    def conv2d(self, x, W, stride, data_format='NHWC'):
+        return tf.nn.conv2d(x, W, strides=[1,stride,stride,1], padding = "VALID",
+            use_cudnn_on_gpu=self.use_gpu, data_format=data_format)
 
 # Multi-Classification Network
 class MultiClassNetwork(GameClassNetwork):
@@ -104,10 +106,10 @@ class MultiClassNetwork(GameClassNetwork):
         with self.graph.as_default():
             with tf.device(self._device), tf.variable_scope(scope_name) as scope:
                 if self.use_mnih_2015:
-                    self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
-                    self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
-                    self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
-                    self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
+                    self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
+                    self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
+                    self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
+                    self.W_fc1, self.b_fc1 = self.fc_variable([3136, 256], layer_name='fc1')
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -117,9 +119,9 @@ class MultiClassNetwork(GameClassNetwork):
                     tf.add_to_collection('transfer_params', self.W_fc1)
                     tf.add_to_collection('transfer_params', self.b_fc1)
                 else:
-                    self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
-                    self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
-                    self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
+                    self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+                    self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+                    self.W_fc1, self.b_fc1 = self.fc_variable([2592, 256], layer_name='fc1')
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -128,38 +130,29 @@ class MultiClassNetwork(GameClassNetwork):
                     tf.add_to_collection('transfer_params', self.b_fc1)
 
                 # weight for policy output layer
-                self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
+                self.W_fc2, self.b_fc2 = self.fc_variable([256, action_size], layer_name='fc2')
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
 
                 # state (input)
                 self.s = tf.placeholder("float", [None, 84, 84, 4])
 
-                self.keep_prob_conv = tf.placeholder(tf.float32, shape=(), name="dropout_prob_conv")
                 if self.use_mnih_2015:
                     h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv1_dropout = tf.nn.dropout(h_conv1, self.keep_prob_conv)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1_dropout, self.W_conv2, 2) + self.b_conv2)
-                    h_conv2_dropout = tf.nn.dropout(h_conv2, self.keep_prob_conv)
-                    h_conv3 = tf.nn.relu(self._conv2d(h_conv2_dropout, self.W_conv3, 1) + self.b_conv3)
-                    h_conv3_dropout = tf.nn.dropout(h_conv3, self.keep_prob_conv)
+                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                    h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
 
-                    h_conv3_flat = tf.reshape(h_conv3_dropout, [-1, 3136])
+                    h_conv3_flat = tf.reshape(h_conv3, [-1, 3136])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
                 else:
                     h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv1_dropout = tf.nn.dropout(h_conv1, self.keep_prob_conv)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1_dropout, self.W_conv2, 2) + self.b_conv2)
-                    h_conv2_dropout = tf.nn.dropout(h_conv2, self.keep_prob_conv)
+                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
-                    h_conv2_flat = tf.reshape(h_conv2_dropout, [-1, 2592])
+                    h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
-                self.keep_prob_fc = tf.placeholder(tf.float32, shape=(), name="dropout_prob_fc")
-                h_fc1_dropout = tf.nn.dropout(h_fc1, self.keep_prob_fc)
-
                 # policy (output)
-                self._pi = tf.matmul(h_fc1_dropout, self.W_fc2) + self.b_fc2
+                self._pi = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
                 self.pi = tf.nn.softmax(self._pi)
 
                 self.max_value = tf.reduce_max(self._pi, axis=None)
@@ -206,9 +199,7 @@ class MultiClassNetwork(GameClassNetwork):
         pi_out = sess.run(
             self.pi,
             feed_dict={
-                self.s : [s_t],
-                self.keep_prob_fc: 1.0,
-                self.keep_prob_conv: 1.0} )
+                self.s : [s_t]} )
         return pi_out[0]
 
     def run_value(self, sess, s_t):
@@ -264,10 +255,10 @@ class MTLBinaryClassNetwork(GameClassNetwork):
         with self.graph.as_default():
             with tf.device(self._device), tf.variable_scope(scope_name) as scope:
                 if self.use_mnih_2015:
-                    self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
-                    self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
-                    self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
-                    self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
+                    self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
+                    self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
+                    self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
+                    self.W_fc1, self.b_fc1 = self.fc_variable([3136, 256], layer_name='fc1')
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -277,9 +268,9 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                     tf.add_to_collection('transfer_params', self.W_fc1)
                     tf.add_to_collection('transfer_params', self.b_fc1)
                 else:
-                    self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
-                    self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
-                    self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
+                    self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+                    self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+                    self.W_fc1, self.b_fc1 = self.fc_variable([2592, 256], layer_name='fc1')
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -290,7 +281,7 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                 # weight for policy output layer
                 self.W_fc2, self.b_fc2 = [], []
                 for n_class in range(action_size):
-                    W, b = self._fc_variable([256, 2], layer_name='fc2_{}'.format(n_class))
+                    W, b = self.fc_variable([256, 2], layer_name='fc2_{}'.format(n_class))
                     self.W_fc2.append(W)
                     self.b_fc2.append(b)
                     tf.add_to_collection('transfer_params', self.W_fc2[n_class])
@@ -299,34 +290,25 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                 # state (input)
                 self.s = tf.placeholder("float", [None, 84, 84, 4])
 
-                self.keep_prob_conv = tf.placeholder(tf.float32, shape=(), name="dropout_prob_conv")
                 if self.use_mnih_2015:
                     h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv1_dropout = tf.nn.dropout(h_conv1, self.keep_prob_conv)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1_dropout, self.W_conv2, 2) + self.b_conv2)
-                    h_conv2_dropout = tf.nn.dropout(h_conv2, self.keep_prob_conv)
-                    h_conv3 = tf.nn.relu(self._conv2d(h_conv2_dropout, self.W_conv3, 1) + self.b_conv3)
-                    h_conv3_dropout = tf.nn.dropout(h_conv3, self.keep_prob_conv)
+                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                    h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
 
-                    h_conv3_flat = tf.reshape(h_conv3_dropout, [-1, 3136])
+                    h_conv3_flat = tf.reshape(h_conv3, [-1, 3136])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
                 else:
                     h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv1_dropout = tf.nn.dropout(h_conv1, self.keep_prob_conv)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1_dropout, self.W_conv2, 2) + self.b_conv2)
-                    h_conv2_dropout = tf.nn.dropout(h_conv2, self.keep_prob_conv)
+                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
-                    h_conv2_flat = tf.reshape(h_conv2_dropout, [-1, 2592])
+                    h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
-
-                self.keep_prob_fc = tf.placeholder(tf.float32, shape=(), name="dropout_prob_fc")
-                h_fc1_dropout = tf.nn.dropout(h_fc1, self.keep_prob_fc)
 
                 # policy (output)
                 self._pi, self.pi = [], []
                 self.max_value = []
                 for n_class in range(action_size):
-                    _pi = tf.add(tf.matmul(h_fc1_dropout, self.W_fc2[n_class]), self.b_fc2[n_class])
+                    _pi = tf.add(tf.matmul(h_fc1, self.W_fc2[n_class]), self.b_fc2[n_class])
                     self._pi.append(_pi)
                     pi = tf.nn.softmax(self._pi[n_class])
                     self.pi.append(pi)
@@ -381,9 +363,7 @@ class MTLBinaryClassNetwork(GameClassNetwork):
         pi_out = sess.run(
             self.pi,
             feed_dict={
-                self.s : [s_t],
-                self.keep_prob_fc: 1.0,
-                self.keep_prob_conv: 1.0} )
+                self.s : [s_t]} )
         return pi_out
 
     def run_value(self, sess, s_t):

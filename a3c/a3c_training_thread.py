@@ -110,8 +110,6 @@ class A3CTrainingThread(object):
 
         self.is_demo_thread = False
         self.is_egreedy = False
-        self.use_dropout = False
-        self.keep_prob = 1.0
 
         self.pretrained_model = pretrained_model
         self.pretrained_model_sess = pretrained_model_sess
@@ -244,48 +242,48 @@ class A3CTrainingThread(object):
             self.local_network.reset_state()
         return testing_reward
 
-    def pretrain_init(self, D):
-        self.D_size = len(D)
-        self.D = D
+    def pretrain_init(self, demo_memory):
+        self.demo_memory_size = len(demo_memory)
+        self.demo_memory = demo_memory
         self.replay_mem_reset()
 
-    def replay_mem_reset(self, D_idx=None):
-        if D_idx is not None:
-            self.D_idx = D_idx
+    def replay_mem_reset(self, demo_memory_idx=None):
+        if demo_memory_idx is not None:
+            self.demo_memory_idx = demo_memory_idx
         else:
             # new random episode
-            self.D_idx = np.random.randint(0, self.D_size)
-        self.D_count = np.random.randint(0, len(self.D[self.D_idx])-self.local_t_max)
-        # if self.D_count+self.local_t_max < len(self.D[self.D_idx]):
-        #           self.D_max_count = np.random.randint(self.D_count+self.local_t_max, len(self.D[self.D_idx]))
+            self.demo_memory_idx = np.random.randint(0, self.demo_memory_size)
+        self.demo_memory_count = np.random.randint(0, len(self.demo_memory[self.demo_memory_idx])-self.local_t_max)
+        # if self.demo_memory_count+self.local_t_max < len(self.demo_memory[self.demo_memory_idx]):
+        #           self.demo_memory_max_count = np.random.randint(self.demo_memory_count+self.local_t_max, len(self.demo_memory[self.demo_memory_idx]))
         # else:
-        #           self.D_max_count = len(self.D[self.D_idx])
-        logger.debug("t_idx={} mem_reset D_idx={} D_start={}".format(self.thread_index, self.D_idx, self.D_count))
-        s_t, action, reward, terminal = self.D[self.D_idx][self.D_count]
-        self.D_action = action
-        self.D_reward = reward
-        self.D_terminal = terminal
-        if not self.D[self.D_idx].imgs_normalized:
-            self.D_s_t = s_t * (1.0/255.0)
+        #           self.demo_memory_max_count = len(self.demo_memory[self.demo_memory_idx])
+        logger.debug("t_idx={} mem_reset demo_memory_idx={} demo_memory_start={}".format(self.thread_index, self.demo_memory_idx, self.demo_memory_count))
+        s_t, action, reward, terminal = self.demo_memory[self.demo_memory_idx][self.demo_memory_count]
+        self.demo_memory_action = action
+        self.demo_memory_reward = reward
+        self.demo_memory_terminal = terminal
+        if not self.demo_memory[self.demo_memory_idx].imgs_normalized:
+            self.demo_memory_s_t = s_t * (1.0/255.0)
         else:
-            self.D_s_t = s_t
+            self.demo_memory_s_t = s_t
 
     def replay_mem_process(self):
-        self.D_count += 1
-        s_t, action, reward, terminal = self.D[self.D_idx][self.D_count]
-        self.D_next_action = action
-        self.D_reward = reward
-        self.D_terminal = terminal
-        if not self.D[self.D_idx].imgs_normalized:
-            self.D_s_t1 = s_t * (1.0/255.0)
+        self.demo_memory_count += 1
+        s_t, action, reward, terminal = self.demo_memory[self.demo_memory_idx][self.demo_memory_count]
+        self.demo_memory_next_action = action
+        self.demo_memory_reward = reward
+        self.demo_memory_terminal = terminal
+        if not self.demo_memory[self.demo_memory_idx].imgs_normalized:
+            self.demo_memory_s_t1 = s_t * (1.0/255.0)
         else:
-            self.D_s_t1 = s_t
+            self.demo_memory_s_t1 = s_t
 
     def replay_mem_update(self):
-        self.D_action = self.D_next_action
-        self.D_s_t = self.D_s_t1
+        self.demo_memory_action = self.demo_memory_next_action
+        self.demo_memory_s_t = self.demo_memory_s_t1
 
-    def demo_process(self, sess, global_t, D_idx=None):
+    def demo_process(self, sess, global_t, demo_memory_idx=None):
         states = []
         actions = []
         rewards = []
@@ -305,11 +303,11 @@ class A3CTrainingThread(object):
 
         # t_max times loop
         for i in range(self.demo_t_max):
-            pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.D_s_t)
-            action = self.D_action
+            pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.demo_memory_s_t)
+            action = self.demo_memory_action
             time.sleep(0.0025)
 
-            states.append(self.D_s_t)
+            states.append(self.demo_memory_s_t)
             actions.append(action)
             values.append(value_)
 
@@ -322,8 +320,8 @@ class A3CTrainingThread(object):
             self.replay_mem_process()
 
             # receive replay memory result
-            reward = self.D_reward
-            terminal = self.D_terminal
+            reward = self.demo_memory_reward
+            terminal = self.demo_memory_terminal
 
             self.episode_reward += reward
 
@@ -338,12 +336,12 @@ class A3CTrainingThread(object):
             self.local_t += 1
             self.episode_steps += 1
 
-            # D_s_t1 -> D_s_t
+            # demo_memory_s_t1 -> demo_memory_s_t
             self.replay_mem_update()
-            s_t = self.D_s_t
+            s_t = self.demo_memory_s_t
 
-            if terminal or self.D_count == len(self.D[self.D_idx]):
-                logger.debug("t_idx={} score={} keep_prob={}".format(self.thread_index, self.episode_reward, self.keep_prob))
+            if terminal or self.demo_memory_count == len(self.demo_memory[self.demo_memory_idx]):
+                logger.debug("t_idx={} score={}".format(self.thread_index, self.episode_reward))
                 demo_ended = True
                 if terminal:
                     terminal_end = True
@@ -357,7 +355,7 @@ class A3CTrainingThread(object):
 
                 self.episode_reward = 0
                 self.episode_steps = 0
-                self.replay_mem_reset(D_idx=D_idx)
+                self.replay_mem_reset(demo_memory_idx=demo_memory_idx)
                 break
 
         R = 0.0
@@ -387,16 +385,6 @@ class A3CTrainingThread(object):
             batch_R.append(R)
 
         cur_learning_rate = self._anneal_learning_rate(global_t) #* 0.005
-        if self.use_dropout and self.keep_prob < 1.0:
-            init_prob = 0.1
-            max_t = 1000000.
-            total_t = max_t + max_t / (1. / init_prob)
-            self.keep_prob = (global_t/total_t) + 0.1
-            if self.keep_prob > 1.0:
-                self.keep_prob = 1.0
-
-        #if self.use_dropout:
-        #        keep_prob = 0.5
 
         if self.use_lstm:
             batch_si.reverse()
@@ -412,7 +400,6 @@ class A3CTrainingThread(object):
                          self.local_network.r: batch_R,
                          self.local_network.policy_lr: 1.0,
                          self.local_network.critic_lr: 0.5,
-                         self.local_network.keep_prob: self.keep_prob,
                          self.local_network.entropy_beta: self.demo_entropy_beta,
                          self.local_network.initial_lstm_state: start_lstm_state,
                          self.local_network.step_size : [len(batch_a)],
@@ -431,7 +418,6 @@ class A3CTrainingThread(object):
                          self.local_network.r: batch_R,
                          self.local_network.policy_lr: 1.0,
                          self.local_network.critic_lr: 0.5,
-                         self.local_network.keep_prob: self.keep_prob,
                          self.local_network.entropy_beta: self.demo_entropy_beta,
                          self.learning_rate_input: cur_learning_rate} )
 
@@ -548,8 +534,6 @@ class A3CTrainingThread(object):
             if terminal:
                 terminal_end = True
                 log_msg = "t_idx={} local_t={}".format(self.thread_index, self.local_t)
-                if self.use_dropout:
-                    log_msg += " keep_prob={}".format(self.keep_prob)
                 if self.use_pretrained_model_as_advice:
                     log_msg += " advice_ctr={}".format(self.advice_ctr)
                 if self.use_pretrained_model_as_reward_shaping:
@@ -630,14 +614,6 @@ class A3CTrainingThread(object):
                 batch_R.append(R)
 
         cur_learning_rate = self._anneal_learning_rate(global_t)
-        if self.use_dropout and self.keep_prob < 1.0:
-            init_prob = 0.1
-            max_t = 1000000.
-            total_t = max_t + max_t / (1. / init_prob)
-            self.keep_prob = (global_t/total_t) + 0.1
-            if self.keep_prob > 1.0:
-                self.keep_prob = 1.0
-
 
         if self.use_lstm:
             batch_si.reverse()
@@ -653,7 +629,6 @@ class A3CTrainingThread(object):
                     self.local_network.r: batch_R,
                     self.local_network.policy_lr: 1.0,
                     self.local_network.critic_lr: 0.5,
-                    self.local_network.keep_prob: self.keep_prob,
                     self.local_network.entropy_beta: self.entropy_beta,
                     self.local_network.initial_lstm_state: start_lstm_state,
                     self.local_network.step_size : [len(batch_a)],
@@ -667,7 +642,6 @@ class A3CTrainingThread(object):
                     self.local_network.r: batch_R,
                     self.local_network.policy_lr: 1.0,
                     self.local_network.critic_lr: 0.5,
-                    self.local_network.keep_prob: self.keep_prob,
                     self.local_network.entropy_beta: self.entropy_beta,
                     self.learning_rate_input: cur_learning_rate} )
 

@@ -359,10 +359,6 @@ def run_a3c(args):
             logger.info("t_idx={} set as egreedy thread".format(parallel_index))
             training_thread.is_egreedy = True
 
-        if args.use_dropout:
-            training_thread.use_dropout = True
-            training_thread.keep_prob = 0.1
-
         if global_t == 0 and (args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs > 0) and parallel_index < 2:
             ispretrain_markers[parallel_index] = True
             training_thread.replay_mem_reset()
@@ -371,7 +367,7 @@ def run_a3c(args):
             logger.info("t_idx={} pretrain starting".format(parallel_index))
             while ispretrain_markers[parallel_index]:
                 if stop_requested:
-                    break
+                    return
                 if pretrain_global_t > args.train_with_demo_num_steps and pretrain_epoch > args.train_with_demo_num_epochs:
                     # At end of pretraining, reset state
                     training_thread.replay_mem_reset()
@@ -420,9 +416,9 @@ def run_a3c(args):
         use_demo_thread = False
         while True:
             if stop_requested:
-                break
+                return
             if global_t > (args.max_time_step * args.max_time_step_fraction):
-                break
+                return
 
             if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 16:
                 #if num_demo_thread < 2:
@@ -487,6 +483,9 @@ def run_a3c(args):
         nonlocal stop_requested
         logger.info('You pressed Ctrl+C!')
         stop_requested = True
+
+        if stop_requested and global_t == 0:
+            sys.exit(1)
 
     def save_best_model(test_reward):
         nonlocal best_model_reward
