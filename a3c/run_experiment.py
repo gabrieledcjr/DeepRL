@@ -7,7 +7,6 @@ from time import sleep
 from termcolor import colored
 from a3c import run_a3c
 from classify_demo import classify_demo
-from collect_demo import get_demo
 from extract_transfer_layers import extract_layers
 from log_formatter import LogFormatter
 
@@ -19,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--parallel-size', type=int, default=16, help='parallel thread size')
-    parser.add_argument('--gym-env', type=str, default='PongDeterministic-v3', help='OpenAi Gym environment ID')
+    parser.add_argument('--gym-env', type=str, default='PongDeterministic-v4', help='OpenAi Gym environment ID')
 
     parser.add_argument('--local-t-max', type=int, default=20, help='repeat step size')
     parser.add_argument('--rmsp-alpha', type=float, default=0.99, help='decay parameter for RMSProp')
@@ -73,13 +72,6 @@ def main():
     parser.add_argument('--finetune-upper-layers-only', action='store_true')
     parser.set_defaults(finetune_upper_layers_only=False)
 
-    parser.add_argument('--collect-demo', action='store_true')
-    parser.set_defaults(collect_demo=False)
-    parser.add_argument('--num-episodes', type=int, default=5, help='number of episodes')
-    parser.add_argument('--demo-time-limit', type=int, default=5, help='time limit per episode')
-    parser.add_argument('--create-gif', action='store_true')
-    parser.set_defaults(create_gif=False)
-
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
@@ -130,10 +122,6 @@ def main():
         logger.info('Extracting transfer layers...')
         sleep(2)
         extract_layers(args)
-    elif args.collect_demo:
-        logger.info('Collecting demonstration...')
-        sleep(2)
-        get_demo(args)
     elif args.classify_demo:
         logger.info('Classifying human demonstration...')
         sleep(2)

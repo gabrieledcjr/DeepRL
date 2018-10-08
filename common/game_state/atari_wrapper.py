@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import gym
 import logging
 import pyglet
@@ -9,7 +9,7 @@ import numpy as np
 from time import sleep
 from gym import spaces
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("atari_wrapper")
 __all__ = ['AtariWrapper']
 
 class AtariWrapper(gym.Wrapper):

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import sys
 import numpy as np
 import gym
@@ -7,9 +7,9 @@ import coloredlogs, logging
 
 from time import sleep
 from termcolor import colored
-from atari_wrapper import AtariWrapper, FireResetEnv, HumanDemoEnv, WarpFrame
+from .atari_wrapper import AtariWrapper, FireResetEnv, HumanDemoEnv, WarpFrame
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("game_state")
 
 class GameState(object):
     def __init__(self, env_id=None, display=False, crop_screen=True, no_op_max=30, human_demo=False):
@@ -177,7 +177,7 @@ def test_keys(env_id):
 
 if __name__ == "__main__":
     coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
-    from log_formatter import LogFormatter
+    from common.util import LogFormatter
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler('test.log')
     fh.setLevel(logging.DEBUG)

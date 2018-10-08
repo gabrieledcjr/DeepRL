@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Copyright (c) 2014, Nathan Sprague
 All rights reserved.
@@ -12,14 +13,14 @@ import numpy as np
 import time
 import logging
 
-from util import save_compressed_images
+from common.util import save_compressed_images
 
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("replay_memory")
 
 class ReplayMemory(object):
     """
@@ -391,7 +392,7 @@ class ReplayMemory(object):
 
 
 def test_1(env_id):
-    from util import get_compressed_images
+    from common.util import get_compressed_images
     try:
         import cPickle as pickle
     except ImportError:
@@ -428,7 +429,7 @@ def test_1(env_id):
     print ("size:", rm.size)
 
 def test_2(env_id):
-    from util import get_compressed_images
+    from common.util import get_compressed_images
     try:
         import cPickle as pickle
     except ImportError:

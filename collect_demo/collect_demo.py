@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import numpy as np
 import time
 import random
@@ -7,11 +7,10 @@ import os
 import logging
 
 from datetime import datetime
-from util import prepare_dir, process_frame, get_action_index, make_gif
-from replay_memory import ReplayMemory
-from game_state import GameState
+from common.util import prepare_dir, process_frame, get_action_index, make_gif
+from common.replay_memory import ReplayMemory
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("collect_demo")
 
 class CollectDemonstration(object):
 
@@ -251,41 +250,8 @@ class CollectDemonstration(object):
 
         return total_reward, t, start_time, end_time, duration, replay_memory.size
 
-def get_demo(args):
-    """
-    Requirements: sudo apt-get install python3-tk
-    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --collect-demo --num-episodes=5 --demo-time-limit=5
-    """
-    if args.demo_memory_folder is not None:
-        demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
-    else:
-        demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
-
-    if args.append_experiment_num is not None:
-        demo_memory_folder += '_' + args.append_experiment_num
-
-    prepare_dir(demo_memory_folder, empty=True)
-    from log_formatter import LogFormatter
-    fh = logging.FileHandler('{}/collect.log'.format(demo_memory_folder), mode='w')
-    fh.setLevel(logging.DEBUG)
-    formatter = LogFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
-
-    game_state = GameState(env_id=args.gym_env, display=True, human_demo=True)
-    collect_demo = CollectDemonstration(
-        game_state,
-        84, 84, 4,
-        args.gym_env,
-        folder=demo_memory_folder,
-        create_gif=args.create_gif)
-    collect_demo.run_episodes(
-        args.num_episodes,
-        minutes_limit=args.demo_time_limit,
-        demo_type=0)
-    game_state.close()
-
 def test_collect(env_id):
+    from common.game_state import GameState
     game_state = GameState(env_id=env_id, display=True, human_demo=True)
     test_folder = "demo_samples/{}_test".format(env_id.replace('-', '_'))
     prepare_dir(test_folder, empty=True)

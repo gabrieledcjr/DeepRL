@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import random
 import tables
 import numpy as np
@@ -13,7 +13,7 @@ import logging
 from math import sqrt
 from collections import defaultdict
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("util")
 
 try:
     import cPickle as pickle
