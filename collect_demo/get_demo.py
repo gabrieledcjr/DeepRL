@@ -10,10 +10,6 @@ logger = logging.getLogger('get_demo')
 coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
 
 def get_demo(args):
-    """
-    Requirements: sudo apt-get install python3-tk
-    python3 get_demo.py --gym-env=PongNoFrameskip-v4 --num-episodes=5 --demo-time-limit=5
-    """
     if args.demo_memory_folder is not None:
         demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
     else:
@@ -43,6 +39,10 @@ def get_demo(args):
     game_state.close()
 
 def main():
+    """
+    Requirements: sudo apt-get install python3-tk
+    python3 get_demo.py --gym-env=PongNoFrameskip-v4 --num-episodes=5 --demo-time-limit=5
+    """
     logger.setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser()
 
