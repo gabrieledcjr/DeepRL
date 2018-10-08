@@ -16,6 +16,7 @@ class GameACNetwork(ABC):
     use_mnih_2015 = False
     l1_beta = 0.
     l2_beta = 0.
+    use_gpu = False
 
     def __init__(self,
                  action_size,
@@ -103,30 +104,30 @@ class GameACNetwork(ABC):
 
                 return tf.group(*sync_ops, name=name)
 
-    # weight initialization based on muupan's code
-    # https://github.com/muupan/async-rl/blob/master/a3c_ale.py
-    def _fc_variable(self, weight_shape, layer_name=''):
-        input_channels  = weight_shape[0]
-        output_channels = weight_shape[1]
-        d = 1.0 / np.sqrt(input_channels)
-        bias_shape = [output_channels]
-        weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
-        bias = tf.Variable(tf.random_uniform(bias_shape,     minval=-d, maxval=d), name=layer_name + '_biases')
+    def conv_variable(self, shape, layer_name=''):
+        std = self._xavier_std(
+            shape[2] * shape[0] * shape[1], # fan in
+            shape[3] * shape[0] * shape[1]  # fan out
+        )
+        initial = tf.random_uniform(shape, minval=-std, maxval=std)
+        weight = tf.Variable(initial, name=layer_name + '_weights')
+        bias = tf.Variable(tf.zeros([shape[3]]), name=layer_name + '_biases')
         return weight, bias
 
-    def _conv_variable(self, weight_shape, layer_name=''):
-        w = weight_shape[0]
-        h = weight_shape[1]
-        input_channels  = weight_shape[2]
-        output_channels = weight_shape[3]
-        d = 1.0 / np.sqrt(input_channels * w * h)
-        bias_shape = [output_channels]
-        weight = tf.Variable(tf.random_uniform(weight_shape, minval=-d, maxval=d), name=layer_name + '_weights')
-        bias = tf.Variable(tf.random_uniform(bias_shape,     minval=-d, maxval=d), name=layer_name + '_biases')
+    def fc_variable(self, shape, layer_name=''):
+        std = self._xavier_std(shape[0], shape[1])
+        initial = tf.random_uniform(shape, minval=-std, maxval=std)
+        weight = tf.Variable(initial, name=layer_name + '_weights')
+        bias = tf.Variable(tf.zeros([shape[1]]), name=layer_name + '_biases')
         return weight, bias
 
-    def _conv2d(self, x, W, stride):
-        return tf.nn.conv2d(x, W, strides = [1, stride, stride, 1], padding = "VALID")
+    def _xavier_std(self, fan_in, fan_out):
+        # sampling from a uniform distribution
+        return np.sqrt(6. / (fan_in + fan_out))
+
+    def conv2d(self, x, W, stride, data_format='NHWC'):
+        return tf.nn.conv2d(x, W, strides=[1,stride,stride,1], padding = "VALID",
+            use_cudnn_on_gpu=self.use_gpu, data_format=data_format)
 
     def load_transfer_model(
         self, sess, folder='',
@@ -187,54 +188,51 @@ class GameACFFNetwork(GameACNetwork):
         scope_name = "net_" + str(self._thread_index)
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
-                self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
-                self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
-                self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
-                self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
+                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, 256], layer_name='fc1')
             else:
-                self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
-                self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
-                self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+                self.W_fc1, self.b_fc1 = self.fc_variable([2592, 256], layer_name='fc1')
 
             # weight for policy output layer
-            self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
+            self.W_fc2, self.b_fc2 = self.fc_variable([256, action_size], layer_name='fc2')
 
             # weight for value output layer
-            self.W_fc3, self.b_fc3 = self._fc_variable([256, 1], layer_name='fc3')
+            self.W_fc3, self.b_fc3 = self.fc_variable([256, 1], layer_name='fc3')
 
             # state (input)
             self.s = tf.placeholder("float", [None, 84, 84, 4])
 
             if self.use_mnih_2015:
-                self.h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self._conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
-                self.h_conv3 = tf.nn.relu(self._conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+                self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
 
                 self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
                 self.h_fc1 = tf.nn.relu(tf.matmul(self.h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(self.conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
                 h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
-            self.keep_prob = tf.placeholder(tf.float32, shape=(), name="h_fc1_dropout")
-            h_fc1_dropout = tf.nn.dropout(self.h_fc1, self.keep_prob)
-
             # policy (output)
-            self.logits = tf.matmul(h_fc1_dropout, self.W_fc2) + self.b_fc2
+            self.logits = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
             self.pi = tf.nn.softmax(self.logits)
             # value (output)
             v_ = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
             self.v = tf.reshape( v_, [-1] )
 
     def run_policy_and_value(self, sess, s_t):
-        pi_out, v_out, logits = sess.run( [self.pi, self.v, self.logits], feed_dict = {self.s : [s_t], self.keep_prob : 1.0} )
+        pi_out, v_out, logits = sess.run( [self.pi, self.v, self.logits], feed_dict = {self.s : [s_t]} )
         return (pi_out[0], v_out[0], logits[0])
 
     def run_policy(self, sess, s_t):
-        pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t], self.keep_prob : 1.0} )
+        pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t]} )
         return pi_out[0]
 
     def run_value(self, sess, s_t):
@@ -272,37 +270,37 @@ class GameACLSTMNetwork(GameACNetwork):
         scope_name = "net_" + str(self._thread_index)
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
-                self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 32], layer_name='conv1')
-                self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 32, 64], layer_name='conv2')
-                self.W_conv3, self.b_conv3 = self._conv_variable([3, 3, 64, 64], layer_name='conv3')
-                self.W_fc1, self.b_fc1 = self._fc_variable([3136, 256], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
+                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, 256], layer_name='fc1')
             else:
-                self.W_conv1, self.b_conv1 = self._conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
-                self.W_conv2, self.b_conv2 = self._conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
-                self.W_fc1, self.b_fc1 = self._fc_variable([2592, 256], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+                self.W_fc1, self.b_fc1 = self.fc_variable([2592, 256], layer_name='fc1')
 
             # lstm
-            self.lstm = tf.contrib.rnn.BasicLSTMCell(256, state_is_tuple=True)
+            self.lstm = tf.nn.rnn_cell.LSTMCell(256, name='basic_lstm_cell')
 
             # weight for policy output layer
-            self.W_fc2, self.b_fc2 = self._fc_variable([256, action_size], layer_name='fc2')
+            self.W_fc2, self.b_fc2 = self.fc_variable([256, action_size], layer_name='fc2')
 
             # weight for value output layer
-            self.W_fc3, self.b_fc3 = self._fc_variable([256, 1], layer_name='fc3')
+            self.W_fc3, self.b_fc3 = self.fc_variable([256, 1], layer_name='fc3')
 
             # state (input)
             self.s = tf.placeholder("float", [None, 84, 84, 4])
 
             if self.use_mnih_2015:
-                self.h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self._conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
-                self.h_conv3 = tf.nn.relu(self._conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+                self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
 
                 h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self._conv2d(self.s, self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self._conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s, self.W_conv1, 4) + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
 
                 h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
@@ -335,11 +333,8 @@ class GameACLSTMNetwork(GameACNetwork):
 
             lstm_outputs = tf.reshape(lstm_outputs, [-1,256])
 
-            self.keep_prob = tf.placeholder(tf.float32, shape=(), name="lstm_outputs_dropout")
-            lstm_outputs_dropout = tf.nn.dropout(lstm_outputs, self.keep_prob)
-
             # policy (output)
-            self.logits = tf.matmul(lstm_outputs_dropout, self.W_fc2) + self.b_fc2
+            self.logits = tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2
             self.pi = tf.nn.softmax(self.logits)
 
             # value (output)
@@ -366,8 +361,7 @@ class GameACLSTMNetwork(GameACNetwork):
                 self.s : [s_t],
                 self.initial_lstm_state0 : self.lstm_state_out[0],
                 self.initial_lstm_state1 : self.lstm_state_out[1],
-                self.step_size : [1],
-                self.keep_prob : 1.0})
+                self.step_size : [1]})
         # pi_out: (1,3), v_out: (1)
         return (pi_out[0], v_out[0], logits[0])
 
@@ -379,8 +373,7 @@ class GameACLSTMNetwork(GameACNetwork):
                 self.s : [s_t],
                 self.initial_lstm_state0 : self.lstm_state_out[0],
                 self.initial_lstm_state1 : self.lstm_state_out[1],
-                self.step_size : [1],
-                self.keep_prob : 1.0})
+                self.step_size : [1]})
 
         return pi_out[0]
 

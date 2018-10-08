@@ -8,7 +8,7 @@ import logging
 
 from datetime import datetime
 from util import prepare_dir, process_frame, get_action_index, make_gif
-from data_set import DataSet
+from replay_memory import ReplayMemory
 from game_state import GameState
 
 logger = logging.getLogger("a3c")
@@ -17,7 +17,7 @@ class CollectDemonstration(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
-        replay_memory=None, folder='', create_gif=False):
+        folder='', create_gif=False):
         """ Initialize collection of demo """
         assert folder != ''
         self.game_state = game_state
@@ -25,7 +25,6 @@ class CollectDemonstration(object):
         self.resized_w = resized_width
         self.phi_length = phi_length
         self.name = name
-        self.D = replay_memory
         self.main_folder = folder
 
         # Create or connect to database
@@ -38,7 +37,7 @@ class CollectDemonstration(object):
         self._skip = 1
         if self.game_state.env.unwrapped.frameskip == 1:
             self._skip = 4
-            if self.game_state.env_id[:13] == 'SpaceInvaders':
+            if "SpaceInvaders" in self.game_state.env.spec.id:
                 self._skip = 3 # NIPS (makes laser always visible)
 
         self.create_gif = create_gif
@@ -70,17 +69,30 @@ class CollectDemonstration(object):
                VALUES(?,?,?,?,?,?,?,?)''', demos)
         self.conn.commit()
 
-    def _reset(self):
-        self.game_state.reset(normalize=False)
-        for _ in range(self.phi_length-1):
-            self.D.add_sample(
-                self.game_state.x_t,
-                0,
-                self.game_state.reward,
-                self.game_state.terminal,
-                self.game_state.lives,
-                self.game_state.loss_life,
-                self.game_state.gain_life)
+    def _reset(self, replay_memory):
+        self.game_state.reset()
+        if self.game_state.fire_reset:
+            for i in range(self.phi_length + 1):
+                replay_memory.add(
+                    self.game_state.x_t,
+                    2 if i == self.phi_length else 1,
+                    self.game_state.reward,
+                    self.game_state.terminal,
+                    self.game_state.lives,
+                    losslife=self.game_state.loss_life,
+                    gainlife=self.game_state.gain_life,
+                    fullstate=self.game_state.clone_full_state())
+        else:
+            for _ in range(self.phi_length-1):
+                replay_memory.add(
+                    self.game_state.x_t,
+                    0,
+                    self.game_state.reward,
+                    self.game_state.terminal,
+                    self.game_state.lives,
+                    losslife=self.game_state.loss_life,
+                    gainlife=self.game_state.gain_life,
+                    fullstate=self.game_state.clone_full_state())
 
     def _update_state_input(self, observation):
         self.state_input = np.roll(self.state_input, -1, axis=3)
@@ -92,22 +104,23 @@ class CollectDemonstration(object):
         durations = []
         mem_sizes = []
         for ep in range(start_ep, num_episodes+start_ep):
-            D = DataSet(
+            replay_memory = ReplayMemory(
                 self.resized_w, self.resized_h,
                 np.random.RandomState(),
                 max_steps=100000,
                 phi_length=self.phi_length,
-                num_actions=self.game_state.env.action_space.n)
+                num_actions=self.game_state.env.action_space.n,
+                full_state_size=self.game_state.clone_full_state().shape[0])
 
             self.folder = self.main_folder + '/{n:03d}/'.format(n=(ep))
             prepare_dir(self.folder, empty=True)
 
-            total_reward, total_steps, start_time, end_time, duration, mem_size = self.run(minutes_limit=minutes_limit, ep_num=ep, num_episodes=(num_episodes+start_ep)-1, demo_type=demo_type, model_net=model_net, D=D)
+            total_reward, total_steps, start_time, end_time, duration, mem_size = self.run(minutes_limit=minutes_limit, ep_num=ep, num_episodes=(num_episodes+start_ep)-1, demo_type=demo_type, model_net=model_net, replay_memory=replay_memory)
             rewards.append(total_reward)
             steps.append(total_steps)
             durations.append(duration)
             mem_sizes.append(mem_size)
-            del D
+            del replay_memory
 
             self.insert_data_to_db([(ep, self.name, total_reward, mem_size, start_time, end_time, str(duration), total_steps)])
 
@@ -129,31 +142,7 @@ class CollectDemonstration(object):
         logger.debug("total # of episodes: {}".format(num_episodes))
         self.conn.close()
 
-    # def _pause_lost_life(self, is_breakout=False, is_beamrider=False):
-    #     start_pause = datetime.now()
-    #     pause_start = time.time()
-    #     if is_breakout:
-    #         key_str = '[FIRE]'
-    #     elif is_beamrider:
-    #         key_str = '[LEFT or RIGHT]'
-    #     print ("You are required to press {} key to continue...".format(key_str))
-    #     while True:
-    #         action = self.game_state.human_agent_action
-    #         if is_breakout and action == self.game_state.action_map[FIRE]:
-    #             break
-    #         if is_beamrider and action == self.game_state.action_map[LEFT]:
-    #             break
-    #         if is_beamrider and action == self.game_state.action_map[RIGHT]:
-    #             break
-    #         self.game_state.process(0, normalize=False)
-    #     pause_duration = time.time() - pause_start
-    #     logger.debug("Paused for {}".format(datetime.now() - start_pause))
-    #     return action, pause_duration
-
-    def run(self, minutes_limit=5, ep_num=0, num_episodes=0, demo_type=0, model_net=None, D=None):
-        if D is not None:
-            self.D = D
-
+    def run(self, minutes_limit=5, ep_num=0, num_episodes=0, demo_type=0, model_net=None, replay_memory=None):
         if self.create_gif:
             gif_images = []
 
@@ -170,7 +159,7 @@ class CollectDemonstration(object):
         score1 = score2 = 0
 
         # re-initialize game for evaluation
-        self._reset()
+        self._reset(replay_memory)
 
         rew = self.game_state.reward
         terminal = False
@@ -200,58 +189,59 @@ class CollectDemonstration(object):
                         readout_t = model_net.evaluate(self.state_input)[0]
                         action = get_action_index(readout_t, is_random=False, n_actions=self.game_state.n_actions)
                 else: # HUMAN
-                    action = self.game_state.human_agent_action
+                    action = self.game_state.env.human_agent_action
 
-            # store the transition in D
-            self.D.add_sample(
-                self.game_state.x_t,
-                action,
-                rew,
-                self.game_state.terminal,
-                lives,
-                loss_life,
-                gain_life)
-
-            if self.create_gif:
-                gif_images.append(self.game_state.x_t_rgb)
+            self.game_state.process(action)
+            rew += self.game_state.reward
+            lives = self.game_state.lives
+            loss_life = loss_life or self.game_state.loss_life
+            gain_life = (gain_life or self.game_state.gain_life) and not loss_life
+            total_reward += self.game_state.reward
+            t += 1
 
             # Ensure that D does not reach max memory that mitigate
             # problems when combining different human demo files
-            if (self.D.size + 3) == self.D.max_steps:
+            if (replay_memory.size + 3) == replay_memory.max_steps:
                 logger.warn("Memory max limit reached!")
                 terminal = True
+            elif not full_episode:
+                terminal = True if self.game_state.terminal or (time.time() > timeout_start + timeout) else False
+            else:
+                terminal = self.game_state.terminal
+
+            # add memory every 4th frame even if demo uses skip=1
+            if self.game_state.get_episode_frame_number() % self._skip == 0 or terminal:
+                # store the transition in D
+                replay_memory.add(
+                    self.game_state.x_t,
+                    action,
+                    rew,
+                    terminal,
+                    lives,
+                    losslife=loss_life,
+                    gainlife=gain_life,
+                    fullstate=self.game_state.full_state)
+                rew = 0
+                loss_life = False
+                gain_life = False
+
+            if self.create_gif:
+                gif_images.append(self.game_state.get_screen_rgb())
 
             if terminal:
                 break
 
-            rew = 0
-            loss_life = False
-            gain_life = False
-            # when using frameskip=1, should repeat action four times
-            for _ in range(self._skip):
-                self.game_state.process(action, normalize=False)
-                rew += self.game_state.reward
-                lives = self.game_state.lives
-                loss_life = loss_life or self.game_state.loss_life
-                gain_life = (gain_life or self.game_state.gain_life) and not loss_life
-                if not full_episode:
-                    terminal = True if self.game_state.terminal or (time.time() > timeout_start + timeout) else False
-                else:
-                    terminal = self.game_state.terminal
-                if terminal: break
-
-            total_reward += rew
-            t += 1
             self.game_state.update()
+            time.sleep(.02 * self.game_state.env.unwrapped.frameskip)
 
         end_time = datetime.now()
         duration = end_time - start_time
         logger.info("Duration: {}".format(duration))
         logger.info("Total steps: {}".format(t))
         logger.info("Total reward: {}".format(total_reward))
-        logger.info("Total Replay memory saved: {}".format(self.D.size))
+        logger.info("Total Replay memory saved: {}".format(replay_memory.size))
 
-        D.save(name=self.name, folder=self.folder, resize=True)
+        replay_memory.save(name=self.name, folder=self.folder, resize=True)
         if self.create_gif:
             time_per_step = 0.05
             make_gif(
@@ -259,7 +249,7 @@ class CollectDemonstration(object):
                 duration=len(gif_images)*time_per_step,
                 true_image=True, salience=False)
 
-        return total_reward, t, start_time, end_time, duration, self.D.size
+        return total_reward, t, start_time, end_time, duration, replay_memory.size
 
 def get_demo(args):
     """
@@ -287,13 +277,13 @@ def get_demo(args):
         game_state,
         84, 84, 4,
         args.gym_env,
-        replay_memory=None,
         folder=demo_memory_folder,
         create_gif=args.create_gif)
     collect_demo.run_episodes(
         args.num_episodes,
         minutes_limit=args.demo_time_limit,
         demo_type=0)
+    game_state.close()
 
 def test_collect(env_id):
     game_state = GameState(env_id=env_id, display=True, human_demo=True)
@@ -303,7 +293,6 @@ def test_collect(env_id):
         game_state,
         84, 84, 4,
         env_id,
-        replay_memory=None,
         folder=test_folder, create_gif=True)
     num_episodes = 1
     collect_demo.run_episodes(
