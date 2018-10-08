@@ -88,7 +88,7 @@ class ClassifyDemo(object):
             #     break
 
             # perform gradient step
-            _, entropy, acc, output_vals, max_value = self.net.train(s_j_batch, a_batch, keep_prob=0.7)
+            _, entropy, acc, output_vals, max_value = self.net.train(s_j_batch, a_batch)
             data['training_step'].append(i)
             data['training_accuracy'].append(acc)
             data['training_entropy'].append(entropy)

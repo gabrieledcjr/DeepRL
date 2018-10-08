@@ -48,7 +48,7 @@ class GameState:
                 TORPEDO: 0, RIGHTTORPEDO: 0, LEFTTORPEDO: 0
             }
         if self.game == 'pong':
-            self._env = gym.make('PongDeterministic-v3')
+            self._env = gym.make('PongDeterministic-v4')
             self.n_actions = 6
 
             if self._human_demo:
@@ -59,7 +59,7 @@ class GameState:
                 self.action_map[DOWNFIRE] = 5
 
         elif self.game == 'breakout':
-            self._env = gym.make('BreakoutDeterministic-v3')
+            self._env = gym.make('BreakoutDeterministic-v4')
             self.n_actions = 4
 
             if self._human_demo:
@@ -68,7 +68,7 @@ class GameState:
                 self.action_map[FIRE] = 3
 
         elif self.game == 'freeway':
-            self._env = gym.make('FreewayDeterministic-v3')
+            self._env = gym.make('FreewayDeterministic-v4')
             self.n_actions = 3
 
             if self._human_demo:
@@ -76,7 +76,7 @@ class GameState:
                 self.action_map[DOWN] = 2
 
         elif self.game == 'spaceinvaders':
-            self._env = gym.make('SpaceInvadersDeterministic-v3')
+            self._env = gym.make('SpaceInvadersDeterministic-v4')
             self.n_actions = 6
 
             if self._human_demo:
@@ -87,7 +87,7 @@ class GameState:
                 self.action_map[LEFTFIRE] = 5
 
         elif self.game == 'qbert':
-            self._env = gym.make('QbertDeterministic-v3')
+            self._env = gym.make('QbertDeterministic-v4')
             self.n_actions = 5
 
             if self._human_demo:
@@ -97,7 +97,7 @@ class GameState:
                 self.action_map[DOWNLEFT] = 4
 
         elif self.game == 'beamrider':
-            self._env = gym.make('BeamRiderDeterministic-v3')
+            self._env = gym.make('BeamRiderDeterministic-v4')
             self.n_actions = 9
 
             if self._human_demo:
@@ -111,7 +111,7 @@ class GameState:
                 self.action_map[LEFTFIRE] = 8
 
         elif self.game == 'gopher':
-            self._env = gym.make('GopherDeterministic-v3')
+            self._env = gym.make('GopherDeterministic-v4')
             self.n_actions = self._env.action_space.n
 
             if self._human_demo:
@@ -123,13 +123,13 @@ class GameState:
                 self.action_map[RIGHTFIRE] = 6
                 self.action_map[LEFTFIRE] = 7
 
-        print (colored('{}Deterministic-v3'.format(self.game.title()), "green"))
+        print (colored('{}Deterministic-v4'.format(self.game.title()), "green"))
 
         self._env.frameskip = frame_skip
-        self.lives = self._env.ale.lives()
+        self.lives = self._env.unwrapped.ale.lives()
         print (colored("lives: {}".format(self.lives), "green"))
         print (colored("frameskip: {}".format(self._env.frameskip), "green"))
-        print (colored("repeat_action_probability: {}".format(self._env.ale.getFloat(b'repeat_action_probability')), "green"))
+        print (colored("repeat_action_probability: {}".format(self._env.unwrapped.ale.getFloat(b'repeat_action_probability')), "green"))
 
         print (colored("human_demo: {}".format(self._human_demo), "green" if self._human_demo else "red"))
 
@@ -154,7 +154,7 @@ class GameState:
         if render or self._human_demo:
             self._env.render(mode='human')
         self._env.reset()
-        self.lives = self._env.ale.lives()
+        self.lives = self._env.unwrapped.ale.lives()
 
         if random_restart:
             random_actions = random.randint(0, 30+1)

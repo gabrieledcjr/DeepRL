@@ -63,6 +63,7 @@ def classify_demo(args):
             args.resized_height, args.resized_width,
             rng, args.replay_memory,
             args.phi_len, game_state.n_actions)
+        DqnNetClass.use_gpu = not args.cpu_only
         net = DqnNetClass(
             args.resized_height, args.resized_width, args.phi_len,
             game_state.n_actions, args.env,
@@ -206,6 +207,7 @@ def run_dqn(args):
             advice_folder = args.advice_folder
         else:
             advice_folder = "{}_networks_classifier_{}".format(args.env, "adam")
+        DqnNetClass.use_gpu = not args.cpu_only
         human_net = DqnNetClass(
             args.resized_height, args.resized_width,
             args.phi_len, game_state.n_actions, args.env,
@@ -229,6 +231,7 @@ def run_dqn(args):
 
             # baseline learning
             if not args.use_transfer:
+                DqnNet.use_gpu = not args.cpu_only
                 net = DqnNet(
                     sess, args.resized_height, args.resized_width, args.phi_len,
                     game_state.n_actions, args.env, gamma=args.gamma, copy_interval=args.c_freq,
@@ -245,6 +248,7 @@ def run_dqn(args):
                     # Always load adam model
                     transfer_folder = "{}_networks_classifier_{}/transfer_model".format(args.env, "adam")
 
+                DqnNet.use_gpu = not args.cpu_only
                 net = DqnNet(
                     sess, args.resized_height, args.resized_width, args.phi_len,
                     game_state.n_actions, args.env, gamma=args.gamma, copy_interval=args.c_freq,

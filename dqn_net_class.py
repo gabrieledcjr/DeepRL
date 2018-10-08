@@ -38,9 +38,7 @@ class DqnNetClass(Network):
 
             # q network model:
             with tf.name_scope("Conv1") as scope:
-                kernel_shape = [8, 8, phi_length, 32]
-                self.W_conv1 = self.weight_variable(phi_length, kernel_shape, 'conv1')
-                self.b_conv1 = self.bias_variable(phi_length, kernel_shape, 'conv1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], 'conv1')
                 self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
                 tf.add_to_collection('conv_weights', self.W_conv1)
                 tf.add_to_collection('conv_output', self.h_conv1)
@@ -48,9 +46,7 @@ class DqnNetClass(Network):
                 tf.add_to_collection('transfer_params', self.b_conv1)
 
             with tf.name_scope("Conv2") as scope:
-                kernel_shape = [4, 4, 32, 64]
-                self.W_conv2 = self.weight_variable(32, kernel_shape, 'conv2')
-                self.b_conv2 = self.bias_variable(32, kernel_shape, 'conv2')
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], 'conv2')
                 self.h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.h_conv1, self.W_conv2, 2), self.b_conv2), name=self.name + '_conv2_activations')
                 tf.add_to_collection('conv_weights', self.W_conv2)
                 tf.add_to_collection('conv_output', self.h_conv2)
@@ -58,9 +54,7 @@ class DqnNetClass(Network):
                 tf.add_to_collection('transfer_params', self.b_conv2)
 
             with tf.name_scope("Conv3") as scope:
-                kernel_shape = [3, 3, 64, 64]
-                self.W_conv3 = self.weight_variable(64, kernel_shape, 'conv3')
-                self.b_conv3 = self.bias_variable(64, kernel_shape, 'conv3')
+                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], 'conv3')
                 self.h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.h_conv2, self.W_conv3, 1), self.b_conv3), name=self.name + '_conv3_activations')
                 tf.add_to_collection('conv_weights', self.W_conv3)
                 tf.add_to_collection('conv_output', self.h_conv3)
@@ -70,23 +64,13 @@ class DqnNetClass(Network):
             self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
 
             with tf.name_scope("FullyConnected1") as scope:
-                kernel_shape = [3136, 512]
-                self.W_fc1 = self.weight_variable_linear(kernel_shape, 'fc1')
-                self.b_fc1 = self.bias_variable_linear(kernel_shape, 'fc1')
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], 'fc1')
                 self.h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.h_conv3_flat, self.W_fc1), self.b_fc1), name=self.name + '_fc1_activations')
                 tf.add_to_collection('transfer_params', self.W_fc1)
                 tf.add_to_collection('transfer_params', self.b_fc1)
 
-            # Dropout layer
-            #self.keep_prob = tf.placeholder(tf.float32, shape=())
-            #h_fc1_dropout = tf.nn.dropout(self.h_fc1, self.keep_prob)
-
             with tf.name_scope("FullyConnected2") as scope:
-                kernel_shape = [512, n_actions]
-                self.W_fc2 = self.weight_variable_linear(kernel_shape, 'fc2')
-                self.W_fc2 = self.W_fc2
-                self.b_fc2 = self.bias_variable_linear(kernel_shape, 'fc2')
-                self.b_fc2 = self.b_fc2
+                self.W_fc2, self.b_fc2 = self.fc_variable([512, n_actions], 'fc2')
                 self.action_output = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
@@ -158,8 +142,7 @@ class DqnNetClass(Network):
         return  self.sess.run(
             self.action,
             feed_dict={
-                self.observation: state,
-                #self.keep_prob: 1.0
+                self.observation: state
             }
         )
 
@@ -168,12 +151,11 @@ class DqnNetClass(Network):
             [self.cross_entropy, self.accuracy, self.action_output, self.max_value],
             feed_dict={
                 self.actions: a_batch,
-                self.observation: s_j_batch,
-                #self.keep_prob: 1.0
+                self.observation: s_j_batch
             }
         )
 
-    def train(self, s_j_batch, a_batch, keep_prob=0.4):
+    def train(self, s_j_batch, a_batch):
         t_ops = [
             self.train_step, self.cross_entropy, self.accuracy, self.action_output, self.max_value
         ]
@@ -181,8 +163,7 @@ class DqnNetClass(Network):
             t_ops,
             feed_dict={
                 self.actions : a_batch,
-                self.observation : s_j_batch,
-                #self.keep_prob: keep_prob
+                self.observation : s_j_batch
             }
         )
 
