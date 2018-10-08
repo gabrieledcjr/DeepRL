@@ -18,7 +18,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--parallel-size', type=int, default=16, help='parallel thread size')
-    parser.add_argument('--gym-env', type=str, default='PongDeterministic-v4', help='OpenAi Gym environment ID')
+    parser.add_argument('--gym-env', type=str, default='PongNoFrameskip-v4', help='OpenAi Gym environment ID')
 
     parser.add_argument('--local-t-max', type=int, default=20, help='repeat step size')
     parser.add_argument('--rmsp-alpha', type=float, default=0.99, help='decay parameter for RMSProp')
