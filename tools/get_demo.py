@@ -25,7 +25,7 @@ def get_demo(args):
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
-    game_state = GameState(env_id=args.gym_env, display=True, human_demo=True)
+    game_state = GameState(env_id=args.gym_env, display=True, human_demo=True, episode_life=True)
     collect_demo = CollectDemonstration(
         game_state,
         84, 84, 4,

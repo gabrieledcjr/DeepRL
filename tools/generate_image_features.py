@@ -8,10 +8,9 @@ from game_state import GameState
 from data_set import DataSet
 from termcolor import colored
 
-from util import get_activations, montage
+from common.util import get_activations, montage, get_compressed_images
 
-def test_2(args):
-    from util import get_compressed_images
+def view_features(args):
     try:
         import cPickle as pickle
     except ImportError:
@@ -139,7 +138,7 @@ def test_2(args):
     print (np.shape(W))
     if W_init is not None:
         from scipy import spatial
-        from similaritymeasures import Similarity
+        from common.util import Similarity
         measures = Similarity()
         W_flatten = W.flatten()
         W_init_flatten = W_init.flatten()
@@ -199,4 +198,4 @@ if __name__ == "__main__":
     parser.set_defaults(use_mnih_2015=False)
     args = parser.parse_args()
 
-    test_2(args)
+    view_features(args)

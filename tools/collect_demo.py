@@ -69,8 +69,9 @@ class CollectDemonstration(object):
                VALUES(?,?,?,?,?,?,?,?)''', demos)
         self.conn.commit()
 
-    def _reset(self, replay_memory):
-        self.game_state.reset()
+    def _reset(self, replay_memory, hard_reset=True):
+        self.game_state.reset(hard_reset=hard_reset)
+
         if self.game_state.fire_reset:
             for i in range(self.phi_length + 1):
                 replay_memory.add(
@@ -162,7 +163,7 @@ class CollectDemonstration(object):
         score1 = score2 = 0
 
         # re-initialize game for evaluation
-        self._reset(replay_memory)
+        self._reset(replay_memory, hard_reset=True)
 
         rew = self.game_state.reward
         terminal = False
@@ -235,7 +236,7 @@ class CollectDemonstration(object):
                 gain_life = False
 
                 if self.game_state.terminal:
-                    self.game_state.reset()
+                    self._reset(replay_memory, hard_reset=False)
 
             if self.create_gif:
                 gif_images.append(self.game_state.get_screen_rgb())

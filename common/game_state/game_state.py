@@ -43,36 +43,21 @@ class GameState(object):
             logger.info(env.unwrapped.get_action_meanings())
         self.env = env
 
-        self.reset()
+        self.reset(hard_reset=True)
 
-    def reset(self):
-        if self.episode_life:
-            # Hard env reset
+    def reset(self, hard_reset=True):
+        if self.episode_life and hard_reset:
             get_wrapper_by_name(test_game.env, 'EpisodicLifeEnv').was_real_done = True
         x_t = self.env.reset()
+        self.prev_x_t = x_t
         self.x_t = x_t
-        self.x_t1 = x_t
-        self.s_t1 = np.stack((x_t, x_t, x_t, x_t), axis = 2)
-        self.full_state1 = self.env.unwrapped.clone_full_state()
+        self.s_t = np.stack((x_t, x_t, x_t, x_t), axis = 2)
+        self.full_state = self.env.unwrapped.clone_full_state()
         self.lives = self.env.unwrapped.ale.lives()
         self.reward = 0
         self.terminal = False
         self.loss_life = False
         self.gain_life = False
-        self.update()
-
-    def reset2(self):
-        x_t = self.env.reset()
-        self.x_t1 = x_t
-        x_t = np.reshape(obs, (84, 84, 1))
-        self.s_t1 = np.append(self.s_t[:,:,1:], x_t, axis=2)
-        self.full_state1 = self.env.unwrapped.clone_full_state()
-        self.lives = self.env.unwrapped.ale.lives()
-        self.reward = 0
-        self.terminal = False
-        self.loss_life = False
-        self.gain_life = False
-        self.update()
 
     def process(self, action):
         if self.display:
@@ -187,7 +172,7 @@ def test_keys(env_id):
         if get_wrapper_by_name(test_game.env, 'EpisodicLifeEnv').was_real_done:
             break
         elif test_game.terminal:
-            test_game.reset()
+            test_game.reset(hard_reset=False)
         sleep(.02 * test_game.env.unwrapped.frameskip)
 
     # cv2.destroyAllWindows()
