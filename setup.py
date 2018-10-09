@@ -12,5 +12,6 @@ setup(
                 if package.startswith('common')],
     install_requires=['gym', 'atari_py', 'coloredlogs',
         'termcolor', 'pyglet', 'tables', 'matplotlib',
-        'numpy', 'opencv-python']
+        'numpy', 'opencv-python', 'moviepy', 'scipy',
+        'scikit-image']
 )
