@@ -1,17 +1,15 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import threading
 import numpy as np
-
 import signal
-import random
 import math
 import os
 import sys
 import time
 import logging
 
-from util import load_memory, prepare_dir
-from game_state import GameState
+from common.util import load_memory, prepare_dir
+from common.game_state import GameState
 from rmsprop_applier import RMSPropApplier
 
 logger = logging.getLogger("a3c")
@@ -23,11 +21,11 @@ except ImportError:
 
 def run_a3c(args):
     """
-    python3 run_experiment.py --gym-env=PongDeterministic-v4 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015
 
-    python3 run_experiment.py --gym-env=PongDeterministic-v4 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015 --use-transfer --not-transfer-fc2 --transfer-folder=<>
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015 --use-transfer --not-transfer-fc2 --transfer-folder=<>
 
-    python3 run_experiment.py --gym-env=PongDeterministic-v4 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015 --use-transfer --not-transfer-fc2 --transfer-folder=<> --load-pretrained-model --onevsall-mtl --pretrained-model-folder=<> --use-pretrained-model-as-advice --use-pretrained-model-as-reward-shaping
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --parallel-size=16 --initial-learn-rate=7e-4 --use-lstm --use-mnih-2015 --use-transfer --not-transfer-fc2 --transfer-folder=<> --load-pretrained-model --onevsall-mtl --pretrained-model-folder=<> --use-pretrained-model-as-advice --use-pretrained-model-as-reward-shaping
     """
     from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
     from a3c_training_thread import A3CTrainingThread
@@ -124,15 +122,14 @@ def run_a3c(args):
     global_t = 0
     pretrain_global_t = 0
     pretrain_epoch = 0
-    testing_rewards = {}
-    training_rewards = {}
+    rewards = {'train':{}, 'eval':{}}
     best_model_reward = -(sys.maxsize)
 
     stop_requested = False
 
     game_state = GameState(env_id=args.gym_env)
     action_size = game_state.env.action_space.n
-    game_state.env.close()
+    game_state.close()
     del game_state.env
     del game_state
 
@@ -324,10 +321,9 @@ def run_a3c(args):
             pretrain_global_t = int(f.read())
         with open(folder + '/model_best/best_model_reward', 'r') as f_best_model_reward:
             best_model_reward = float(f_best_model_reward.read())
-        testing_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'rb'))
-        training_rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-train-rewards.pkl', 'rb'))
+        rewards = pickle.load(open(folder + '/' + args.gym_env.replace('-', '_') + '-a3c-rewards.pkl', 'rb'))
     else:
-        logger.warn("Could not find old checkpoint")
+        logger.warning("Could not find old checkpoint")
         # set wall time
         wall_t = 0.0
         prepare_dir(folder, empty=True)
@@ -345,7 +341,7 @@ def run_a3c(args):
     ctr_demo_thread = 0
     def train_function(parallel_index):
         nonlocal global_t, pretrain_global_t, pretrain_epoch, \
-            testing_rewards, training_rewards, test_lock, lock, \
+            rewards, test_lock, lock, \
             last_temp_global_t, ispretrain_markers, num_demo_thread, \
             ctr_demo_thread
         training_thread = training_threads[parallel_index]
@@ -398,10 +394,10 @@ def run_a3c(args):
         if not stop_requested and global_t == 0:
             with lock:
                 if parallel_index == 0:
-                    test_reward = training_threads[0].testing(
+                    test_reward, test_steps = training_threads[0].testing(
                         sess, args.eval_max_steps, global_t,
                         summary_writer)
-                    testing_rewards[global_t] = test_reward
+                    rewards['eval'][global_t] = (test_reward, test_steps)
                     saver.save(sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step=global_t)
                     save_best_model(test_reward)
                     test_lock = False
@@ -443,7 +439,7 @@ def run_a3c(args):
             else:
                 diff_global_t, episode_end = training_thread.process(
                     sess, global_t, summary_writer,
-                    summary_op, score_input, steps_input, training_rewards)
+                    summary_op, score_input, steps_input, rewards)
 
             for _ in range(diff_global_t):
                 global_t += 1
@@ -456,10 +452,10 @@ def run_a3c(args):
                             logger.info("Threading race problem averted!")
                             continue
                         test_lock = True
-                        test_reward = training_thread.testing(
+                        test_reward, test_steps = training_thread.testing(
                             sess, args.eval_max_steps, temp_global_t,
                             summary_writer)
-                        testing_rewards[temp_global_t] = test_reward
+                        rewards['eval'][temp_global_t] = (test_reward, test_steps)
                         if temp_global_t % ((args.max_time_step * args.max_time_step_fraction) // 5) == 0:
                             saver.save(
                                 sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')),
@@ -522,8 +518,7 @@ def run_a3c(args):
     with open(folder + '/pretrain_global_t', 'w') as f:
         f.write(str(pretrain_global_t))
 
-    root_saver.save(sess, folder + '/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step=global_t)
+    root_saver.save(sess, folder + '/{}_checkpoint_a3c'.format(args.gym_env.replace('-', '_')), global_step=global_t)
 
-    pickle.dump(testing_rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-    pickle.dump(training_rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-train-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
+    pickle.dump(rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-a3c-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
     logger.info('Data saved!')
