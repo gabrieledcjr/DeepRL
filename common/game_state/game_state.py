@@ -47,7 +47,7 @@ class GameState(object):
 
     def reset(self, hard_reset=True):
         if self.episode_life and hard_reset:
-            get_wrapper_by_name(test_game.env, 'EpisodicLifeEnv').was_real_done = True
+            get_wrapper_by_name(self.env, 'EpisodicLifeEnv').was_real_done = True
         x_t = self.env.reset()
         self.prev_x_t = x_t
         self.x_t = x_t

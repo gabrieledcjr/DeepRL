@@ -13,7 +13,6 @@ from time import sleep
 from gym import spaces
 
 logger = logging.getLogger("atari_wrapper")
-__all__ = ['AtariWrapper']
 
 class AtariWrapper(gym.Wrapper):
     """
