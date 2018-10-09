@@ -1,4 +1,17 @@
+# ignore output files
+*.png
+results/*
+log/*
+*_classifier_*/*
+*.pyc
+tmp/*
+old/*
+checkpoints*/*
+*_networks_*/
+*_demo_samples/
+*_demo_samples*/
 *demo_samples
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
