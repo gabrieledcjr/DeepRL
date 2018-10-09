@@ -4,11 +4,10 @@ import argparse
 import coloredlogs, logging
 
 from time import sleep
-from termcolor import colored
 from a3c import run_a3c
 from classify_demo import classify_demo
 from extract_transfer_layers import extract_layers
-from log_formatter import LogFormatter
+from common.util import LogFormatter
 
 logger = logging.getLogger()
 coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')

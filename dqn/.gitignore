@@ -1,7 +1,3 @@
-# ignore output files
-*_networks_*/
-*_demo_samples/
-*_demo_samples*/
 old_codes/
 *.png
 

@@ -4,7 +4,7 @@ from numpy.random import RandomState
 
 import envs.gym_fun as game
 from data_set import DataSet
-from util import get_compressed_images, save_compressed_images
+from common.util import get_compressed_images, save_compressed_images
 
 try:
     import cPickle as pickle

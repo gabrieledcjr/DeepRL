@@ -8,7 +8,7 @@ import logging
 import cv2
 
 from datetime import datetime
-from common.util import prepare_dir, process_frame, get_action_index, make_gif
+from common.util import prepare_dir, get_action_index, make_gif
 from common.replay_memory import ReplayMemory
 from common.game_state.atari_wrapper import get_wrapper_by_name
 
@@ -99,7 +99,9 @@ class CollectDemonstration(object):
                 max_steps=100000,
                 phi_length=self.phi_length,
                 num_actions=self.game_state.env.action_space.n,
-                full_state_size=self.game_state.clone_full_state().shape[0])
+                wrap_memory=False,
+                full_state_size=self.game_state.clone_full_state().shape[0],
+                clip_reward=True)
 
             self.folder = self.main_folder + '/{n:03d}/'.format(n=(ep))
             prepare_dir(self.folder, empty=True)
@@ -158,7 +160,6 @@ class CollectDemonstration(object):
         lives = self.game_state.lives
         loss_life = self.game_state.loss_life
         gain_life = self.game_state.gain_life and not loss_life
-        prev_x_t = self.game_state.x_t
 
         import tkinter
         from tkinter import messagebox
@@ -184,7 +185,7 @@ class CollectDemonstration(object):
                 else: # HUMAN
                     action = self.game_state.env.human_agent_action
 
-            self.game_state.process(action)
+            self.game_state.step(action)
             rew += self.game_state.reward
             lives = self.game_state.lives
             loss_life = loss_life or self.game_state.loss_life
@@ -202,7 +203,7 @@ class CollectDemonstration(object):
 
             # add memory every 4th frame even if demo uses skip=1
             if self.game_state.get_episode_frame_number() % self._skip == 0 or terminal or self.game_state.terminal:
-                self.obs_buffer[0] = prev_x_t
+                self.obs_buffer[0] = self.game_state.prev_x_t
                 self.obs_buffer[1] = self.game_state.x_t
                 max_obs = self.obs_buffer.max(axis=0)
                 # cv2.imshow('max obs', max_obs)
@@ -232,9 +233,8 @@ class CollectDemonstration(object):
             if terminal or get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
                 break
 
-            prev_x_t = self.game_state.x_t
             self.game_state.update()
-            time.sleep(.02 * self.game_state.env.unwrapped.frameskip)
+            time.sleep(0.0167) #60 hz
 
         end_time = datetime.now()
         duration = end_time - start_time

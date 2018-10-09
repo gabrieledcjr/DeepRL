@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
+import numpy as np
 import sys
-from util import get_compressed_images
+import os
+import logging
+
+from common.replay_memory import ReplayMemory
+from common.game_state import GameState
+from common.util import get_compressed_images
+
+logger = logging.getLogger("classify_demo")
 
 try:
     import cPickle as pickle
@@ -9,11 +17,11 @@ except ImportError:
 
 class ClassifyDemo(object):
     def __init__(
-        self, net, D, name, train_max_steps, batch_size,
+        self, net, replay_memory, name, train_max_steps, batch_size,
         eval_freq, demo_memory_folder='', folder=''):
         """ Initialize Classifying Human Demo Training """
         self.net = net
-        self.D = D
+        self.replay_memory = replay_memory
         self.name = name
         self.train_max_steps = train_max_steps
         self.batch_size = batch_size
@@ -31,20 +39,20 @@ class ClassifyDemo(object):
         else:
             data = pickle.load(open('{}/{}-dqn-all.pkl'.format(self.demo_memory_folder, self.name), 'rb'))
 
-        self.D.width = data['D.width']
-        self.D.height = data['D.height']
-        self.D.max_steps = data['D.max_steps']
-        self.D.phi_length = data['D.phi_length']
-        self.D.num_actions = data['D.num_actions']
-        self.D.actions = data['D.actions']
-        self.D.rewards = data['D.rewards']
-        self.D.terminal = data['D.terminal']
-        self.D.bottom = data['D.bottom']
-        self.D.top = data['D.top']
-        self.D.size = data['D.size']
-        self.D.validation_set_markers = data['D.validation_set_markers']
-        self.D.validation_indices = data['D.validation_indices']
-        self.D.imgs = get_compressed_images('{}/{}-dqn-images-all.h5'.format(self.demo_memory_folder, self.name) + '.gz')
+        self.replay_memory.width = data['D.width']
+        self.replay_memory.height = data['D.height']
+        self.replay_memory.max_steps = data['D.max_steps']
+        self.replay_memory.phi_length = data['D.phi_length']
+        self.replay_memory.num_actions = data['D.num_actions']
+        self.replay_memory.actions = data['D.actions']
+        self.replay_memory.rewards = data['D.rewards']
+        self.replay_memory.terminal = data['D.terminal']
+        self.replay_memory.bottom = data['D.bottom']
+        self.replay_memory.top = data['D.top']
+        self.replay_memory.size = data['D.size']
+        self.replay_memory.validation_set_markers = data['D.validation_set_markers']
+        self.replay_memory.validation_indices = data['D.validation_indices']
+        self.replay_memory.imgs = get_compressed_images('{}/{}-dqn-images-all.h5'.format(self.demo_memory_folder, self.name) + '.gz')
         print ("Data loaded!")
 
     def run(self):
@@ -61,9 +69,9 @@ class ClassifyDemo(object):
         max_val = -(sys.maxsize),
         no_change_ctr = 0
 
-        s_j_batch_validation, a_batch_validation = self.D.get_validation_set()
+        s_j_batch_validation, a_batch_validation = self.replay_memory.get_validation_set()
         for i in range(self.train_max_steps):
-            s_j_batch, a_batch, _, _, _ = self.D.random_batch(self.batch_size, exclude_validation=True)
+            s_j_batch, a_batch, _, _, _ = self.replay_memory.random_batch(self.batch_size, exclude_validation=True)
 
             if (i % self.eval_freq) == 0:
                 entropy, acc, _, _ = self.net.evaluate_batch(s_j_batch_validation, a_batch_validation)
@@ -105,9 +113,9 @@ class ClassifyDemo(object):
         print ("final max output val {}".format(max_val))
 
     def save_max_value(self, max_val=-(sys.maxsize)):
-        batch = self.D.size * 10 // 100
+        batch = self.replay_memory.size * 10 // 100
         for i in range(100):
-            s_j_batch, a_batch, _, _, _ = self.D.random_batch(batch)
+            s_j_batch, a_batch, _, _, _ = self.replay_memory.random_batch(batch)
             _, _, output_vals, max_value = self.net.evaluate_batch(s_j_batch, a_batch)
             if i%10 == 0:
                 print ("step {}, max output val {}".format(i, max_val))
@@ -118,3 +126,77 @@ class ClassifyDemo(object):
 
         print ("max output val {}".format(max_val))
         self.net.save_max_value(max_val)
+
+
+def classify_demo(args):
+    """
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4  --cuda-devices=0 --gpu-fraction=0.4 --optimizer=Adam --lr=0.0001 --decay=0.0 --momentum=0.0 --epsilon=0.001 --train-max-steps=150000 --batch=32 --eval-freq=500 --classify-demo
+    """
+    #from dqn_net_bn_class import DqnNetClass
+    from dqn_net_class import DqnNetClass
+    if args.cpu_only:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    else:
+        if args.cuda_devices != '':
+            os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_devices
+    import tensorflow as tf
+
+    if args.path is not None:
+        path = args.path
+    else:
+        path = os.getcwd() + '/'
+
+    if args.folder is not None:
+        folder = '{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
+    else:
+        folder = '{}_networks_classifier_{}'.format(args.gym_env.replace('-', '_'), args.optimizer.lower())
+
+    if args.demo_memory_folder is not None:
+        demo_memory_folder = args.demo_memory_folder
+    else:
+        demo_memory_folder = "{}_demo_samples".format(args.gym_env.replace('-', '_'))
+
+    if args.cpu_only:
+        device = '/cpu:0'
+        gpu_options = None
+    else:
+        device = '/gpu:'+os.environ["CUDA_VISIBLE_DEVICES"]
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_fraction)
+
+    config = tf.ConfigProto(
+        gpu_options=gpu_options,
+        allow_soft_placement=True,
+        log_device_placement=True,
+        intra_op_parallelism_threads=multiprocessing.cpu_count(),
+        inter_op_parallelism_threads=multiprocessing.cpu_count()
+    )
+
+    with tf.device(device):
+        game_state = GameState(env_id=args.gym_env, display=False, no_op_max=30, human_demo=False, episode_life=True)
+
+        replay_memory = ReplayMemory(
+            args.resized_width, args.resized_height,
+            np.random.RandomState(),
+            max_steps=args.replay_memory,
+            phi_length=args.phi_len,
+            num_actions=game_state.env.action_space.n,
+            wrap_memory=True,
+            full_state_size=game_state.clone_full_state().shape[0],
+            clip_reward=True)
+
+        DqnNetClass.use_gpu = not args.cpu_only
+        net = DqnNetClass(
+            args.resized_height, args.resized_width, args.phi_len,
+            game_state.env.action_space.n, args.gym_env,
+            optimizer=args.optimizer, learning_rate=args.lr,
+            epsilon=args.epsilon, decay=args.decay, momentum=args.momentum,
+            verbose=args.verbose, path=path, folder=folder)
+        game_state.close()
+        del game_state
+
+        sess = tf.Session(config=config, graph=net.graph)
+        net.initializer(sess)
+        cd = ClassifyDemo(
+            net, replay_memory, args.gym_env, args.train_max_steps, args.batch, args.eval_freq,
+            demo_memory_folder=demo_memory_folder, folder=folder)
+        cd.run()

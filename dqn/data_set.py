@@ -189,7 +189,7 @@ class DataSet(object):
             # will actually be the first frame of a new episode, which
             # the Q learner recognizes and handles correctly during
             # training by zeroing the discounted future reward estimate.
-            if np.any(self.terminal.take(indices[0:self.phi_length-1], mode='wrap')):
+            if np.any(self.terminal.take(indices[:-1], mode='wrap')):
                 continue
 
             # excluding validation set from random batch

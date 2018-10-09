@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import tensorflow as tf
 import cv2
 import sys
@@ -6,17 +6,20 @@ import os
 import random
 import numpy as np
 import time
+import logging
 
 from termcolor import colored
-from data_set import DataSet
-from util import egreedy, get_action_index, make_gif, process_frame, get_compressed_images, save_compressed_images
+from common.util import egreedy, get_action_index, make_gif, load_memory
+from common.game_state import get_wrapper_by_name
+
+logger = logging.getLogger("dqn")
 
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
 
-class Experiment(object):
+class DQNTraining(object):
     def __init__(
         self, sess, network, game_state, resized_height, resized_width, phi_length, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
@@ -50,7 +53,6 @@ class Experiment(object):
         self.train_with_demo_steps = train_with_demo_steps
         self.use_transfer = use_transfer
 
-        self.wall_t = 0.0
         self.human_net = human_net
         self.confidence = confidence
         self.use_human_advice = False
@@ -58,83 +60,77 @@ class Experiment(object):
         if self.human_net is not None:
             self.use_human_advice = True
 
-
-        self.state_input = np.zeros(
-            (1, self.resized_h, self.resized_w, self.phi_length),
-            dtype=np.uint8)
-        self.D = replay_memory
+        self.replay_memory = replay_memory
 
         if not os.path.exists(self.folder + '/frames'):
             os.makedirs(self.folder + '/frames')
 
-    def _reset(self, testing=False):
-        self.state_input.fill(0)
-        observation, r_0, terminal = self.game_state.step(0)
-        observation = process_frame(observation, self.resized_h, self.resized_w)
+    def _reset(self, testing=False, hard_reset=True):
+        self.game_state.reset(hard_reset=hard_reset)
         if not testing:
             for _ in range(self.phi_length-1):
-                empty_img = np.zeros((self.resized_w, self.resized_h), dtype=np.uint8)
-                self.D.add_sample(empty_img, 0, 0, 0)
-        return observation
-
-    def _update_state_input(self, observation):
-        self.state_input = np.roll(self.state_input, -1, axis=3)
-        self.state_input[0, :, :, -1] = observation
+                self.replay_memory.add(
+                    self.game_state.x_t,
+                    0,
+                    self.game_state.reward,
+                    self.game_state.terminal,
+                    self.game_state.lives,
+                    losslife=self.game_state.loss_life,
+                    gainlife=self.game_state.gain_life,
+                    fullstate=self.game_state.clone_full_state())
 
     def _add_demo_experiences(self):
-        if self.name == 'pong' or self.name == 'breakout':
-            # data were pickled using Python 2 which have compatibility issues in Python 3
-            data = pickle.load(open(self.demo_memory_folder + '/' + self.name + '-dqn-all.pkl', 'rb'), encoding='latin1')
+        if self.demo_memory_folder is not None:
+            demo_memory_folder = 'demo_samples/{}'.format(self.demo_memory_folder)
         else:
-            data = pickle.load(open(self.demo_memory_folder + '/' + self.name + '-dqn-all.pkl', 'rb'))
-        terminals = data['D.terminal']
-        actions = data['D.actions']
-        rewards = data['D.rewards']
-        imgs = get_compressed_images(self.demo_memory_folder + '/' + self.name + '-dqn-images-all.h5' + '.gz')
-        print ("\tMemory size={}".format(self.D.size))
-        print ("\tAdding {} human experiences...".format(data['D.size']))
-        for i in range(data['D.size']):
-            s = imgs[i]
-            a = actions[i]
-            r = rewards[i]
-            t = terminals[i]
-            self.D.add_sample(s, a, r, t)
-        print ("\tMemory size={}".format(self.D.size))
+            demo_memory_folder = 'demo_samples/{}'.format(self.name.replace('-', '_'))
+        demo_memory, actions_ctr, max_reward = load_memory(self.name, demo_memory_folder, imgs_normalized=False)
+        # terminals = data['D.terminal']
+        # actions = data['D.actions']
+        # rewards = data['D.rewards']
+        # imgs = get_compressed_images(self.demo_memory_folder + '/' + self.name + '-dqn-images-all.h5' + '.gz')
+        logger.info("Memory size={}".format(self.replay_memory.size))
+        logger.info("Adding {} human experiences...".format(data['D.size']))
+        for demo in demo_memory:
+            for i in range(data['D.size']):
+                s = imgs[i]
+                a = actions[i]
+                r = rewards[i]
+                t = terminals[i]
+                self.replay_memory.add_sample(s, a, r, t)
+        logger.info("Memory size={}".format(self.replay_memory.size))
         time.sleep(2)
 
     def _load(self):
         if self.net.load():
-            rewards = pickle.load(open(self.folder + '/' + self.name + '-dqn-rewards.pkl', 'rb'))
-            data = pickle.load(open(self.folder + '/' + self.name + '-dqn.pkl', 'rb'))
-            self.D.width = data['D.width']
-            self.D.height = data['D.height']
-            self.D.max_steps = data['D.max_steps']
-            self.D.phi_length = data['D.phi_length']
-            self.D.num_actions = data['D.num_actions']
-            self.D.actions = data['D.actions']
-            self.D.rewards = data['D.rewards']
-            self.D.terminal = data['D.terminal']
-            self.D.bottom = data['D.bottom']
-            self.D.top = data['D.top']
-            self.D.size = data['D.size']
-            t = data['t']
-            epsilon = data['epsilon']
-            self.D.imgs = get_compressed_images(self.folder + '/' + self.name + '-dqn-images.h5' + '.gz')
+            # set global step
+            self.global_t = self.net.global_t
+            logger.info(">>> global step set: {}".format(self.global_t))
+            # set wall time
+            wall_t_fname = self.folder + '/' + 'wall_t.' + str(self.global_t)
+            with open(wall_t_fname, 'r') as f:
+                wall_t = float(f.read())
+            # set epsilon
+            epsilon_fname = self.folder + '/epsilon'
+            with open(epsilon_fname, 'r') as f:
+                self.epsilon = float(f.read())
+            self.rewards = pickle.load(open(self.folder + '/' + self.name.replace('-', '_') + '-dqn-rewards.pkl', 'rb'))
+            self.replay_memory.load(name=self.name, folder=self.folder)
         else:
-            print ("Could not find old network weights")
+            logger.warn("Could not find old network weights")
             if self.load_demo_memory:
                 self._add_demo_experiences()
-            t = 0
-            epsilon = self.init_epsilon
-            rewards = {'train':[], 'eval':[]}
-        return t, epsilon, rewards
+            self.global_t = 0
+            self.epsilon = self.init_epsilon
+            self.rewards = {'train':{}, 'eval':{}}
+            wall_t = 0.0
+        return wall_t
 
     def test(self, render=False):
         # re-initialize game for evaluation
         episode_buffer = []
-        self.game_state.reset(random_restart=False, terminate_loss_of_life=False)
-        observation = self._reset(testing=True)
-        episode_buffer.append(self.game_state.screen_buffer)
+        self._reset(testing=True, hard_reset=True)
+        episode_buffer.append(self.game_state.get_screen_rgb())
 
         max_steps = self.eval_max_steps
         total_reward = 0.0
@@ -144,110 +140,119 @@ class Experiment(object):
         n_episodes = 0
         time.sleep(0.5)
         while max_steps > 0:
-            self._update_state_input(observation)
-            readout_t = self.net.evaluate(self.state_input)[0]
-            action = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.game_state.n_actions)
-            observation, reward, terminal = self.game_state.step(action, render=render)
+            readout_t = self.net.evaluate(self.game_state.s_t)[0]
+            action = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.game_state.env.action_space.n)
+            self.game_state.step(action)
+            terminal = self.game_state.terminal
+
             if n_episodes == 0:
-                episode_buffer.append(observation)
-            observation = process_frame(observation, self.resized_h, self.resized_w)
-            sub_total_reward += reward
+                episode_buffer.append(self.game_state.get_screen_rgb())
+
+            sub_total_reward += self.game_state.reward
             sub_steps += 1
             max_steps -= 1
+            self.game_state.update()
+
             if terminal:
-                if n_episodes == 0:
-                    time_per_step = 0.05
-                    images = np.array(episode_buffer)
-                    make_gif(
-                        images, self.folder + '/frames/image{ep:010d}.gif'.format(ep=(self.t-self.observe)),
-                        duration=len(images)*time_per_step,
-                        true_image=True, salience=False)
-                    episode_buffer = []
-                n_episodes += 1
-                print ("\tTRIAL", n_episodes, "/ REWARD", sub_total_reward, "/ STEPS", sub_steps, "/ TOTAL STEPS", total_steps)
-                self.game_state.reset(random_restart=True, terminate_loss_of_life=False)
-                observation = self._reset(testing=True)
-                total_reward += sub_total_reward
-                total_steps += sub_steps
-                sub_total_reward = 0.0
-                sub_steps = 0
-                time.sleep(0.5)
-        # (timestep, total sum of rewards, toal # of steps before terminating)
+                if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
+                    if n_episodes == 0:
+                        time_per_step = 0.0167
+                        images = np.array(episode_buffer)
+                        make_gif(
+                            images, self.folder + '/frames/image{ep:010d}.gif'.format(ep=(self.global_t-self.observe)),
+                            duration=len(images)*time_per_step,
+                            true_image=True, salience=False)
+                        episode_buffer = []
+                    n_episodes += 1
+                    log_data = (self.global_t, n_episodes, sub_total_reward, sub_steps, total_steps)
+                    logger.debug("test: global_t={} trial={} reward={} steps={} total_steps={}".format(*log_data))
+                    total_reward += sub_total_reward
+                    total_steps += sub_steps
+                    sub_total_reward = 0.0
+                    sub_steps = 0
+                    time.sleep(0.5)
+                self._reset(testing=True, hard_reset=False)
+
+        # (timestep, total sum of rewards, total # of steps before terminating)
         total_reward = total_reward / max(1, n_episodes)
         total_steps = total_steps / max(1, n_episodes)
-        total_reward = round(total_reward, 4)
-        self.rewards['eval'].append(((self.t - self.observe), total_reward, total_steps))
+        total_reward = total_reward
+        self.rewards['eval'][self.global_t] = (total_reward, total_steps)
         return total_reward, total_steps, n_episodes
 
     def train_with_demo_memory_only(self):
         assert self.load_demo_memory
-        print ((colored('Training with demo memory only for {} steps...'.format(self.train_with_demo_steps), 'blue')))
+        logger.info((colored('Training with demo memory only for {} steps...'.format(self.train_with_demo_steps), 'blue')))
         start_update_counter = self.net.update_counter
         while self.train_with_demo_steps > 0:
             if self.use_transfer:
                 self.net.update_counter = 1 # this ensures target network doesn't update
-            s_j_batch, a_batch, r_batch, s_j1_batch, terminals = self.D.random_batch(self.batch)
+            s_j_batch, a_batch, r_batch, s_j1_batch, terminals = self.replay_memory.random_batch(self.batch)
             # perform gradient step
             self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
             self.train_with_demo_steps -= 1
             if self.train_with_demo_steps % 10000 == 0:
-                print ("\t{} train with demo steps left".format(self.train_with_demo_steps))
+                logger.info("\t{} train with demo steps left".format(self.train_with_demo_steps))
         self.net.update_counter = start_update_counter
         self.net.update_target_network()
-        print ((colored('Training with demo memory only completed!', 'green')))
+        logger.info((colored('Training with demo memory only completed!', 'green')))
 
     def run(self):
         # get the first state by doing nothing and preprocess the image to 80x80x4
-        observation = self._reset()
-        self.t, self.epsilon, self.rewards = self._load()
+        ## observation = self._reset()
+        self._reset(hard_reset=True)
+        wall_t = self._load()
 
         # only executed at the very beginning of training and never again
-        if self.t == 0 and self.train_with_demo_steps > 0:
+        if self.global_t == 0 and self.train_with_demo_steps > 0:
             self.train_with_demo_memory_only()
 
         # set start time
-        self.start_time = time.time() - self.wall_t
+        start_time = time.time() - wall_t
 
-        print ("D size: ", self.D.size)
-        total_reward = 0.0
+        logger.info("replay memory size={}".format(self.replay_memory.size))
+        sub_total_reward = 0.0
         sub_steps = 0
 
-        while (self.t - self.observe) < self.train_max_steps:
+        while (self.global_t - self.observe) < self.train_max_steps:
             # Evaluation of policy
-            if (self.t - self.observe) >= 0 and (self.t - self.observe) % self.eval_freq == 0:
+            if (self.global_t - self.observe) >= 0 and (self.global_t - self.observe) % self.eval_freq == 0:
                 terminal = 0
                 total_reward, total_steps, n_episodes = self.test()
-                self.net.add_accuracy(total_reward, total_steps, n_episodes, (self.t - self.observe))
-                print ("TIMESTEP", (self.t - self.observe), "/ AVE REWARD", total_reward, "/ AVE TOTAL STEPS", total_steps, "/ # EPISODES", n_episodes)
+                self.net.add_accuracy(total_reward, total_steps, n_episodes, (self.global_t - self.observe))
+                log_data = (self.global_t, total_reward, total_steps, n_episodes)
+                logger.debug("test: global_t={} ave_reward={} ave_total_steps={} n_episodes={}".format(*log_data))
                 # re-initialize game for training
-                self.game_state.reset(random_restart=True)
-                observation = self._reset()
+                ## self.game_state.reset(random_restart=True)
+                ## observation = self._reset()
+                self._reset(hard_reset=True)
+                sub_total_reward = 0.0
                 sub_steps = 0
                 time.sleep(0.5)
 
             # choose an action epsilon greedily
-            self._update_state_input(observation)
-            readout_t = self.net.evaluate(self.state_input)[0]
+            ## self._update_state_input(observation)
+            readout_t = self.net.evaluate(self.game_state.s_t)[0]
             action = get_action_index(
                 readout_t,
-                is_random=(random.random() <= self.epsilon or self.t <= self.observe),
-                n_actions=self.game_state.n_actions)
+                is_random=(random.random() <= self.epsilon or self.global_t <= self.observe),
+                n_actions=self.game_state.env.action_space.n)
 
             # scale down epsilon
-            if self.epsilon > self.final_epsilon and self.t > self.observe:
+            if self.epsilon > self.final_epsilon and self.global_t > self.observe:
                 self.epsilon -= (self.init_epsilon - self.final_epsilon) / self.explore
 
             ##### HUMAN ADVICE OVERRIDE ACTION #####
             if self.use_human_advice and self.psi > self.final_epsilon:
                 use_advice = False
                 # After n exploration steps, decay psi
-                if (self.t - self.observe) >= self.explore:
+                if (self.global_t - self.observe) >= self.explore:
                     self.psi *= self.init_psi
 
                 if random.random() > self.final_epsilon:
                     psi_cond = True if self.psi == self.init_psi else (self.psi > random.random())
                     if psi_cond:
-                        action_advice = self.human_net.evaluate(self.state_input)[0]
+                        action_advice = self.human_net.evaluate(self.game_state.s_t)[0]
                         action_human = np.argmax(action_advice)
                         if action_advice[action_human] >= self.confidence:
                             action = action_human
@@ -256,90 +261,93 @@ class Experiment(object):
 
             # Training
             # run the selected action and observe next state and reward
-            next_observation, reward, terminal = self.game_state.step(action, random_restart=True)
-            next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
-            terminal_ = terminal or ((self.t+1 - self.observe) >= 0 and (self.t+1 - self.observe) % self.eval_freq == 0)
+            self.game_state.step(action)
+            terminal = self.game_state.terminal
+            ## next_observation, reward, terminal = self.game_state.step(action, random_restart=True)
+            ## next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
+            terminal_ = terminal or ((self.global_t+1 - self.observe) >= 0 and (self.global_t+1 - self.observe) % self.eval_freq == 0)
 
             # store the transition in D
-            self.D.add_sample(observation, action, reward, (1 if terminal_ else 0))
-
-            # only train if done observing
-            if self.t > self.observe and self.t % self.update_freq == 0:
-                s_j_batch, a_batch, r_batch, s_j1_batch, terminals = self.D.random_batch(self.batch)
-                # perform gradient step
-                summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
-                self.net.add_summary(summary, self.t-self.observe)
-
-                self.rewards['train'].append(round(reward, 4))
+            ## self.replay_memory.add_sample(observation, action, reward, (1 if terminal_ else 0))
+            self.replay_memory.add(
+                self.game_state.x_t, action,
+                self.game_state.reward, terminal_,
+                self.game_state.lives,
+                losslife=self.game_state.loss_life,
+                gainlife=self.game_state.gain_life,
+                fullstate=self.game_state.full_state)
 
             # update the old values
+            sub_total_reward += self.game_state.reward
             sub_steps += 1
-            self.t += 1
-            observation = next_observation
+            self.global_t += 1
+            self.game_state.update()
+
+            # only train if done observing
+            if self.global_t > self.observe and self.global_t % self.update_freq == 0:
+                s_j_batch, a_batch, r_batch, terminals, s_j1_batch = self.replay_memory.sample(self.batch)
+                # perform gradient step
+                summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
+                self.net.add_summary(summary, self.global_t-self.observe)
 
             if terminal:
-                observation = self._reset()
-                sub_steps = 0
+                if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
+                    self.rewards['train'][self.global_t] = (sub_total_reward, sub_steps)
+                    log_data = (self.global_t, sub_total_reward, sub_steps)
+                    logger.debug("train: global_t={} sub_total_reward={} sub_steps={}".format(*log_data))
+                    sub_total_reward = 0.0
+                    sub_steps = 0
+                self._reset(hard_reset=False)
+
 
             # save progress every SAVE_FREQ iterations
-            if (self.t-self.observe) % self.save_freq == 0:
-                self.net.save(self.t)
+            if (self.global_t-self.observe) % self.save_freq == 0:
+                wall_t = time.time() - start_time
+                logger.info('Total time: {} seconds'.format(wall_t))
+                wall_t_fname = self.folder + '/' + 'wall_t.' + str(self.global_t)
+                epsilon_fname = self.folder + '/epsilon'
 
-                data = {'D.width':self.D.width,
-                        'D.height':self.D.height,
-                        'D.max_steps':self.D.max_steps,
-                        'D.phi_length':self.D.phi_length,
-                        'D.num_actions':self.D.num_actions,
-                        'D.actions':self.D.actions,
-                        'D.rewards':self.D.rewards,
-                        'D.terminal':self.D.terminal,
-                        'D.bottom':self.D.bottom,
-                        'D.top':self.D.top,
-                        'D.size':self.D.size,
-                        'epsilon':self.epsilon,
-                        't':self.t}
-                print (colored('Saving data...', 'blue'))
-                pickle.dump(data, open(self.folder + '/' + self.name + '-dqn.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-                pickle.dump(self.rewards, open(self.folder + '/' + self.name + '-dqn-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-                print (colored('Successfully saved data!', 'green'))
-                print (colored('Compressing and saving replay memory...', 'blue'))
-                save_compressed_images(self.folder + '/' + self.name + '-dqn-images.h5', self.D.imgs)
-                print (colored('Compressed and saved replay memory', 'green'))
+                logger.info('Now saving data. Please wait')
+                with open(wall_t_fname, 'w') as f:
+                    f.write(str(wall_t))
+                with open(epsilon_fname, 'w') as f:
+                    f.write(str(self.epsilon))
 
-                # write wall time
-                self.wall_t = time.time() - self.start_time
-                print ('Total time: {} seconds'.format(self.wall_t))
+                self.net.save(self.global_t)
 
-            # print info
+                self.replay_memory.save(name=self.name, folder=self.folder, resize=False)
+                pickle.dump(self.rewards, open(self.folder + '/' + self.name.replace('-', '_') + '-dqn-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
+                logger.info('Data saved!')
+
+            # log information
             state = ""
-            if self.t <= self.observe:
+            if self.global_t <= self.observe:
                 state = "observe"
-            elif self.t > self.observe and self.t <= self.observe + self.explore:
+            elif self.global_t > self.observe and self.global_t <= self.observe + self.explore:
                 state = "explore"
             else:
                 state = "train"
 
-            if self.t%1000 == 0:
+            if self.global_t%10000 == 0:
                 if self.use_human_advice:
-                    print (
-                        "T:", self.t, "/ STATE", state,
-                        "/ EPSILON", round(self.epsilon,4),
-                        "/ PSI", round(self.psi,4),
-                        "/ ADVICE", use_advice,
-                        "/ ACTION", action, "/ REWARD", reward,
-                        "/ Q_MAX %e" % np.max(readout_t))
+                    log_data = (
+                        self.global_t, state, self.epsilon,
+                        self.psi, use_advice, action, np.max(readout_t))
+                    logger.debug(
+                        "global_t={0:} state={1:} epsilon={2:.4f} psi={3:.4f} \
+                        advice={4:} action={5:} q_max={6:.4f}".format(*log_data))
                 else:
-                    print (
-                        "T:", self.t, "/ STATE", state,
-                        "/ EPSILON", round(self.epsilon,4),
-                        "/ ACTION", action, "/ REWARD", reward,
-                        "/ Q_MAX %e" % np.max(readout_t))
+                    log_data = (
+                        self.global_t, state, self.epsilon,
+                        action, np.max(readout_t))
+                    logger.debug(
+                        "global_t={0:} state={1:} epsilon={2:.4f} action={3:} "
+                        "q_max={4:.4f}".format(*log_data))
 
 NUM_THREADS = 16
 def playGame():
-    #with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True, intra_op_parallelism_threads=NUM_THREADS)) as sess:
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333)
-    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True, log_device_placement=True, intra_op_parallelism_threads=NUM_THREADS)) as sess:
+    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True, log_device_placement=True)) as sess:
         with tf.device('/gpu:'+os.environ["CUDA_VISIBLE_DEVICES"]):
             train(sess)
 

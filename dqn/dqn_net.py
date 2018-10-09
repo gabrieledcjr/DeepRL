@@ -1,17 +1,19 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import tensorflow as tf
 import random
 import numpy as np
+import logging
+
 from time import sleep
-from util import plot_conv_weights, graves_rmsprop_optimizer
-from termcolor import colored
 from net import Network
+from common.util import plot_conv_weights, graves_rmsprop_optimizer
 
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
 
+logger = logging.getLogger("dqn_net")
 
 class DqnNet(Network):
     """ DQN Network Model of DQN Algorithm """
@@ -99,10 +101,10 @@ class DqnNet(Network):
 
             if transfer_fc2:
                 # Scale down the last layer if it's transferred
-                print (colored("Normalizing output layer with max value {}...".format(self.transfer_max_output_val), "yellow"))
+                logger.debug("Normalizing output layer with max value {}...".format(self.transfer_max_output_val))
                 W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
                 b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
-                print (colored("Output layer normalized", "green"))
+                logger.debug("Output layer normalized")
                 sleep(3)
                 self.sess.run([
                    self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
@@ -163,7 +165,7 @@ class DqnNet(Network):
                     # Tensorflow RMSOptimizer
                     self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
                 else:
-                    print (colored("Unknown Optimizer!", "red"))
+                    logger.error("Unknown Optimizer!")
                     sys.exit()
 
                 self.grads_vars = self.opt.compute_gradients(self.cost)
@@ -227,10 +229,10 @@ class DqnNet(Network):
             self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
 
     def evaluate(self, state):
-        return self.sess.run(self.q_value, feed_dict={self.observation: state})
+        return self.sess.run(self.q_value, feed_dict={self.observation: [state]})
 
     def evaluate_target(self, state):
-        return self.sess.run(self.t_q_value, feed_dict={self.next_observation: state})
+        return self.sess.run(self.t_q_value, feed_dict={self.next_observation: [state]})
 
     def build_loss(self, error_clip, n_actions):
         with tf.name_scope("Cost") as scope:
@@ -270,7 +272,7 @@ class DqnNet(Network):
         )
         if self.update_counter % self.copy_interval == 0:
             if not self.slow:
-                print (colored('Update target network', 'green'))
+                logger.info('Update target network')
             self.update_target_network()
         self.update_counter += 1
         return summary[0]
@@ -301,8 +303,10 @@ class DqnNet(Network):
 
         if checkpoint and checkpoint.model_checkpoint_path:
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
-            print (colored('Successfully loaded:{}'.format(checkpoint.model_checkpoint_path), 'green'))
+            logger.debug('checkpoint loaded:{}'.format(checkpoint.model_checkpoint_path))
             sleep(.2)
+            tokens = checkpoint.model_checkpoint_path.split("-")
+            self.global_t = int(tokens[1])
             has_checkpoint = True
             data = pickle.load(open(__folder + '/' + self.name + '-net-variables.pkl', 'rb'))
             self.update_counter = data['update_counter']
@@ -310,16 +314,16 @@ class DqnNet(Network):
         return has_checkpoint
 
     def save(self, step=-1):
-        print (colored('Saving checkpoint...', 'blue'))
+        logger.debug('saving checkpoint...')
         if step < 0:
-            self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn')
+            self.saver.save(self.sess, self.folder + '/{}_checkpoint_dqn'.format(self.name.replace('-', '_')))
         else:
-            self.saver.save(self.sess, self.folder + '/' + self.name + '-dqn', global_step=step)
+            self.saver.save(self.sess, self.folder + '/{}_checkpoint_dqn'.format(self.name.replace('-', '_')), global_step=step)
             data = {'update_counter': self.update_counter}
             pickle.dump(data, open(self.folder + '/' + self.name + '-net-variables.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
-        print (colored('Successfully saved checkpoint!', 'green'))
+        logger.info('Successfully saved checkpoint!')
 
-        print (colored('Saving parameters as csv files...', 'blue'))
+        logger.info('Saving parameters as csv files...')
         W1_val = self.W_conv1.eval()
         np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
         b1_val = self.b_conv1.eval()
@@ -344,13 +348,13 @@ class DqnNet(Network):
         np.savetxt(self.folder + '/fc2_weights.csv', Wfc2_val.flatten())
         bfc2_val = self.b_fc2.eval()
         np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
-        print (colored('Successfully saved parameters!', 'green'))
+        logger.info('Successfully saved parameters!')
 
-        # print (colored('Saving convolutional weights as images...', 'blue'))
+        # logger.info('Saving convolutional weights as images...')
         # conv_weights = self.sess.run([tf.get_collection('conv_weights')])
         # for i, c in enumerate(conv_weights[0]):
         #     plot_conv_weights(c, 'conv{}'.format(i+1), folder=self.folder)
-        # print (colored('Successfully saved convolutional weights!', 'green'))
+        # logger.info('Successfully saved convolutional weights!')
 
     def init_verbosity(self):
         with tf.name_scope("Summary_Conv1") as scope:
@@ -384,7 +388,7 @@ class DqnNet(Network):
         checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
         if checkpoint_transfer_from and checkpoint_transfer_from.model_checkpoint_path:
             saver_transfer_from.restore(self.sess, checkpoint_transfer_from.model_checkpoint_path)
-            print (colored("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green"))
+            logger.logger("transfer checkpoint loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green")
 
         if transfer_fc2:
             with open(folder + "/max_output_value", 'r') as f_max_value:
@@ -410,6 +414,6 @@ class DqnNet(Network):
         temp_str = ''
         for tf_vars in vars_init:
             temp_str += '\n' + tf_vars.op.name
-        print ("Overwriting following vars:" + temp_str)
+        logger.warning("overwriting following vars:" + temp_str)
         sleep(2)
         self.sess.run(tf.variables_initializer(vars_init))

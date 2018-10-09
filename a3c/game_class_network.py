@@ -136,9 +136,10 @@ class MultiClassNetwork(GameClassNetwork):
 
                 # state (input)
                 self.s = tf.placeholder("float", [None, 84, 84, 4])
+                self.s_n = tf.div(self.s, 255.)
 
                 if self.use_mnih_2015:
-                    h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                    h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
                     h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
                     h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
 
@@ -289,9 +290,10 @@ class MTLBinaryClassNetwork(GameClassNetwork):
 
                 # state (input)
                 self.s = tf.placeholder("float", [None, 84, 84, 4])
+                self.s_n = tf.div(self.s, 255.)
 
                 if self.use_mnih_2015:
-                    h_conv1 = tf.nn.relu(self._conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                    h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
                     h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
                     h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
 

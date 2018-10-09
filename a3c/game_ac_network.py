@@ -204,10 +204,11 @@ class GameACFFNetwork(GameACNetwork):
             self.W_fc3, self.b_fc3 = self.fc_variable([256, 1], layer_name='fc3')
 
             # state (input)
-            self.s = tf.placeholder("float", [None, 84, 84, 4])
+            self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
+            self.s_n = tf.div(self.s, 255.)
 
             if self.use_mnih_2015:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
                 self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
                 self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
 

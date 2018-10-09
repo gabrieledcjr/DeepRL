@@ -4,9 +4,10 @@ import random
 import numpy as np
 from time import sleep
 from batch_norm import batch_norm
-from util import plot_conv_weights
 from termcolor import colored
+
 from net import Network
+from common.util import plot_conv_weights
 
 try:
     import cPickle as pickle

@@ -4,7 +4,7 @@ import time
 import random
 from datetime import datetime
 from termcolor import colored
-from util import prepare_dir, process_frame, save_compressed_images, get_action_index
+from common.util import prepare_dir, process_frame, save_compressed_images, get_action_index
 
 try:
     import cPickle as pickle
@@ -25,7 +25,7 @@ class CollectDemonstration(object):
         self.resized_w = resized_width
         self.phi_length = phi_length
         self.name = name
-        self.D = replay_memory
+        self.replay_memory = replay_memory
         self.terminate_loss_of_life = terminate_loss_of_life
 
         self._skip = 1
@@ -44,7 +44,7 @@ class CollectDemonstration(object):
         observation = process_frame(observation, self.resized_h, self.resized_w)
         for _ in range(self.phi_length-1):
             empty_img = np.zeros((self.resized_w, self.resized_h), dtype=np.uint8)
-            self.D.add_sample(empty_img, 0, 0, 0)
+            self.replay_memory.add_sample(empty_img, 0, 0, 0)
         return observation
 
     def _update_state_input(self, observation):
@@ -99,7 +99,7 @@ class CollectDemonstration(object):
             # store the transition in D
             # when using frameskip=1, should store every four steps
             if sub_t % self._skip == 0:
-                self.D.add_sample(observation, action, reward, terminal)
+                self.replay_memory.add_sample(observation, action, reward, terminal)
             observation = next_observation
             sub_r += reward
             total_reward += reward
@@ -110,7 +110,7 @@ class CollectDemonstration(object):
 
             # Ensure that D does not reach max memory that mitigate
             # problems when combining different human demo files
-            if (self.D.size + 3) == self.D.max_steps:
+            if (self.replay_memory.size + 3) == self.replay_memory.max_steps:
                 terminal_force = True
                 terminal = True
 
@@ -138,22 +138,22 @@ class CollectDemonstration(object):
         print ("Mean steps: {} / Mean reward: {}".format(t/total_episodes,total_reward/total_episodes))
         print ("\tsteps / episode:", sub_steps)
         print ("\treward / episode:", rewards)
-        print ("Total Replay memory saved: {}".format(self.D.size))
+        print ("Total Replay memory saved: {}".format(self.replay_memory.size))
 
         # Resize replay memory to exact memory size
-        self.D.resize()
-        data = {'D.width':self.D.width,
-                'D.height':self.D.height,
-                'D.max_steps':self.D.max_steps,
-                'D.phi_length':self.D.phi_length,
-                'D.num_actions':self.D.num_actions,
-                'D.actions':self.D.actions,
-                'D.rewards':self.D.rewards,
-                'D.terminal':self.D.terminal,
-                'D.bottom':self.D.bottom,
-                'D.top':self.D.top,
-                'D.size':self.D.size}
-        images = self.D.imgs
+        self.replay_memory.resize()
+        data = {'D.width':self.replay_memory.width,
+                'D.height':self.replay_memory.height,
+                'D.max_steps':self.replay_memory.max_steps,
+                'D.phi_length':self.replay_memory.phi_length,
+                'D.num_actions':self.replay_memory.num_actions,
+                'D.actions':self.replay_memory.actions,
+                'D.rewards':self.replay_memory.rewards,
+                'D.terminal':self.replay_memory.terminal,
+                'D.bottom':self.replay_memory.bottom,
+                'D.top':self.replay_memory.top,
+                'D.size':self.replay_memory.size}
+        images = self.replay_memory.imgs
         pkl_file = '{name}-dqn.pkl'.format(name=self.name)
         h5_file = '{name}-dqn-images.h5'.format(name=self.name)
         pickle.dump(data, open(self.folder + pkl_file, 'wb'), pickle.HIGHEST_PROTOCOL)

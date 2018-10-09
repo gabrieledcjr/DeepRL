@@ -51,7 +51,7 @@ def load_memory(name=None, demo_memory_folder=None, imgs_normalized=False, rewar
         ep = demo[1]
         total_memory += demo[4]
         folder = demo_memory_folder + '/{n:03d}'.format(n=(ep))
-        logger.info(folder + '/' + name + '-dqn.pkl')
+        logger.info(folder + '/' + name + '.pkl')
         replay_memory = ReplayMemory()
         replay_memory.load(name=name, folder=folder)
         if imgs_normalized:

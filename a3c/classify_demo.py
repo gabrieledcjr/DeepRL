@@ -6,9 +6,8 @@ import numpy as np
 import sys
 import logging
 
-from util import load_memory, solve_weight
-from game_state import GameState
-from termcolor import colored
+from common.util import load_memory, solve_weight
+from common.game_state import GameState
 
 logger = logging.getLogger("a3c")
 
@@ -234,10 +233,10 @@ class ClassifyDemo(object):
 def classify_demo(args):
     '''
     Multi-Class:
-    python3 run_experiment.py --gym-env=PongDeterministic-v4 --classify-demo --use-mnih-2015 --max-time-step=150000 --local-t-max=32
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --classify-demo --use-mnih-2015 --max-time-step=150000 --local-t-max=32
 
     MTL One vs All:
-    python3 run_experiment.py --gym-env=PongDeterministic-v4 --classify-demo --onevsall-mtl --use-mnih-2015 --max-time-step=150000 --local-t-max=32
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --classify-demo --onevsall-mtl --use-mnih-2015 --max-time-step=150000 --local-t-max=32
     '''
     if args.use_gpu:
         assert args.cuda_devices != ''

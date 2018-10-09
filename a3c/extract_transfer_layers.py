@@ -6,14 +6,14 @@ import sys
 import logging
 
 from game_class_network import MultiClassNetwork
-from util import load_memory
-from game_state import GameState
+from common.util import load_memory
+from common.game_state import GameState
 
 logger = logging.getLogger("a3c")
 
 def extract_layers(args):
     '''
-    python3 run_experiment.py --gym-env=PongDeterministic-v3 --extract-transfer-layers --use-mnih-2015
+    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --extract-transfer-layers --use-mnih-2015
     '''
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
     import tensorflow as tf

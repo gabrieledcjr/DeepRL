@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import tensorflow as tf
 import numpy as np
 import time
 import logging
 
 from termcolor import colored
-from game_state import GameState
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
-from util import get_action_index
+from common.game_state import GameState
+from common.util import get_action_index
 
 logger = logging.getLogger("a3c")
 
@@ -96,7 +96,7 @@ class A3CTrainingThread(object):
         self.sync = self.local_network.sync_from(
             global_network, upper_layers_only=self.finetune_upper_layers_only)
 
-        self.game_state = GameState(env_id=self.env_id)
+        self.game_state = GameState(env_id=self.env_id, display=False, no_op_max=30, human_demo=False, episode_life=False)
 
         self.local_t = 0
 
@@ -193,7 +193,7 @@ class A3CTrainingThread(object):
                             action = model_action
 
                 # process game
-                self.game_state.process(action)
+                self.game_state.step(action)
 
                 # receive game result
                 reward = self.game_state.reward
@@ -240,7 +240,7 @@ class A3CTrainingThread(object):
 
         if self.use_lstm:
             self.local_network.reset_state()
-        return testing_reward
+        return testing_reward, testing_steps
 
     def pretrain_init(self, demo_memory):
         self.demo_memory_size = len(demo_memory)
@@ -428,7 +428,7 @@ class A3CTrainingThread(object):
         diff_local_t = self.local_t - start_local_t
         return diff_local_t, demo_ended
 
-    def process(self, sess, global_t, summary_writer, summary_op, score_input, steps_input, training_rewards):
+    def process(self, sess, global_t, summary_writer, summary_op, score_input, steps_input, train_rewards):
         states = []
         actions = []
         rewards = []
@@ -488,7 +488,7 @@ class A3CTrainingThread(object):
                     logger.debug("psi={}".format(self.psi))
 
             # process game
-            self.game_state.process(action)
+            self.game_state.step(action)
 
             # receive game result
             reward = self.game_state.reward
@@ -542,7 +542,7 @@ class A3CTrainingThread(object):
                 steps_str = colored("steps={}".format(self.episode_steps), "blue")
                 log_msg += " {} {}".format(score_str, steps_str)
                 logger.debug(log_msg)
-                training_rewards[global_t] = self.episode_reward
+                train_rewards['train'][global_t] = (self.episode_reward, self.episode_steps)
                 self._record_summary(
                     sess, summary_writer, summary_op,
                     score_input, steps_input,

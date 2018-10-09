@@ -184,7 +184,7 @@ class ReplayMemory(object):
         self.gain_life[idx] = gainlife
         self.full_state[idx] = fullstate
 
-        if self.wrap_memory == self.max_steps and self.size == self.max_steps:
+        if self.wrap_memory and self.size == self.max_steps:
             self.bottom = (self.bottom + 1) % self.max_steps
         else:
             self.size += 1
@@ -200,35 +200,43 @@ class ReplayMemory(object):
 
     def __getitem__(self, key):
         indices = np.arange(key, key + self.phi_length)
+        indices_next = np.arange(1 + key, 1 + key + self.phi_length)
         end_index = key + self.phi_length - 1
         state = np.zeros(
             (self.height, self.width, self.phi_length),
             dtype=np.float32 if self.imgs_normalized else np.uint8)
+        next_state = np.zeros(
+            (self.height, self.width, self.phi_length),
+            dtype=np.float32 if self.imgs_normalized else np.uint8)
 
         if self.wrap_memory:
+            mode = 'wrap'
             if np.any(self.terminal.take(indices[:-1], mode='wrap')):
-                return None, None, None, None, None
-            temp = self.imgs.take(indices, axis=0, mode='wrap')
-            for i in range(self.phi_length):
-                states[:, :, i] = temp[i]
+                return None, None, None, None, None, None
         else:
+            mode = 'raise'
             if end_index >= self.size or np.any(self.terminal.take(indices[:-1], axis=0)):
-                return None, None, None, None, None
-            temp = self.imgs.take(indices, axis=0)
-            for i in range(self.phi_length):
-                state[:, :, i] = temp[i]
+                return None, None, None, None, None, None
 
-        action = self.actions.take(end_index, axis=0)
+        temp = self.imgs.take(indices, axis=0, mode=mode)
+        for i in range(self.phi_length):
+            state[:, :, i] = temp[i]
+
+        action = self.actions.take(end_index, axis=0, mode=mode)
+        reward = self.rewards.take(end_index, mode=mode)
         if self.clip_reward:
-            reward = np.sign(self.rewards.take(end_index))
-        else:
-            reward = self.rewards.take(end_index)
-        terminal = self.terminal.take(end_index)
-        lives = self.lives.take(end_index)
-        losslife = self.loss_life.take(end_index)
-        gainlife = self.gain_life.take(end_index)
+            reward = np.sign(reward)
+        terminal = self.terminal.take(end_index, mode=mode)
+        lives = self.lives.take(end_index, mode=mode)
+        losslife = self.loss_life.take(end_index, mode=mode)
+        gainlife = self.gain_life.take(end_index, mode=mode)
 
-        return state, action, reward, terminal, lives, losslife, gainlife
+        if not terminal:
+            temp = self.imgs.take(indices_next, axis=0, mode=mode)
+            for i in range(self.phi_length):
+                next_state[:, :, i] = temp[i]
+
+        return state, action, reward, terminal, next_state, lives, losslife, gainlife
 
     def __str__(self):
         specs = "Replay memory:\n"
@@ -273,9 +281,9 @@ class ReplayMemory(object):
         #end_index = (index + self.phi_length-1) + (batch_size - 1)
 
         for count in range(batch_size):
-            s, a, r, t, l, ll, gl = self[index]
+            s0, a, r, t, s1, l, ll, gl = self[index]
             # Add the state transition to the response.
-            states[count] = np.copy(s)
+            states[count] = np.copy(s0)
             actions[count][a] = 1. # convert to one-hot vector
             rewards[count] = r
             terminals[count] = t
@@ -286,10 +294,11 @@ class ReplayMemory(object):
 
         return states, actions, rewards, terminals #, lives, losslifes, gainlifes
 
-    def sample(self, batch_size, normalize=False, k_bad_states=0, onevsall=False, n_class=None):
+    def sample2(self, batch_size, normalize=False, k_bad_states=0, onevsall=False, n_class=None):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
         """
+        assert not self.wrap_memory
         # Allocate the response.
         states = np.zeros(
             (batch_size, self.height, self.width, self.phi_length),
@@ -321,11 +330,11 @@ class ReplayMemory(object):
                     np.any(self.loss_life[st_idx:en_idx] == 1)):
                     continue
 
-            s, a, r, t, l, ll, gl = self[index]
-            if s == None or a == None or r == None or t == None:
+            s0, a, r, t, s1, l, ll, gl = self[index]
+            if s is None or s1 is None:
                 continue
             # Add the state transition to the response.
-            states[count] = np.copy(s)
+            states[count] = np.copy(s0)
             if normalize and not self.imgs_normalized:
                 states[count] /= 255.0
             if onevsall:
@@ -343,6 +352,62 @@ class ReplayMemory(object):
             count += 1
 
         return states, actions, rewards, terminals #, lives, losslifes, gainlifes
+
+    def sample(self, batch_size, normalize=False, onevsall=False, n_class=None):
+        """Return corresponding states, actions, rewards, terminal status, and
+        next_states for batch_size randomly chosen state transitions.
+        """
+        assert self.wrap_memory
+        # Allocate the response.
+        states = np.zeros(
+            (batch_size, self.height, self.width, self.phi_length),
+            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
+        next_states = np.zeros(
+            (batch_size, self.height, self.width, self.phi_length),
+            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
+        if onevsall:
+            actions = np.zeros((batch_size, 2), dtype=np.float32)
+        else:
+            actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
+        rewards = np.zeros(batch_size, dtype=np.float32)
+        terminals = np.zeros(batch_size, dtype=np.int)
+        # lives = np.zeros(batch_size, dtype=np.int)
+        # losslifes = np.zeros(batch_size, dtype=np.int)
+        # gainlifes = np.zeros(batch_size, dtype=np.int)
+
+        count = 0
+        while count < batch_size:
+            index = self.rng.randint(self.bottom, self.bottom + self.size - self.phi_length)
+            indices = np.arange(index, index + self.phi_length + 1)
+            end_index = index + self.phi_length - 1
+
+            if np.any(self.terminal.take(indices[:-1], mode='wrap')):
+                continue
+
+            s0, a, r, t, s1, l, ll, gl = self[index]
+            if s0 is None or s1 is None:
+                continue
+            # Add the state transition to the response.
+            states[count] = np.copy(s0)
+            next_states[count] = np.copy(s1)
+            if normalize and not self.imgs_normalized:
+                states[count] /= 255.0
+                next_states[count] /= 255.0
+            if onevsall:
+                if a == n_class:
+                    actions[count][0] = 1
+                else:
+                    actions[count][1] = 1
+            else:
+                actions[count][a] = 1 # convert to one-hot vector
+            rewards[count] = r
+            terminals[count] = t
+            # lives[count] = l
+            # losslifes[count] = ll
+            # gainlifes[count] = gl
+            count += 1
+
+        return states, actions, rewards, terminals, next_states #, lives, losslifes, gainlifes
 
     def save(self, name=None, folder=None, resize=False):
         assert name is not None
@@ -362,6 +427,7 @@ class ReplayMemory(object):
                 'lives':self.lives,
                 'loss_life':self.loss_life,
                 'gain_life':self.gain_life,
+                'full_state_size': self.full_state_size,
                 'full_state': self.full_state,
                 'size':self.size,
                 'wrap_memory':self.wrap_memory,
@@ -369,24 +435,26 @@ class ReplayMemory(object):
                 'bottom':self.bottom,
                 'imgs_normalized':self.imgs_normalized}
         images = self.imgs
-        pkl_file = '{}-dqn.pkl'.format(name)
-        h5_file = '{}-dqn-images.h5'.format(name)
-        pickle.dump(data, open(folder + pkl_file, 'wb'), pickle.HIGHEST_PROTOCOL)
+        pkl_file = '{}.pkl'.format(name)
+        h5_file = '{}-images.h5'.format(name)
+        pickle.dump(data, open(folder + '/' + pkl_file, 'wb'), pickle.HIGHEST_PROTOCOL)
         logger.info('Compressing and saving replay memory...')
-        save_compressed_images(folder + h5_file, images)
+        save_compressed_images(folder + '/' + h5_file, images)
         logger.info('Compressed and saved replay memory')
 
     def load(self, name=None, folder=None):
         assert name is not None
         assert folder is not None
 
-        from util import get_compressed_images
+        from common.util import get_compressed_images
         try:
             import cPickle as pickle
         except ImportError:
             import pickle
 
-        data = pickle.load(open(folder + '/' + name + '-dqn.pkl', 'rb'))
+        pkl_file = '{}.pkl'.format(name)
+        h5_file = '{}-images.h5'.format(name)
+        data = pickle.load(open(folder + '/' + pkl_file, 'rb'))
         self.width = data['width']
         self.height = data['height']
         self.max_steps = data['max_steps']
@@ -398,13 +466,14 @@ class ReplayMemory(object):
         self.lives = data.get('lives', np.zeros(self.max_steps, dtype=np.int32))
         self.loss_life = data.get('loss_life', np.zeros(self.max_steps, dtype=np.uint8))
         self.gain_life = data.get('gain_life', np.zeros(self.max_steps, dtype=np.uint8))
+        self.full_state_size = data.get('full_state_size', self.full_state_size)
         self.full_state = data.get('full_state', np.zeros((self.max_steps, self.full_state_size), dtype=np.uint8))
         self.size = data['size']
         self.wrap_memory = data['wrap_memory']
         self.top = data['top']
         self.bottom = data['bottom']
         self.imgs_normalized = data['imgs_normalized']
-        self.imgs = get_compressed_images(folder + '/' + name + '-dqn-images.h5' + '.gz')
+        self.imgs = get_compressed_images(folder + '/' + h5_file + '.gz')
 
 
 def test_1(env_id):

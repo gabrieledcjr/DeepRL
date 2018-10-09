@@ -7,7 +7,7 @@ import coloredlogs, logging
 
 from time import sleep
 from termcolor import colored
-from common.game_state.atari_wrapper import AtariWrapper, FireResetEnv, \
+from common.game_state import AtariWrapper, FireResetEnv, \
     HumanDemoEnv, WarpFrame, MaxAndSkipEnv, EpisodicLifeEnv, \
     get_wrapper_by_name
 
@@ -59,7 +59,7 @@ class GameState(object):
         self.loss_life = False
         self.gain_life = False
 
-    def process(self, action):
+    def step(self, action):
         if self.display:
             self.env.render()
 
@@ -120,7 +120,7 @@ def test_keys(env_id):
         sys_states.append((sys_state, test_game.get_episode_frame_number()))
         print("frame number: ", test_game.get_episode_frame_number())
         a = test_game.env.human_agent_action
-        test_game.process(a)
+        test_game.step(a)
         # new_state = test_game.x_t
         # (score, diff) = compare_ssim(state, new_state, full=True)
         # print("SSIM: {}".format(score))
