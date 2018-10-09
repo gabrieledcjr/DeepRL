@@ -110,6 +110,51 @@ def get_action_index(readout_t, is_random=False, n_actions=-1):
         action_index = egreedy(readout_t, n_actions)
     return action_index
 
+def graves_rmsprop_optimizer(loss, learning_rate, rmsprop_decay, rmsprop_constant, gradient_clip):
+    """
+    src:https://raw.githubusercontent.com/cgel/DRL/master/agents/commonOps.py
+    """
+    import tensorflow as tf
+    with tf.name_scope('rmsprop'):
+        optimizer = None
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+
+        grads_and_vars = optimizer.compute_gradients(loss)
+
+        grads = []
+        params = []
+        for p in grads_and_vars:
+            if p[0] == None:
+                continue
+            grads.append(p[0])
+            params.append(p[1])
+        #grads = [gv[0] for gv in grads_and_vars]
+        #params = [gv[1] for gv in grads_and_vars]
+        if gradient_clip > 0:
+            grads = tf.clip_by_global_norm(grads, gradient_clip)[0]
+
+        square_grads = [tf.square(grad) for grad in grads]
+
+        avg_grads = [tf.Variable(tf.zeros(var.get_shape()))
+                     for var in params]
+        avg_square_grads = [tf.Variable(
+            tf.zeros(var.get_shape())) for var in params]
+
+        update_avg_grads = [grad_pair[0].assign((rmsprop_decay * grad_pair[0]) + tf.scalar_mul((1 - rmsprop_decay), grad_pair[1]))
+                            for grad_pair in zip(avg_grads, grads)]
+        update_avg_square_grads = [grad_pair[0].assign((rmsprop_decay * grad_pair[0]) + ((1 - rmsprop_decay) * tf.square(grad_pair[1])))
+                                   for grad_pair in zip(avg_square_grads, grads)]
+        avg_grad_updates = update_avg_grads + update_avg_square_grads
+
+        rms = [tf.sqrt(avg_grad_pair[1] - tf.square(avg_grad_pair[0]) + rmsprop_constant)
+               for avg_grad_pair in zip(avg_grads, avg_square_grads)]
+
+        rms_updates = [grad_rms_pair[0] / grad_rms_pair[1]
+                       for grad_rms_pair in zip(grads, rms)]
+        train = optimizer.apply_gradients(zip(rms_updates, params))
+
+        return tf.group(train, tf.group(*avg_grad_updates)), grads_and_vars
+
 def plot_conv_weights(weights, name, channels_all=True, folder=''):
     """
     Plots convolutional filters
@@ -329,7 +374,7 @@ def process_frame42(frame):
     frame = cv2.resize(frame, (42, 42))
     frame = frame.mean(2)
     frame = frame.astype(np.float32)
-    frame *= (1.0 / 255.0)
+    frame /= 255.0
     frame = np.reshape(frame, [42, 42, 1])
     #frame = np.reshape(frame, [np.prod(frame.shape)])
     return frame
