@@ -24,6 +24,10 @@ def get_demo(args):
     formatter = LogFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
+    logging.getLogger('collect_demo').addHandler(fh)
+    logging.getLogger('game_state').addHandler(fh)
+    logging.getLogger('replay_memory').addHandler(fh)
+    logging.getLogger('atari_wrapper').addHandler(fh)
 
     game_state = GameState(env_id=args.gym_env, display=True, human_demo=True, episode_life=True)
     collect_demo = CollectDemonstration(

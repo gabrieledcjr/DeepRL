@@ -13,7 +13,7 @@ import logging
 from math import sqrt
 from collections import defaultdict
 
-logger = logging.getLogger("util")
+logger = logging.getLogger("deep_rl")
 
 try:
     import cPickle as pickle

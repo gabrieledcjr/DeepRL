@@ -72,28 +72,16 @@ class CollectDemonstration(object):
     def _reset(self, replay_memory, hard_reset=True):
         self.game_state.reset(hard_reset=hard_reset)
 
-        if self.game_state.fire_reset:
-            for i in range(self.phi_length + 1):
-                replay_memory.add(
-                    self.game_state.x_t,
-                    2 if i == self.phi_length else 1,
-                    self.game_state.reward,
-                    self.game_state.terminal,
-                    self.game_state.lives,
-                    losslife=self.game_state.loss_life,
-                    gainlife=self.game_state.gain_life,
-                    fullstate=self.game_state.clone_full_state())
-        else:
-            for _ in range(self.phi_length-1):
-                replay_memory.add(
-                    self.game_state.x_t,
-                    0,
-                    self.game_state.reward,
-                    self.game_state.terminal,
-                    self.game_state.lives,
-                    losslife=self.game_state.loss_life,
-                    gainlife=self.game_state.gain_life,
-                    fullstate=self.game_state.clone_full_state())
+        for _ in range(self.phi_length-1):
+            replay_memory.add(
+                self.game_state.x_t,
+                0,
+                self.game_state.reward,
+                self.game_state.terminal,
+                self.game_state.lives,
+                losslife=self.game_state.loss_life,
+                gainlife=self.game_state.gain_life,
+                fullstate=self.game_state.clone_full_state())
 
     def _update_state_input(self, observation):
         self.state_input = np.roll(self.state_input, -1, axis=3)
