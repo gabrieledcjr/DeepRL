@@ -1,4 +1,4 @@
-# DeepRL
+# Leveraging Human Demonstration in Deep Reinforcement Learning (DeepRL)
 
 Install `common` package
 ```
