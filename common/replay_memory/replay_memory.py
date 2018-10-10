@@ -11,9 +11,9 @@ construct randomly selected batches of phi's from the stored history.
 
 import numpy as np
 import time
-import logging
+import coloredlogs, logging
 
-from common.util import save_compressed_images
+from common.util import save_compressed_images, get_compressed_images
 
 try:
     import cPickle as pickle
@@ -56,8 +56,6 @@ class ReplayMemory(object):
         self.rewards = np.zeros(self.max_steps, dtype=np.float32)
         self.terminal = np.zeros(self.max_steps, dtype=np.uint8)
         self.lives = np.zeros(self.max_steps, dtype=np.int32)
-        self.loss_life = np.zeros(self.max_steps, dtype=np.uint8)
-        self.gain_life = np.zeros(self.max_steps, dtype=np.uint8)
         self.full_state = np.zeros((self.max_steps, full_state_size), dtype=np.uint8)
 
         self.size = 0
@@ -116,6 +114,8 @@ class ReplayMemory(object):
         logger.info("Rewards propagated!")
 
     def resize(self):
+        if self.max_steps == self.size:
+            return
         logger.info("Resizing replay memory...")
         logger.debug("Current specs: size={} max_steps={}".format(self.size, self.max_steps))
         logger.debug("    images shape: {}".format(np.shape(self.imgs)))
@@ -123,26 +123,20 @@ class ReplayMemory(object):
         logger.debug("    rewards shape: {}".format(np.shape(self.rewards)))
         logger.debug("    terminal shape: {}".format(np.shape(self.terminal)))
         logger.debug("    lives shape: {}".format(np.shape(self.lives)))
-        logger.debug("    loss_life shape: {}".format(np.shape(self.loss_life)))
-        logger.debug("    gain_life shape: {}".format(np.shape(self.gain_life)))
         logger.debug("    full_state shape: {}".format(np.shape(self.full_state)))
         tmp_imgs = np.delete(self.imgs, range(self.size,self.max_steps), axis=0)
         tmp_actions = np.delete(self.actions, range(self.size, self.max_steps), axis=0)
         tmp_rewards = np.delete(self.rewards, range(self.size, self.max_steps), axis=0)
         tmp_terminal = np.delete(self.terminal, range(self.size, self.max_steps), axis=0)
         tmp_lives = np.delete(self.lives, range(self.size, self.max_steps), axis=0)
-        tmp_losslife = np.delete(self.loss_life, range(self.size, self.max_steps), axis=0)
-        tmp_gainlife = np.delete(self.gain_life, range(self.size, self.max_steps), axis=0)
         tmp_fullstate = np.delete(self.full_state, range(self.size, self.max_steps), axis=0)
         del self.imgs, self.actions, self.rewards, self.terminal, \
-            self.lives, self.loss_life, self.gain_life, self.full_state
+            self.lives, self.full_state
         self.imgs = tmp_imgs
         self.actions = tmp_actions
         self.rewards = tmp_rewards
         self.terminal = tmp_terminal
         self.lives = tmp_lives
-        self.loss_life = tmp_losslife
-        self.gain_life = tmp_gainlife
         self.full_state = tmp_fullstate
         self.max_steps = self.size
         logger.info("Resizing completed!")
@@ -152,12 +146,19 @@ class ReplayMemory(object):
         logger.debug("    rewards shape: {}".format(np.shape(self.rewards)))
         logger.debug("    terminal shape: {}".format(np.shape(self.terminal)))
         logger.debug("    lives shape: {}".format(np.shape(self.lives)))
-        logger.debug("    loss_life shape: {}".format(np.shape(self.loss_life)))
-        logger.debug("    gain_life shape: {}".format(np.shape(self.gain_life)))
         logger.debug("    full_state shape: {}".format(np.shape(self.full_state)))
 
-    def add(self, img, action, reward, terminal, lives, losslife=False, gainlife=False, fullstate=np.zeros(1021)):
-        """Add a time step record.
+    def add(self, img, action, reward, terminal, lives, fullstate=None):
+        """Add a time step record. Storing in replay memory should follow the following format:
+        s0 = [img0, img1, img2, img3]
+        s1 = [img1, img2, img3, img4]
+        img0 | img1 | img2 | img3 | img4  <= image memory
+                           |   s0 |   s1  <= state memory
+                           |      |   a0  <= action memory
+                           |      |   r1  <= reward memory
+                           |      |   t1  <= terminal memory
+                           |   l0 |   l1  <= lives memory
+                           |  fs0 |  fs1  <= full state memory
 
         Arguments:
             img -- observed image
@@ -166,6 +167,7 @@ class ReplayMemory(object):
             terminal -- boolean indicating whether the episode ended
             after this time step
         """
+        assert fullstate is not None
         if not self.wrap_memory and self.size == self.max_steps:
             logger.warn("Memory is full. Data not added!")
             return
@@ -180,8 +182,6 @@ class ReplayMemory(object):
         self.rewards[idx] = reward
         self.terminal[idx] = terminal
         self.lives[idx] = lives
-        self.loss_life[idx] = losslife
-        self.gain_life[idx] = gainlife
         self.full_state[idx] = fullstate
 
         if self.wrap_memory and self.size == self.max_steps:
@@ -194,49 +194,64 @@ class ReplayMemory(object):
 
     def __len__(self):
         """Return an approximate count of stored state transitions."""
-        # TODO: Properly account for indices which can't be used, as in
-        # random_batch's check.
         return max(0, self.size - self.phi_length)
 
     def __getitem__(self, key):
+        """Retrieving from replay memory follows the following format:
+        if key = 0,
+        s0 = [img0, img1, img2, img3]
+        s1 = [img1, img2, img3, img4]
+        img0 | img1 | img2 | img3 | img4  <= image memory
+                           |   s0 |   s1  <= state memory
+                           |      |   a0  <= action memory
+                           |      |   r1  <= reward memory
+                           |      |   t1  <= terminal memory
+                           |   l0 |   l1  <= lives memory
+                           |  fs0 |  fs1  <= full state memory
+        """
         indices = np.arange(key, key + self.phi_length)
-        indices_next = np.arange(1 + key, 1 + key + self.phi_length)
+        indices_next = indices + 1
         end_index = key + self.phi_length - 1
-        state = np.zeros(
+
+        s0 = np.zeros(
             (self.height, self.width, self.phi_length),
             dtype=np.float32 if self.imgs_normalized else np.uint8)
-        next_state = np.zeros(
+        s1 = np.zeros(
             (self.height, self.width, self.phi_length),
             dtype=np.float32 if self.imgs_normalized else np.uint8)
+        fs0 = np.zeros(self.full_state_size, np.uint8)
 
         if self.wrap_memory:
             mode = 'wrap'
-            if np.any(self.terminal.take(indices[:-1], mode='wrap')):
-                return None, None, None, None, None, None
+            if np.any(self.terminal.take(indices, mode='wrap')):
+                return None, None, None, None, None, None, None, None
         else:
             mode = 'raise'
-            if end_index >= self.size or np.any(self.terminal.take(indices[:-1], axis=0)):
-                return None, None, None, None, None, None
+            if end_index >= self.size or np.any(self.terminal.take(indices)):
+                return None, None, None, None, None, None, None, None
 
+        # s_t current state, action, lives, full state
         temp = self.imgs.take(indices, axis=0, mode=mode)
         for i in range(self.phi_length):
-            state[:, :, i] = temp[i]
+            s0[:, :, i] = temp[i]
 
-        action = self.actions.take(end_index, axis=0, mode=mode)
-        reward = self.rewards.take(end_index, mode=mode)
+        l0 = self.lives.take(end_index, mode=mode)
+        fs0[:] = self.full_state.take(end_index, axis=0, mode=mode)
+
+        # get action on next index even if it's for s0
+        a0 = self.actions.take(end_index+1, mode=mode)
+
+        # s_t+1 next state, reward, terminal, lives
+        temp = self.imgs.take(indices_next, axis=0, mode=mode)
+        for i in range(self.phi_length):
+            s1[:, :, i] = temp[i]
+        r1 = self.rewards.take(end_index+1, mode=mode)
         if self.clip_reward:
-            reward = np.sign(reward)
-        terminal = self.terminal.take(end_index, mode=mode)
-        lives = self.lives.take(end_index, mode=mode)
-        losslife = self.loss_life.take(end_index, mode=mode)
-        gainlife = self.gain_life.take(end_index, mode=mode)
+            r1 = np.sign(r1)
+        t1 = self.terminal.take(end_index+1, mode=mode)
+        l1 = self.lives.take(end_index+1, mode=mode)
 
-        if not terminal:
-            temp = self.imgs.take(indices_next, axis=0, mode=mode)
-            for i in range(self.phi_length):
-                next_state[:, :, i] = temp[i]
-
-        return state, action, reward, terminal, next_state, lives, losslife, gainlife
+        return s0, a0, l0, fs0, s1, r1, t1, l1
 
     def __str__(self):
         specs = "Replay memory:\n"
@@ -262,37 +277,31 @@ class ReplayMemory(object):
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
         # lives = np.zeros(batch_size, dtype=np.int)
-        # losslifes = np.zeros(batch_size, dtype=np.int)
-        # gainlifes = np.zeros(batch_size, dtype=np.int)
 
         # Randomly choose a time step from the replay memory
         # within requested batch_size
         # randint low (inclusive) to high (exclusive)
-        high = (self.size + 1) - (self.phi_length - 1 + batch_size)
+        high = (self.size + 1) - (self.phi_length + batch_size)
         assert high > 0 # crash if not enough memory
 
         # ensure no terminal besides the last index
         while True:
             self.random_index = self.rng.randint(0, high)
-            indices = np.arange(self.random_index, self.random_index + batch_size + (self.phi_length - 1))
-            if not np.any(self.terminal.take(indices[:-1], axis=0)):
+            indices = np.arange(self.random_index, self.random_index + batch_size + self.phi_length)
+            if not np.any(self.terminal.take(indices[:-1])):
                 index = self.random_index
                 break
-        #end_index = (index + self.phi_length-1) + (batch_size - 1)
 
         for count in range(batch_size):
-            s0, a, r, t, s1, l, ll, gl = self[index]
+            s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
             # Add the state transition to the response.
             states[count] = np.copy(s0)
-            actions[count][a] = 1. # convert to one-hot vector
-            rewards[count] = r
-            terminals[count] = t
-            # lives[count] = l
-            # losslifes[count] = ll
-            # gainlifes[count] = gl
+            actions[count][a0] = 1. # convert to one-hot vector
+            rewards[count] = r1
+            terminals[count] = t1
             index += 1
 
-        return states, actions, rewards, terminals #, lives, losslifes, gainlifes
+        return states, actions, rewards, terminals
 
     def sample2(self, batch_size, normalize=False, k_bad_states=0, onevsall=False, n_class=None):
         """Return corresponding states, actions, rewards, terminal status, and
@@ -310,48 +319,43 @@ class ReplayMemory(object):
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
         # lives = np.zeros(batch_size, dtype=np.int)
-        # losslifes = np.zeros(batch_size, dtype=np.int)
-        # gainlifes = np.zeros(batch_size, dtype=np.int)
 
         # Randomly choose a time step from the replay memory
         # within requested batch_size
         # randint low (inclusive) to high (exclusive)
-        high = (self.size + 1) - self.phi_length
+        high = self.size - self.phi_length
         assert high > 0 # crash if not enough memory
 
         count = 0
         while count < batch_size:
             index = self.rng.randint(0, high)
-            if k_bad_states:
-                # do not train k steps to a bad state (negative reward or loss life)
-                st_idx = index + (self.phi_length-1)
-                en_idx = index + (self.phi_length-1) + k_bad_states
-                if (np.any(self.rewards[st_idx:en_idx] < 0) or \
-                    np.any(self.loss_life[st_idx:en_idx] == 1)):
-                    continue
+            # if k_bad_states:
+            #     # do not train k steps to a bad state (negative reward or loss life)
+            #     st_idx = index + (self.phi_length-1)
+            #     en_idx = index + (self.phi_length-1) + k_bad_states
+            #     if (np.any(self.rewards[st_idx:en_idx] < 0) or \
+            #         np.any(self.loss_life[st_idx:en_idx] == 1)):
+            #         continue
 
-            s0, a, r, t, s1, l, ll, gl = self[index]
-            if s is None or s1 is None:
+            s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
+            if s0 is None or s1 is None:
                 continue
             # Add the state transition to the response.
             states[count] = np.copy(s0)
             if normalize and not self.imgs_normalized:
                 states[count] /= 255.0
             if onevsall:
-                if a == n_class:
+                if a0 == n_class:
                     actions[count][0] = 1
                 else:
                     actions[count][1] = 1
             else:
-                actions[count][a] = 1 # convert to one-hot vector
-            rewards[count] = r
-            terminals[count] = t
-            # lives[count] = l
-            # losslifes[count] = ll
-            # gainlifes[count] = gl
+                actions[count][a0] = 1 # convert to one-hot vector
+            rewards[count] = r1
+            terminals[count] = t1
             count += 1
 
-        return states, actions, rewards, terminals #, lives, losslifes, gainlifes
+        return states, actions, rewards, terminals
 
     def sample(self, batch_size, normalize=False, onevsall=False, n_class=None):
         """Return corresponding states, actions, rewards, terminal status, and
@@ -372,19 +376,20 @@ class ReplayMemory(object):
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
         # lives = np.zeros(batch_size, dtype=np.int)
-        # losslifes = np.zeros(batch_size, dtype=np.int)
-        # gainlifes = np.zeros(batch_size, dtype=np.int)
+
+        high = self.bottom + self.size - self.phi_length
+        assert high > 0 # crash if not enough memory
 
         count = 0
         while count < batch_size:
-            index = self.rng.randint(self.bottom, self.bottom + self.size - self.phi_length)
+            index = self.rng.randint(self.bottom, high)
             indices = np.arange(index, index + self.phi_length + 1)
             end_index = index + self.phi_length - 1
 
             if np.any(self.terminal.take(indices[:-1], mode='wrap')):
                 continue
 
-            s0, a, r, t, s1, l, ll, gl = self[index]
+            s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
             if s0 is None or s1 is None:
                 continue
             # Add the state transition to the response.
@@ -394,20 +399,17 @@ class ReplayMemory(object):
                 states[count] /= 255.0
                 next_states[count] /= 255.0
             if onevsall:
-                if a == n_class:
+                if a0 == n_class:
                     actions[count][0] = 1
                 else:
                     actions[count][1] = 1
             else:
-                actions[count][a] = 1 # convert to one-hot vector
-            rewards[count] = r
-            terminals[count] = t
-            # lives[count] = l
-            # losslifes[count] = ll
-            # gainlifes[count] = gl
+                actions[count][a0] = 1 # convert to one-hot vector
+            rewards[count] = r1
+            terminals[count] = t1
             count += 1
 
-        return states, actions, rewards, terminals, next_states #, lives, losslifes, gainlifes
+        return states, actions, rewards, terminals, next_states
 
     def save(self, name=None, folder=None, resize=False):
         assert name is not None
@@ -425,8 +427,6 @@ class ReplayMemory(object):
                 'rewards':self.rewards,
                 'terminal':self.terminal,
                 'lives':self.lives,
-                'loss_life':self.loss_life,
-                'gain_life':self.gain_life,
                 'full_state_size': self.full_state_size,
                 'full_state': self.full_state,
                 'size':self.size,
@@ -446,12 +446,6 @@ class ReplayMemory(object):
         assert name is not None
         assert folder is not None
 
-        from common.util import get_compressed_images
-        try:
-            import cPickle as pickle
-        except ImportError:
-            import pickle
-
         pkl_file = '{}.pkl'.format(name)
         h5_file = '{}-images.h5'.format(name)
         data = pickle.load(open(folder + '/' + pkl_file, 'rb'))
@@ -464,8 +458,6 @@ class ReplayMemory(object):
         self.rewards = data['rewards']
         self.terminal = data['terminal']
         self.lives = data.get('lives', np.zeros(self.max_steps, dtype=np.int32))
-        self.loss_life = data.get('loss_life', np.zeros(self.max_steps, dtype=np.uint8))
-        self.gain_life = data.get('gain_life', np.zeros(self.max_steps, dtype=np.uint8))
         self.full_state_size = data.get('full_state_size', self.full_state_size)
         self.full_state = data.get('full_state', np.zeros((self.max_steps, self.full_state_size), dtype=np.uint8))
         self.size = data['size']
@@ -477,68 +469,61 @@ class ReplayMemory(object):
 
 
 def test_1(env_id):
-    from common.util import get_compressed_images
-    try:
-        import cPickle as pickle
-    except ImportError:
-        import pickle
-
-    folder = env_id.replace('-', '_') + "_test_demo_samples"
+    folder = "demo_samples/{}".format(env_id.replace('-', '_'))
     rm = ReplayMemory()
     rm.load(name=env_id, folder=(folder + '/001'))
     print (rm)
 
     for i in range(1000):
-        states, actions, rewards, terminals, lives, losslife, gainlife = rm.random_batch(20)
+        states, actions, rewards, terminals = rm.sample2(20)
 
     import cv2
     count = 0
-    state, _, _, _, _, _, _ = rm[count]
+    state, _, _, _, _, _, _, _ = rm[count]
     print ("shape:", np.shape(state))
     while count < len(rm):
-        state, _, _, _, _ = rm[count]
+        state, _, _, _, _, _, _, _ = rm[count]
         cv2.imshow(env_id, state)
-        # cv2.imshow("one", state[:,:,0])
-        # cv2.imshow("two", state[:,:,1])
-        # cv2.imshow("three", state[:,:,2])
-        # cv2.imshow("four", state[:,:,3])
-        diff1 = cv2.absdiff(state[:,:,3], state[:,:,2])
-        diff2 = cv2.absdiff(state[:,:,3], state[:,:,1])
-        diff3 = cv2.absdiff(state[:,:,3], state[:,:,0])
-        diff = cv2.addWeighted(diff1, 0.8, diff2, 0.2, 0.0)
-        diff = cv2.addWeighted(diff, 0.8, diff3, 0.2, 0.0)
-        cv2.imshow("difference", diff)
+        cv2.imshow("one", state[:,:,0])
+        cv2.imshow("two", state[:,:,1])
+        cv2.imshow("three", state[:,:,2])
+        cv2.imshow("four", state[:,:,3])
+        # diff1 = cv2.absdiff(state[:,:,3], state[:,:,2])
+        # diff2 = cv2.absdiff(state[:,:,3], state[:,:,1])
+        # diff3 = cv2.absdiff(state[:,:,3], state[:,:,0])
+        # diff = cv2.addWeighted(diff1, 0.8, diff2, 0.2, 0.0)
+        # diff = cv2.addWeighted(diff, 0.8, diff3, 0.2, 0.0)
+        # cv2.imshow("difference", diff)
         cv2.waitKey(20)
         count += 1
     print ("total transitions:", len(rm))
     print ("size:", rm.size)
 
 def test_2(env_id):
-    from common.util import get_compressed_images
-    try:
-        import cPickle as pickle
-    except ImportError:
-        import pickle
-
     folder = "demo_samples/{}".format(env_id.replace('-', '_'))
     rm = ReplayMemory()
     rm.load(name=env_id, folder=(folder + '/001'))
-    print (rm)
+    print(rm)
 
-    state, a, r, t, l, ll, gl = rm[0]
-    print (state)
-    print (a, r, t, l, ll, gl)
+    print(len(rm))
+    s0, a0, l0, fs0, s1, r1, t1, l1 = rm[len(rm)-1]
+    print(s0)
+    print(s1)
+    print(a0, l0, r1, t1, l1)
 
+    print()
     rm.normalize_images()
-    state, a, r, t, l, ll, gl = rm[2]
-    print (state)
-    print (a, r, t, l, ll, gl)
+    s0, a0, l0, fs0, s1, r1, t1, l1 = rm[0]
+    print (s0)
 
-    for count in range(100):
-        _, a, r, t, l, ll, gl = rm[count]
-        print (a,r,t,l,ll,gl)
+    for count in range(len(rm)):
+        _, a0, l0, _, _, r1, terminal, l1 = rm[count]
+        if terminal or r1:
+            print ("index: ", count, a0, l0, r1, terminal, l1)
 
 if __name__ == "__main__":
+    coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
+    logger.setLevel(logging.DEBUG)
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('env', type=str)
