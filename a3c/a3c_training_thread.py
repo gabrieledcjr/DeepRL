@@ -6,7 +6,7 @@ import logging
 
 from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
-from common.game_state import GameState
+from common.game_state import GameState, get_wrapper_by_name
 from common.util import get_action_index
 
 logger = logging.getLogger("a3c")
@@ -96,7 +96,7 @@ class A3CTrainingThread(object):
         self.sync = self.local_network.sync_from(
             global_network, upper_layers_only=self.finetune_upper_layers_only)
 
-        self.game_state = GameState(env_id=self.env_id, display=False, no_op_max=30, human_demo=False, episode_life=False)
+        self.game_state = GameState(env_id=self.env_id, display=False, no_op_max=30, human_demo=False, episode_life=True)
 
         self.local_t = 0
 
@@ -163,7 +163,7 @@ class A3CTrainingThread(object):
         # copy weights from shared to local
         sess.run( self.sync )
 
-        self.game_state.reset()
+        self.game_state.reset(hard_reset=True)
         if self.use_lstm:
             self.local_network.reset_state()
 
@@ -205,17 +205,20 @@ class A3CTrainingThread(object):
                 # s_t1 -> s_t
                 self.game_state.update()
 
-                if terminal or (episode_count==0 and total_steps == max_steps):
-                    total_ep_rewards += episode_reward
-                    total_ep_steps += episode_steps
-                    episode_count += 1
-                    score_str = colored("score={}".format(episode_reward), "magenta")
-                    steps_str = colored("steps={}".format(episode_steps), "blue")
-                    logger.debug("test: global_t={} t_idx={} total_steps={} {} {}".format(global_t, self.thread_index, total_steps, score_str, steps_str))
-                    self.game_state.reset()
+                if terminal or (episode_count == 0 and total_steps == max_steps):
+                    if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done or \
+                       (episode_count == 0 and total_steps == max_steps):
+                        total_ep_rewards += episode_reward
+                        total_ep_steps += episode_steps
+                        episode_count += 1
+                        score_str = colored("score={}".format(episode_reward), "magenta")
+                        steps_str = colored("steps={}".format(episode_steps), "blue")
+                        logger.debug("test: global_t={} t_idx={} total_steps={} score={} steps={}".format(global_t, self.thread_index, total_steps, score_str, steps_str))
+                        break
+
+                    self.game_state.reset(hard_reset=False)
                     if self.use_lstm:
                         self.local_network.reset_state()
-                    break
 
             if total_steps >= max_steps:
                 logger.debug("test: global_t={} t_idx={} total_steps={} score={} steps={} max steps reached".format(global_t, self.thread_index, total_steps, episode_reward, episode_steps))
@@ -233,7 +236,7 @@ class A3CTrainingThread(object):
 
         self.episode_reward = 0
         self.episode_steps = 0
-        self.game_state.reset()
+        self.game_state.reset(hard_reset=True)
         self.last_rho = 0.
         if self.is_demo_thread:
             self.replay_mem_reset()
@@ -520,8 +523,7 @@ class A3CTrainingThread(object):
             if self.log_scale_reward:
                 reward = np.sign(reward) * np.log(1 + np.abs(reward))
             else:
-                # clip reward
-                reward = np.sign(reward)
+                reward = np.sign(reward)  # clip reward
 
             rewards.append(reward)
 
@@ -532,28 +534,29 @@ class A3CTrainingThread(object):
             self.game_state.update()
 
             if terminal:
-                terminal_end = True
-                log_msg = "t_idx={} local_t={}".format(self.thread_index, self.local_t)
-                if self.use_pretrained_model_as_advice:
-                    log_msg += " advice_ctr={}".format(self.advice_ctr)
-                if self.use_pretrained_model_as_reward_shaping:
-                    log_msg += " shaping_ctr={}".format(self.shaping_ctr)
-                score_str = colored("score={}".format(self.episode_reward), "magenta")
-                steps_str = colored("steps={}".format(self.episode_steps), "blue")
-                log_msg += " {} {}".format(score_str, steps_str)
-                logger.debug(log_msg)
-                train_rewards['train'][global_t] = (self.episode_reward, self.episode_steps)
-                self._record_summary(
-                    sess, summary_writer, summary_op,
-                    score_input, steps_input,
-                    self.episode_reward, self.episode_steps, global_t)
+                if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
+                    log_msg = "t_idx={} local_t={}".format(self.thread_index, self.local_t)
+                    if self.use_pretrained_model_as_advice:
+                        log_msg += " advice_ctr={}".format(self.advice_ctr)
+                    if self.use_pretrained_model_as_reward_shaping:
+                        log_msg += " shaping_ctr={}".format(self.shaping_ctr)
+                    score_str = colored("score={}".format(self.episode_reward), "magenta")
+                    steps_str = colored("steps={}".format(self.episode_steps), "blue")
+                    log_msg += " {} {}".format(score_str, steps_str)
+                    logger.debug(log_msg)
+                    train_rewards['train'][global_t] = (self.episode_reward, self.episode_steps)
+                    self._record_summary(
+                        sess, summary_writer, summary_op,
+                        score_input, steps_input,
+                        self.episode_reward, self.episode_steps, global_t)
+                    self.episode_reward = 0
+                    self.episode_steps = 0
 
-                self.episode_reward = 0
-                self.episode_steps = 0
-                self.game_state.reset()
+                terminal_end = True
                 self.last_rho = 0.
                 if self.use_lstm:
                     self.local_network.reset_state()
+                self.game_state.reset(hard_reset=False)
                 break
 
         R = 0.0
