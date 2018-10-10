@@ -18,8 +18,3 @@ Collect human demonstration using OpenAI Gym Atari domain
 ```
 python3 tools/get_demo.py --gym-env=PongNoFrameskip-v4 --num-episodes=5 --demo-time-limit=5
 ```
-python3 dqn/run_experiment.py --gym-env=PongNoFrameskip-v4 \
-    --cpu-only \
-    --optimizer=RMS --lr=0.00025 --decay=0.95 --momentum=0.0 --epsilon=0.01 \
-    --train-max-steps=20500000 \
-    --folder=networks_rms_dqn
