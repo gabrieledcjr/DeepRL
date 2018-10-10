@@ -68,16 +68,14 @@ class DQNTraining(object):
     def _reset(self, testing=False, hard_reset=True):
         self.game_state.reset(hard_reset=hard_reset)
         if not testing:
-            for _ in range(self.phi_length-1):
+            for _ in range(self.phi_length):
                 self.replay_memory.add(
                     self.game_state.x_t,
                     0,
                     self.game_state.reward,
                     self.game_state.terminal,
                     self.game_state.lives,
-                    losslife=self.game_state.loss_life,
-                    gainlife=self.game_state.gain_life,
-                    fullstate=self.game_state.clone_full_state())
+                    fullstate=self.game_state.full_state)
 
     def _add_demo_experiences(self):
         if self.demo_memory_folder is not None:
@@ -270,12 +268,10 @@ class DQNTraining(object):
             # store the transition in D
             ## self.replay_memory.add_sample(observation, action, reward, (1 if terminal_ else 0))
             self.replay_memory.add(
-                self.game_state.x_t, action,
+                self.game_state.x_t1, action,
                 self.game_state.reward, terminal_,
                 self.game_state.lives,
-                losslife=self.game_state.loss_life,
-                gainlife=self.game_state.gain_life,
-                fullstate=self.game_state.full_state)
+                fullstate=self.game_state.full_state1)
 
             # update the old values
             sub_total_reward += self.game_state.reward
