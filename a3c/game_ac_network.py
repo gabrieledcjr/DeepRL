@@ -29,10 +29,10 @@ class GameACNetwork(ABC):
     def prepare_loss(self):
         with tf.device(self._device):
             # taken action (input for policy)
-            self.a = tf.placeholder("float", [None, self._action_size])
+            self.a = tf.placeholder(tf.float32, [None, self._action_size])
 
             # temporary difference (R-V) (input for policy)
-            self.td = tf.placeholder("float", [None])
+            self.td = tf.placeholder(tf.float32, [None])
 
             # avoid NaN with clipping when value in pi becomes zero
             #log_pi = tf.nn.log_softmax(tf.clip_by_value(self.logits, -10.0, 10.0))
@@ -61,7 +61,7 @@ class GameACNetwork(ABC):
             # policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ) + l_losses, axis=1 ) * self.td + entropy * entropy_beta)
 
             # R (input for value)
-            self.r = tf.placeholder("float", [None])
+            self.r = tf.placeholder(tf.float32, [None])
 
             # value loss (output)
             # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
@@ -105,25 +105,41 @@ class GameACNetwork(ABC):
                 return tf.group(*sync_ops, name=name)
 
     def conv_variable(self, shape, layer_name=''):
-        std = self._xavier_std(
-            shape[2] * shape[0] * shape[1], # fan in
-            shape[3] * shape[0] * shape[1]  # fan out
-        )
-        initial = tf.random_uniform(shape, minval=-std, maxval=std)
+        initial = self.xavier_initializer(
+            shape,
+            fan_in=shape[2] * shape[0] * shape[1],
+            fan_out=shape[3] * shape[0] * shape[1])
         weight = tf.Variable(initial, name=layer_name + '_weights')
         bias = tf.Variable(tf.zeros([shape[3]]), name=layer_name + '_biases')
         return weight, bias
 
     def fc_variable(self, shape, layer_name=''):
-        std = self._xavier_std(shape[0], shape[1])
-        initial = tf.random_uniform(shape, minval=-std, maxval=std)
+        initial = self.xavier_initializer(shape, fan_in=shape[0], fan_out=shape[1])
         weight = tf.Variable(initial, name=layer_name + '_weights')
         bias = tf.Variable(tf.zeros([shape[1]]), name=layer_name + '_biases')
         return weight, bias
 
-    def _xavier_std(self, fan_in, fan_out):
-        # sampling from a uniform distribution
-        return np.sqrt(6. / (fan_in + fan_out))
+    def he_initializer(self, shape, fan_in=1.0, fan_out=1.0):
+        return self.variance_scaling_initializer(
+            shape, fan_in, fan_out, factor=2.0, mode='FAN_IN', uniform=False)
+
+    def xavier_initializer(self, shape, fan_in, fan_out):
+        return self.variance_scaling_initializer(
+            shape, fan_in, fan_out, factor=1.0, mode='FAN_AVG', uniform=True)
+
+    def variance_scaling_initializer(self, shape, fan_in, fan_out, factor=2.0, mode='FAN_IN', uniform=False):
+        if mode == 'FAN_IN':
+            n = fan_in
+        elif mode == 'FAN_AVG':
+            n = (fan_in + fan_out) / 2.0
+
+        if uniform:
+            limit = np.sqrt(3.0 * factor / n)
+            # sampling from a uniform distribution
+            return tf.random_uniform(shape, minval=-limit, maxval=limit, dtype=tf.float32)
+        else:
+            trunc_stddev = np.sqrt(1.3 * factor / n)
+            return tf.truncated_normal(shape, mean=0.0, stddev=trunc_stddev, dtype=tf.float32)
 
     def conv2d(self, x, W, stride, data_format='NHWC'):
         return tf.nn.conv2d(x, W, strides=[1,stride,stride,1], padding = "VALID",
@@ -215,7 +231,7 @@ class GameACFFNetwork(GameACNetwork):
                 self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
                 self.h_fc1 = tf.nn.relu(tf.matmul(self.h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
                 self.h_conv2 = tf.nn.relu(self.conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
                 h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
@@ -290,17 +306,18 @@ class GameACLSTMNetwork(GameACNetwork):
             self.W_fc3, self.b_fc3 = self.fc_variable([256, 1], layer_name='fc3')
 
             # state (input)
-            self.s = tf.placeholder("float", [None, 84, 84, 4])
+            self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
+            self.s_n = tf.div(self.s, 255.)
 
             if self.use_mnih_2015:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s,  self.W_conv1, 4) + self.b_conv1)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
                 self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
                 self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
 
                 h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s, self.W_conv1, 4) + self.b_conv1)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n, self.W_conv1, 4) + self.b_conv1)
                 self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
 
                 h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
