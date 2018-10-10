@@ -224,19 +224,21 @@ class WarpFrame(gym.ObservationWrapper):
             shape=(self.height, self.width, 1), dtype=np.uint8)
 
     def observation(self, frame):
-        self.rgb_frame = frame
         # convert to grayscale 210x160
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        # gray_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
         # resize to 110x84
-        gray_frame = cv2.resize(gray_frame, (84, 110),
-            interpolation=cv2.INTER_AREA)
+        # gray_frame = cv2.resize(gray_frame, (84, 110),
+        #     interpolation=cv2.INTER_AREA)
+        # gray_frame = cv2.resize(gray_frame, (84, 84),
+        #     interpolation=cv2.INTER_AREA)
 
         # crop 84x84
-        gray_frame = gray_frame[18:110-8, :]
+        # gray_frame = gray_frame[18:102, :]
 
-        return gray_frame
-
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
+        return frame[:, :]
 
 class ScaledFloatFrame(gym.ObservationWrapper):
     def __init__(self, env):
