@@ -4,9 +4,10 @@ import time
 import random
 import sqlite3
 import os
-import logging
+import coloredlogs, logging
 import cv2
 
+from collections import deque
 from datetime import datetime
 from common.util import prepare_dir, get_action_index, make_gif
 from common.replay_memory import ReplayMemory
@@ -72,16 +73,17 @@ class CollectDemonstration(object):
     def _reset(self, replay_memory, hard_reset=True):
         self.game_state.reset(hard_reset=hard_reset)
 
-        for _ in range(self.phi_length-1):
+        self.obs_buffer[0] = self.game_state.prev_x_t
+        self.obs_buffer[1] = self.game_state.x_t
+        max_obs = self.obs_buffer.max(axis=0)
+        for _ in range(self.phi_length):
             replay_memory.add(
-                self.game_state.x_t,
+                max_obs,
                 0,
                 self.game_state.reward,
                 self.game_state.terminal,
                 self.game_state.lives,
-                losslife=self.game_state.loss_life,
-                gainlife=self.game_state.gain_life,
-                fullstate=self.game_state.clone_full_state())
+                fullstate=self.game_state.fullstate)
 
     def _update_state_input(self, observation):
         self.state_input = np.roll(self.state_input, -1, axis=3)
@@ -118,9 +120,6 @@ class CollectDemonstration(object):
 
             self.insert_data_to_db([(ep, self.name, total_reward, mem_size, start_time, end_time, str(duration), total_steps)])
 
-        if demo_type == 0: # HUMAN
-            self.game_state.stop_thread = True
-
         logger.debug("steps / episode: {}".format(steps))
         logger.debug("reward / episode: {}".format(rewards))
         logger.debug("mean steps: {} / mean reward: {}".format(np.mean(steps), np.mean(rewards)))
@@ -134,6 +133,7 @@ class CollectDemonstration(object):
         logger.debug("mem size / episode: {}".format(mem_sizes))
         logger.debug("total memory size: {}".format(np.sum(mem_sizes)))
         logger.debug("total # of episodes: {}".format(num_episodes))
+        self.game_state.close()
         self.conn.close()
 
     def run(self, minutes_limit=5, ep_num=0, num_episodes=0, demo_type=0, model_net=None, replay_memory=None):
@@ -158,8 +158,8 @@ class CollectDemonstration(object):
         rew = self.game_state.reward
         terminal = False
         lives = self.game_state.lives
-        loss_life = self.game_state.loss_life
-        gain_life = self.game_state.gain_life and not loss_life
+        # loss_life = self.game_state.loss_life
+        # gain_life = self.game_state.gain_life and not loss_life
 
         import tkinter
         from tkinter import messagebox
@@ -173,6 +173,8 @@ class CollectDemonstration(object):
         start_time = datetime.now()
         timeout_start = time.time()
 
+        actions = deque()
+
         while True:
             if not terminal:
                 if demo_type == 1: # RANDOM AGENT
@@ -185,13 +187,17 @@ class CollectDemonstration(object):
                 else: # HUMAN
                     action = self.game_state.env.human_agent_action
 
+            actions.append(action)
             self.game_state.step(action)
             rew += self.game_state.reward
             lives = self.game_state.lives
-            loss_life = loss_life or self.game_state.loss_life
-            gain_life = (gain_life or self.game_state.gain_life) and not loss_life
+            # loss_life = loss_life or self.game_state.loss_life
+            # gain_life = (gain_life or self.game_state.gain_life) and not loss_life
             total_reward += self.game_state.reward
             t += 1
+
+            if self.create_gif:
+                gif_images.append(self.game_state.get_screen_rgb())
 
             # Ensure that D does not reach max memory that mitigate
             # problems when combining different human demo files
@@ -203,35 +209,30 @@ class CollectDemonstration(object):
 
             # add memory every 4th frame even if demo uses skip=1
             if self.game_state.get_episode_frame_number() % self._skip == 0 or terminal or self.game_state.terminal:
-                self.obs_buffer[0] = self.game_state.prev_x_t
-                self.obs_buffer[1] = self.game_state.x_t
+                self.obs_buffer[0] = self.game_state.x_t
+                self.obs_buffer[1] = self.game_state.x_t1
                 max_obs = self.obs_buffer.max(axis=0)
                 # cv2.imshow('max obs', max_obs)
-                # cv2.imshow('current', self.game_state.x_t)
+                # cv2.imshow('current', self.game_state.x_t1)
                 # cv2.waitKey(1)
 
                 # store the transition in D
                 replay_memory.add(
                     max_obs,
-                    action,
+                    actions.popleft(),
                     rew,
-                    terminal,
+                    terminal or self.game_state.terminal,
                     lives,
-                    losslife=loss_life,
-                    gainlife=gain_life,
-                    fullstate=self.game_state.full_state)
+                    fullstate=self.game_state.full_state1)
+                actions.clear()
                 rew = 0
-                loss_life = False
-                gain_life = False
+
+                if terminal or get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
+                    break
 
                 if self.game_state.terminal:
                     self._reset(replay_memory, hard_reset=False)
-
-            if self.create_gif:
-                gif_images.append(self.game_state.get_screen_rgb())
-
-            if terminal or get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
-                break
+                    continue
 
             self.game_state.update()
             time.sleep(0.0167) #60 hz
@@ -245,7 +246,7 @@ class CollectDemonstration(object):
 
         replay_memory.save(name=self.name, folder=self.folder, resize=True)
         if self.create_gif:
-            time_per_step = 0.05
+            time_per_step = 0.0167
             make_gif(
                 gif_images, self.folder+"demo.gif",
                 duration=len(gif_images)*time_per_step,
@@ -266,10 +267,12 @@ def test_collect(env_id):
     num_episodes = 1
     collect_demo.run_episodes(
         num_episodes,
-        minutes_limit=1,
+        minutes_limit=3,
         demo_type=0)
 
 if __name__ == "__main__":
+    coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
+    logger.setLevel(logging.DEBUG)
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('env', type=str)
