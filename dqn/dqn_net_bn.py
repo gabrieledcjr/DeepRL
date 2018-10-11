@@ -260,7 +260,7 @@ class DqnNetBn(Network):
 
         self.saver = tf.train.Saver()
         self.merged = tf.summary.merge_all()
-        self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[8:], self.sess.graph)
+        self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[12:], self.sess.graph)
 
     def evaluate(self, state):
         return self.sess.run(

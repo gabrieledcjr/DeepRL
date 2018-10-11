@@ -228,7 +228,7 @@ class DqnNet(Network):
         self.saver = tf.train.Saver()
         if self.folder is not None:
             self.merged = tf.summary.merge_all()
-            self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[8:], self.sess.graph)
+            self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[12:], self.sess.graph)
 
     def evaluate(self, state):
         return self.sess.run(self.q_value, feed_dict={self.observation: [state]})

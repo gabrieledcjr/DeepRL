@@ -298,7 +298,7 @@ def run_a3c(args):
     tf.summary.scalar("steps", steps_input)
 
     summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter('results/log/a3c/{}/'.format(args.gym_env.replace('-', '_')) + folder[8:], sess.graph)
+    summary_writer = tf.summary.FileWriter('results/log/a3c/{}/'.format(args.gym_env.replace('-', '_')) + folder[12:], sess.graph)
 
     # init or load checkpoint with saver
     root_saver = tf.train.Saver(max_to_keep=1)
