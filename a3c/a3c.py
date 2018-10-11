@@ -391,8 +391,7 @@ def run_a3c(args):
             with lock:
                 if parallel_index == 0:
                     test_reward, test_steps, test_episodes = training_threads[0].testing(
-                        sess, args.eval_max_steps, global_t,
-                        summary_writer)
+                        sess, args.eval_max_steps, global_t)
                     rewards['eval'][global_t] = (test_reward, test_steps, test_episodes)
                     saver.save(sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step=global_t)
                     save_best_model(test_reward)
@@ -434,8 +433,7 @@ def run_a3c(args):
                     logger.info("idx={} demo thread concluded ({}/16)".format(parallel_index, num_demo_thread))
             else:
                 diff_global_t, episode_end = training_thread.process(
-                    sess, global_t, summary_writer,
-                    summary_op, score_input, steps_input, rewards)
+                    sess, global_t, rewards)
 
             for _ in range(diff_global_t):
                 global_t += 1
@@ -449,8 +447,7 @@ def run_a3c(args):
                             continue
                         test_lock = True
                         test_reward, test_steps = training_thread.testing(
-                            sess, args.eval_max_steps, temp_global_t,
-                            summary_writer)
+                            sess, args.eval_max_steps, temp_global_t)
                         rewards['eval'][temp_global_t] = (test_reward, test_steps)
                         if temp_global_t % ((args.max_time_step * args.max_time_step_fraction) // 5) == 0:
                             saver.save(

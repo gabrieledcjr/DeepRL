@@ -162,7 +162,7 @@ class A3CTrainingThread(object):
     def set_start_time(self, start_time):
         self.start_time = start_time
 
-    def testing(self, sess, max_steps, global_t, summary_writer):
+    def testing(self, sess, max_steps, global_t):
         logger.info("Evaluate policy at global_t={}...".format(global_t))
         # copy weights from shared to local
         sess.run( self.sync )
@@ -431,7 +431,7 @@ class A3CTrainingThread(object):
         diff_local_t = self.local_t - start_local_t
         return diff_local_t, demo_ended
 
-    def process(self, sess, global_t, summary_writer, summary_op, score_input, steps_input, train_rewards):
+    def process(self, sess, global_t, train_rewards):
         states = []
         actions = []
         rewards = []
@@ -546,10 +546,6 @@ class A3CTrainingThread(object):
                     log_msg += " {} {}".format(score_str, steps_str)
                     logger.debug(log_msg)
                     train_rewards['train'][global_t] = (self.episode_reward, self.episode_steps)
-                    self._record_summary(
-                        sess, summary_writer, summary_op,
-                        score_input, steps_input,
-                        self.episode_reward, self.episode_steps, global_t)
                     self.record_summary(
                         score=self.episode_reward, steps=self.episode_steps,
                         episodes=None, global_t=global_t, mode='Train')
