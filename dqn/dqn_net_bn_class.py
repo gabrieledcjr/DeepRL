@@ -15,7 +15,7 @@ class DqnNetClass(Network):
     def __init__(
         self, sess, height, width, phi_length, n_actions, name,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0.,
-        slow=False, tau=0.001, verbose=False, path='', folder='_networks', l2_decay=0.001):
+        slow=False, tau=0.001, verbose=False, path='', folder='_networks', l2_decay=0.001, device="/cpu:0"):
         """ Initialize network """
         super(DqnNetClass, self).__init__(sess, name=name)
         self.slow = slow
@@ -142,7 +142,7 @@ class DqnNetClass(Network):
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver()
         self.merged = tf.summary.merge_all()
-        self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
+        self.writer = tf.summary.FileWriter(self.folder + '/log', self.sess.graph)
 
     def evaluate(self, s_j_batch, a_batch):
         return self.sess.run(

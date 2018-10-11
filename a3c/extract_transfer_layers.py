@@ -9,7 +9,7 @@ from game_class_network import MultiClassNetwork
 from common.util import load_memory
 from common.game_state import GameState
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("extract_transfer_layers")
 
 def extract_layers(args):
     '''

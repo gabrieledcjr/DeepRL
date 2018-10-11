@@ -9,7 +9,7 @@ import logging
 from common.util import load_memory, solve_weight
 from common.game_state import GameState
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("classify_demo")
 
 class ClassifyDemo(object):
     use_dropout = False
@@ -259,12 +259,12 @@ def classify_demo(args):
     if args.model_folder is not None:
         model_folder = '{}_{}'.format(args.gym_env.replace('-', '_'), args.model_folder)
     else:
-        model_folder = 'pretrain_models/{}_classifier'.format(args.gym_env.replace('-', '_'))
+        model_folder = 'results/pretrain_models/a3c/{}_classifier'.format(args.gym_env.replace('-', '_'))
         end_str = ''
         if args.use_mnih_2015:
-            end_str += '_use_mnih'
+            end_str += '_mnih2015'
         if args.use_lstm:
-            end_str += '_use_lstm'
+            end_str += '_lstm'
         if args.onevsall_mtl:
             end_str += '_onevsall_mtl'
         if args.exclude_noop:
@@ -279,8 +279,6 @@ def classify_demo(args):
             end_str += '_l1beta{}'.format(str(args.l1_beta).replace('.','p'))
         if args.weighted_cross_entropy:
             end_str += '_weighted_loss'
-        if args.use_dropout:
-            end_str += '_use_dropout'
         model_folder += end_str
 
     if args.append_experiment_num is not None:
@@ -357,7 +355,7 @@ def classify_demo(args):
     sess.run(init)
 
     summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(model_folder + '/log_tb', sess.graph)
+    summary_writer = tf.summary.FileWriter(model_folder + '/log', sess.graph)
 
     # init or load checkpoint with saver
     with network.graph.as_default():
@@ -424,3 +422,5 @@ def classify_demo(args):
     with open(model_folder + '/transfer_model/max_output_value', 'w') as f_max_value:
         f_max_value.write(str(classify_demo.max_val))
     logger.info('Data saved!')
+
+    sess.close()

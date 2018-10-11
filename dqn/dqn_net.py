@@ -21,10 +21,10 @@ class DqnNet(Network):
     def __init__(
         self, sess, height, width, phi_length, n_actions, name, gamma=0.99, copy_interval=4,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0., l2_decay=0.0001, error_clip=1.0,
-        slow=False, tau=0.01, verbose=False, path='', folder='_networks',
+        slow=False, tau=0.01, verbose=False, folder='_networks',
         transfer=False, transfer_folder='',
         transfer_conv2=False, transfer_conv3=False,
-        transfer_fc1=False, transfer_fc2=False):
+        transfer_fc1=False, transfer_fc2=False, device="/cpu:0"):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
         self.gamma = gamma
@@ -32,26 +32,26 @@ class DqnNet(Network):
         self.tau = tau
         self.name = name
         self.sess = sess
-        self.path = path
         self.folder = folder
         self.copy_interval = copy_interval
         self.update_counter = 0
-
-        self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name=self.name + '_observation')
-        self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name=self.name + "_actions") # one-hot matrix
-        self.next_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name=self.name + '_t_next_observation')
-        self.rewards = tf.placeholder(tf.float32, shape=[None], name=self.name + "_rewards")
-        self.terminals = tf.placeholder(tf.float32, shape=[None], name=self.name + "_terminals")
+        self_device = device
 
         self.slow_learnrate_vars = []
         self.fast_learnrate_vars = []
 
-        self.observation_n = tf.div(self.observation, 255.)
-        self.next_observation_n = tf.div(self.next_observation, 255.)
+        with tf.device(self._device), tf.variable_scope('net_-1') as scope:
+            self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation')
+            self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name=self.name + "actions") # one-hot matrix
+            self.next_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='t_next_observation')
+            self.rewards = tf.placeholder(tf.float32, shape=[None], name="rewards")
+            self.terminals = tf.placeholder(tf.float32, shape=[None], name="terminals")
 
-        # q network model:
-        with tf.name_scope("Conv1") as scope:
-            self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], 'conv1')
+            self.observation_n = tf.div(self.observation, 255.)
+            self.next_observation_n = tf.div(self.next_observation, 255.)
+
+            # q network model:
+            self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1')
             self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
             tf.add_to_collection('conv_weights', self.W_conv1)
             tf.add_to_collection('conv_output', self.h_conv1)
@@ -59,8 +59,7 @@ class DqnNet(Network):
                 self.slow_learnrate_vars.append(self.W_conv1)
                 self.slow_learnrate_vars.append(self.b_conv1)
 
-        with tf.name_scope("Conv2") as scope:
-            self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], 'conv2')
+            self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
             self.h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.h_conv1, self.W_conv2, 2), self.b_conv2), name=self.name + '_conv2_activations')
             tf.add_to_collection('conv_weights', self.W_conv2)
             tf.add_to_collection('conv_output', self.h_conv2)
@@ -68,8 +67,7 @@ class DqnNet(Network):
                 self.slow_learnrate_vars.append(self.W_conv2)
                 self.slow_learnrate_vars.append(self.b_conv2)
 
-        with tf.name_scope("Conv3") as scope:
-            self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], 'conv3')
+            self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
             self.h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.h_conv2, self.W_conv3, 1), self.b_conv3), name=self.name + '_conv3_activations')
             tf.add_to_collection('conv_weights', self.W_conv3)
             tf.add_to_collection('conv_output', self.h_conv3)
@@ -77,17 +75,15 @@ class DqnNet(Network):
                 self.slow_learnrate_vars.append(self.W_conv3)
                 self.slow_learnrate_vars.append(self.b_conv3)
 
-        self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
+            self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
 
-        with tf.name_scope("FullyConnected1") as scope:
-            self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], 'fc1')
+            self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], layer_name='fc1')
             self.h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.h_conv3_flat, self.W_fc1), self.b_fc1), name=self.name + '_fc1_activations')
             if transfer:
                 self.fast_learnrate_vars.append(self.W_fc1)
                 self.fast_learnrate_vars.append(self.b_fc1)
 
-        with tf.name_scope("FullyConnected2") as scope:
-            self.W_fc2, self.b_fc2 = self.fc_variable([512, n_actions], 'fc2')
+            self.W_fc2, self.b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
             if transfer:
                 self.fast_learnrate_vars.append(self.W_fc2)
@@ -99,95 +95,100 @@ class DqnNet(Network):
                 transfer_conv2=transfer_conv2, transfer_conv3=transfer_conv3,
                 transfer_fc1=transfer_fc1, transfer_fc2=transfer_fc2)
 
-            if transfer_fc2:
-                # Scale down the last layer if it's transferred
-                logger.debug("Normalizing output layer with max value {}...".format(self.transfer_max_output_val))
-                W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
-                b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
-                logger.debug("Output layer normalized")
-                sleep(3)
-                self.sess.run([
-                   self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
-                ])
+        if transfer_fc2:
+            # Scale down the last layer if it's transferred
+            logger.debug("Normalizing output layer with max value {}...".format(self.transfer_max_output_val))
+            W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
+            b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
+            logger.debug("Output layer normalized")
+            sleep(3)
+            self.sess.run([
+               self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
+            ])
 
         if verbose:
             self.init_verbosity()
 
-        # target q network model:
-        with tf.name_scope("TConv1") as scope:
+        with tf.device(self._device), tf.variable_scope('net_-1') as scope:
+            # target q network model:
             kernel_shape = [8, 8, phi_length, 32]
-            self.t_W_conv1, self.t_b_conv1 = self.conv_variable(kernel_shape, 't_conv1')
+            self.t_W_conv1, self.t_b_conv1 = self.conv_variable(kernel_shape, layer_name='t_conv1')
             self.t_h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.next_observation_n, self.t_W_conv1, 4), self.t_b_conv1), name=self.name + '_t_conv1_activations')
 
-        with tf.name_scope("TConv2") as scope:
             kernel_shape = [4, 4, 32, 64]
-            self.t_W_conv2, self.t_b_conv2 = self.conv_variable(kernel_shape, 't_conv2')
+            self.t_W_conv2, self.t_b_conv2 = self.conv_variable(kernel_shape, layer_name='t_conv2')
             self.t_h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.t_h_conv1, self.t_W_conv2, 2), self.t_b_conv2), name=self.name + '_t_conv2_activations')
 
-        with tf.name_scope("TConv3") as scope:
             kernel_shape = [3, 3, 64, 64]
-            self.t_W_conv3, self.t_b_conv3 = self.conv_variable(kernel_shape, 't_conv3')
+            self.t_W_conv3, self.t_b_conv3 = self.conv_variable(kernel_shape, layer_name='t_conv3')
             self.t_h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.t_h_conv2, self.t_W_conv3, 1), self.t_b_conv3), name=self.name + '_t_conv3_activations')
 
-        self.t_h_conv3_flat = tf.reshape(self.t_h_conv3, [-1, 3136])
+            self.t_h_conv3_flat = tf.reshape(self.t_h_conv3, [-1, 3136])
 
-        with tf.name_scope("TFullyConnected1") as scope:
             kernel_shape = [3136, 512]
-            self.t_W_fc1, self.t_b_fc1 = self.fc_variable(kernel_shape, 't_fc1')
+            self.t_W_fc1, self.t_b_fc1 = self.fc_variable(kernel_shape, layer_name='t_fc1')
             self.t_h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.t_h_conv3_flat, self.t_W_fc1), self.t_b_fc1), name=self.name + '_t_fc1_activations')
 
-        with tf.name_scope("TFullyConnected2") as scope:
             kernel_shape = [512, n_actions]
-            self.t_W_fc2, self.t_b_fc2 = self.fc_variable(kernel_shape, 't_fc2')
+            self.t_W_fc2, self.t_b_fc2 = self.fc_variable(kernel_shape, layer_name='t_fc2')
             self.t_q_value = tf.add(tf.matmul(self.t_h_fc1, self.t_W_fc2), self.t_b_fc2, name=self.name + '_t_fc1_outputs')
 
-        if transfer:
-            # only intialize tensor variables that are not loaded from the transfer model
-            self._global_vars_temp = set(tf.global_variables())
+            if transfer:
+                # only intialize tensor variables that are not loaded from the transfer model
+                self._global_vars_temp = set(tf.global_variables())
 
-        # cost of q network
-        self.cost = self.build_loss(error_clip, n_actions) #+ self.l2_regularizer_loss
-        # self.parameters = [
-        #     self.W_conv1, self.b_conv1,
-        #     self.W_conv2, self.b_conv2,
-        #     self.W_conv3, self.b_conv3,
-        #     self.W_fc1, self.b_fc1,
-        #     self.W_fc2, self.b_fc2,
-        # ]
-        with tf.name_scope("Train") as scope:
-            if optimizer == "Graves":
-                # Nature RMSOptimizer
-                self.train_step, self.grads_vars = graves_rmsprop_optimizer(self.cost, learning_rate, decay, epsilon, 1)
-            else:
-                if optimizer == "Adam":
-                    self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
-                elif optimizer == "RMS":
-                    # Tensorflow RMSOptimizer
-                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
+        with tf.device(self._device):
+            # cost of q network
+            self.cost = self.build_loss(error_clip, n_actions) #+ self.l2_regularizer_loss
+            # self.parameters = [
+            #     self.W_conv1, self.b_conv1,
+            #     self.W_conv2, self.b_conv2,
+            #     self.W_conv3, self.b_conv3,
+            #     self.W_fc1, self.b_fc1,
+            #     self.W_fc2, self.b_fc2,
+            # ]
+
+            with tf.name_scope("Train") as scope:
+                if optimizer == "Graves":
+                    # Nature RMSOptimizer
+                    self.train_step, self.grads_vars = graves_rmsprop_optimizer(self.cost, learning_rate, decay, epsilon, 1)
                 else:
-                    logger.error("Unknown Optimizer!")
-                    sys.exit()
+                    if optimizer == "Adam":
+                        self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
+                    elif optimizer == "RMS":
+                        # Tensorflow RMSOptimizer
+                        self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
+                    else:
+                        logger.error("Unknown Optimizer!")
+                        sys.exit()
 
-                self.grads_vars = self.opt.compute_gradients(self.cost)
-                grads = []
-                params = []
-                for p in self.grads_vars:
-                    if p[0] == None:
-                        continue
-                    grads.append(p[0])
-                    params.append(p[1])
-                #grads = tf.clip_by_global_norm(grads, 1)[0]
-                self.grads_vars_updates = zip(grads, params)
-                self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
+                    self.grads_vars = self.opt.compute_gradients(self.cost)
+                    grads = []
+                    params = []
+                    for p in self.grads_vars:
+                        if p[0] == None:
+                            continue
+                        grads.append(p[0])
+                        params.append(p[1])
+                    #grads = tf.clip_by_global_norm(grads, 1)[0]
+                    self.grads_vars_updates = zip(grads, params)
+                    self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
 
-            # for grad, var in self.grads_vars:
-            #     if grad == None:
-            #         continue
-            #     tf.summary.histogram(var.op.name + '/gradients', grad)
+                # for grad, var in self.grads_vars:
+                #     if grad == None:
+                #         continue
+                #     tf.summary.histogram(var.op.name + '/gradients', grad)
+
+        def initialize_uninitialized(sess):
+            global_vars = tf.global_variables()
+            is_not_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+            not_initialized_vars = [v for (v, f) in zip(global_vars, is_not_initialized) if not f]
+
+            if len(not_initialized_vars):
+                sess.run(tf.variables_initializer(not_initialized_vars))
 
         if transfer:
-            vars_diff = set(tf.global_variables()) - self._global_vars_temp
-            self.sess.run(tf.variables_initializer(vars_diff))
+            initialize_uninitialized(self.sess)
         else:
             # initialize all tensor variable parameters
             self.sess.run(tf.global_variables_initializer())
@@ -201,32 +202,33 @@ class DqnNet(Network):
             self.t_W_fc2.assign(self.W_fc2), self.t_b_fc2.assign(self.b_fc2)
         ])
 
-        if self.slow:
-            self.update_target_op = [
-                self.t_W_conv1.assign(self.tau*self.W_conv1 + (1-self.tau)*self.t_W_conv1),
-                self.t_b_conv1.assign(self.tau*self.b_conv1 + (1-self.tau)*self.t_b_conv1),
-                self.t_W_conv2.assign(self.tau*self.W_conv2 + (1-self.tau)*self.t_W_conv2),
-                self.t_b_conv2.assign(self.tau*self.b_conv2 + (1-self.tau)*self.t_b_conv2),
-                self.t_W_conv3.assign(self.tau*self.W_conv3 + (1-self.tau)*self.t_W_conv3),
-                self.t_b_conv3.assign(self.tau*self.b_conv3 + (1-self.tau)*self.t_b_conv3),
-                self.t_W_fc1.assign(self.tau*self.W_fc1 + (1-self.tau)*self.t_W_fc1),
-                self.t_b_fc1.assign(self.tau*self.b_fc1 + (1-self.tau)*self.t_b_fc1),
-                self.t_W_fc2.assign(self.tau*self.W_fc2 + (1-self.tau)*self.t_W_fc2),
-                self.t_b_fc2.assign(self.tau*self.b_fc2 + (1-self.tau)*self.t_b_fc2),
-            ]
-        else:
-            self.update_target_op = [
-                self.t_W_conv1.assign(self.W_conv1), self.t_b_conv1.assign(self.b_conv1),
-                self.t_W_conv2.assign(self.W_conv2), self.t_b_conv2.assign(self.b_conv2),
-                self.t_W_conv3.assign(self.W_conv3), self.t_b_conv3.assign(self.b_conv3),
-                self.t_W_fc1.assign(self.W_fc1), self.t_b_fc1.assign(self.b_fc1),
-                self.t_W_fc2.assign(self.W_fc2), self.t_b_fc2.assign(self.b_fc2),
-            ]
+        with tf.device(self._device):
+            if self.slow:
+                self.update_target_op = [
+                    self.t_W_conv1.assign(self.tau*self.W_conv1 + (1-self.tau)*self.t_W_conv1),
+                    self.t_b_conv1.assign(self.tau*self.b_conv1 + (1-self.tau)*self.t_b_conv1),
+                    self.t_W_conv2.assign(self.tau*self.W_conv2 + (1-self.tau)*self.t_W_conv2),
+                    self.t_b_conv2.assign(self.tau*self.b_conv2 + (1-self.tau)*self.t_b_conv2),
+                    self.t_W_conv3.assign(self.tau*self.W_conv3 + (1-self.tau)*self.t_W_conv3),
+                    self.t_b_conv3.assign(self.tau*self.b_conv3 + (1-self.tau)*self.t_b_conv3),
+                    self.t_W_fc1.assign(self.tau*self.W_fc1 + (1-self.tau)*self.t_W_fc1),
+                    self.t_b_fc1.assign(self.tau*self.b_fc1 + (1-self.tau)*self.t_b_fc1),
+                    self.t_W_fc2.assign(self.tau*self.W_fc2 + (1-self.tau)*self.t_W_fc2),
+                    self.t_b_fc2.assign(self.tau*self.b_fc2 + (1-self.tau)*self.t_b_fc2),
+                ]
+            else:
+                self.update_target_op = [
+                    self.t_W_conv1.assign(self.W_conv1), self.t_b_conv1.assign(self.b_conv1),
+                    self.t_W_conv2.assign(self.W_conv2), self.t_b_conv2.assign(self.b_conv2),
+                    self.t_W_conv3.assign(self.W_conv3), self.t_b_conv3.assign(self.b_conv3),
+                    self.t_W_fc1.assign(self.W_fc1), self.t_b_fc1.assign(self.b_fc1),
+                    self.t_W_fc2.assign(self.W_fc2), self.t_b_fc2.assign(self.b_fc2),
+                ]
 
         self.saver = tf.train.Saver()
         if self.folder is not None:
             self.merged = tf.summary.merge_all()
-            self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
+            self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[8:], self.sess.graph)
 
     def evaluate(self, state):
         return self.sess.run(self.q_value, feed_dict={self.observation: [state]})

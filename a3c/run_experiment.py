@@ -10,9 +10,9 @@ from extract_transfer_layers import extract_layers
 from common.util import LogFormatter
 
 logger = logging.getLogger()
-coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
 
 def main():
+    coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
     logger.setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser()
 

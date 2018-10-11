@@ -146,15 +146,18 @@ def classify_demo(args):
     else:
         path = os.getcwd() + '/'
 
+    if not os.path.exists('results/pretrained_models/dqn'):
+        os.makedirs('results/pretrained_models/dqn')
+
     if args.folder is not None:
         folder = '{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
     else:
-        folder = '{}_networks_classifier_{}'.format(args.gym_env.replace('-', '_'), args.optimizer.lower())
+        folder = 'results/pretrained_models/dqn/{}_{}_classifier'.format(args.gym_env.replace('-', '_'), args.optimizer.lower())
 
     if args.demo_memory_folder is not None:
         demo_memory_folder = args.demo_memory_folder
     else:
-        demo_memory_folder = "{}_demo_samples".format(args.gym_env.replace('-', '_'))
+        demo_memory_folder = "demo_samples/{}".format(args.gym_env.replace('-', '_'))
 
     if args.cpu_only:
         device = '/cpu:0'
@@ -166,37 +169,37 @@ def classify_demo(args):
     config = tf.ConfigProto(
         gpu_options=gpu_options,
         allow_soft_placement=True,
-        log_device_placement=True,
-        intra_op_parallelism_threads=multiprocessing.cpu_count(),
-        inter_op_parallelism_threads=multiprocessing.cpu_count()
+        log_device_placement=True
     )
 
-    with tf.device(device):
-        game_state = GameState(env_id=args.gym_env, display=False, no_op_max=30, human_demo=False, episode_life=True)
 
-        replay_memory = ReplayMemory(
-            args.resized_width, args.resized_height,
-            np.random.RandomState(),
-            max_steps=args.replay_memory,
-            phi_length=args.phi_len,
-            num_actions=game_state.env.action_space.n,
-            wrap_memory=True,
-            full_state_size=game_state.clone_full_state().shape[0],
-            clip_reward=True)
+    game_state = GameState(env_id=args.gym_env, display=False, no_op_max=30, human_demo=False, episode_life=True)
 
-        DqnNetClass.use_gpu = not args.cpu_only
-        net = DqnNetClass(
-            args.resized_height, args.resized_width, args.phi_len,
-            game_state.env.action_space.n, args.gym_env,
-            optimizer=args.optimizer, learning_rate=args.lr,
-            epsilon=args.epsilon, decay=args.decay, momentum=args.momentum,
-            verbose=args.verbose, path=path, folder=folder)
-        game_state.close()
-        del game_state
+    replay_memory = ReplayMemory(
+        args.resized_width, args.resized_height,
+        np.random.RandomState(),
+        max_steps=args.replay_memory,
+        phi_length=args.phi_len,
+        num_actions=game_state.env.action_space.n,
+        wrap_memory=True,
+        full_state_size=game_state.clone_full_state().shape[0],
+        clip_reward=True)
 
-        sess = tf.Session(config=config, graph=net.graph)
-        net.initializer(sess)
-        cd = ClassifyDemo(
-            net, replay_memory, args.gym_env, args.train_max_steps, args.batch, args.eval_freq,
-            demo_memory_folder=demo_memory_folder, folder=folder)
-        cd.run()
+    DqnNetClass.use_gpu = not args.cpu_only
+    net = DqnNetClass(
+        args.resized_height, args.resized_width, args.phi_len,
+        game_state.env.action_space.n, args.gym_env,
+        optimizer=args.optimizer, learning_rate=args.lr,
+        epsilon=args.epsilon, decay=args.decay, momentum=args.momentum,
+        verbose=args.verbose, path=path, folder=folder, device=device)
+    game_state.close()
+    del game_state
+
+    sess = tf.Session(config=config, graph=net.graph)
+    net.initializer(sess)
+    cd = ClassifyDemo(
+        net, replay_memory, args.gym_env, args.train_max_steps, args.batch, args.eval_freq,
+        demo_memory_folder=demo_memory_folder, folder=folder)
+    cd.run()
+
+    sess.close()

@@ -10,22 +10,24 @@ class Network(object):
     def __init__(
         self, sess, height=84, width=84, phi_length=4, n_actions=1, name="network", gamma=0.99, copy_interval=4,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0., l2_decay=0.0001, error_clip=1.0,
-        slow=False, tau=0.01, verbose=False, path='', folder='_networks', decay_learning_rate=False):
+        slow=False, tau=0.01, verbose=False, folder='_networks', decay_learning_rate=False, device="/cpu:0"):
         self.name = name
 
-    def conv_variable(self, shape, layer_name=''):
+    def conv_variable(self, shape, layer_name='conv'):
         initial = self.xavier_initializer(
             shape,
             fan_in=shape[2] * shape[0] * shape[1],
             fan_out=shape[3] * shape[0] * shape[1])
-        weight = tf.Variable(initial, name=self.name + '_' + layer_name + '_weights')
-        bias = tf.Variable(tf.zeros([shape[3]]), name=self.name + '_' + layer_name + '_biases')
+        with tf.variable_scope(layer_name):
+            weight = tf.Variable(initial, name='weights')
+            bias = tf.Variable(tf.zeros([shape[3]]), name='biases')
         return weight, bias
 
-    def fc_variable(self, shape, layer_name=''):
+    def fc_variable(self, shape, layer_name='fc'):
         initial = self.xavier_initializer(shape, fan_in=shape[0], fan_out=shape[1])
-        weight = tf.Variable(initial, name=self.name + '_' + layer_name + '_weights')
-        bias = tf.Variable(tf.zeros([shape[1]]), name=self.name + '_' + layer_name + '_biases')
+        with tf.variable_scope(layer_name):
+            weight = tf.Variable(initial, name='weights')
+            bias = tf.Variable(tf.zeros([shape[1]]), name='biases')
         return weight, bias
 
     def he_initializer(self, shape, fan_in=1.0, fan_out=1.0):

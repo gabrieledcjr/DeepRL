@@ -9,7 +9,7 @@ from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
 from common.util import get_action_index
 
-logger = logging.getLogger("a3c")
+logger = logging.getLogger("a3c_training_thread")
 
 class A3CTrainingThread(object):
     log_interval = 100
@@ -213,7 +213,7 @@ class A3CTrainingThread(object):
                         episode_count += 1
                         score_str = colored("score={}".format(episode_reward), "magenta")
                         steps_str = colored("steps={}".format(episode_steps), "blue")
-                        logger.debug("test: global_t={} t_idx={} total_steps={} score={} steps={}".format(global_t, self.thread_index, total_steps, score_str, steps_str))
+                        logger.debug("test: global_t={} t_idx={} total_steps={} {} {}".format(global_t, self.thread_index, total_steps, score_str, steps_str))
                         break
 
                     self.game_state.reset(hard_reset=False)

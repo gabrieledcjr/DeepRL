@@ -24,7 +24,7 @@ class DQNTraining(object):
         self, sess, network, game_state, resized_height, resized_width, phi_length, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
-        path, folder, load_demo_memory=False, demo_memory_folder=None,
+        folder, load_demo_memory=False, demo_memory_folder=None,
         train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995,
         train_with_demo_steps=0, use_transfer=False):
         """ Initialize experiment """
@@ -45,7 +45,6 @@ class DQNTraining(object):
         self.phi_length = phi_length
         self.batch = batch
         self.name = name
-        self.path = path
         self.folder = folder
         self.load_demo_memory = load_demo_memory
         self.demo_memory_folder = demo_memory_folder

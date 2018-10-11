@@ -7,7 +7,6 @@ from common.util import prepare_dir, LogFormatter
 from collect_demo import CollectDemonstration
 
 logger = logging.getLogger('get_demo')
-coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
 
 def get_demo(args):
     if args.demo_memory_folder is not None:
@@ -47,6 +46,7 @@ def main():
     Requirements: sudo apt-get install python3-tk
     python3 get_demo.py --gym-env=PongNoFrameskip-v4 --num-episodes=5 --demo-time-limit=5
     """
+    coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
     logger.setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser()
 

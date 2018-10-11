@@ -20,7 +20,7 @@ class DqnNetBn(Network):
     def __init__(
         self, sess, height, width, phi_length, n_actions, name, gamma=0.99, copy_interval=4,
         optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0., l2_decay=0.0001, error_clip=1.0,
-        slow=False, tau=0.01, verbose=False, path='', folder='_networks', decay_learning_rate=False, transfer=False):
+        slow=False, tau=0.01, verbose=False, path='', folder='_networks', decay_learning_rate=False, transfer=False, device="/cpu:0"):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
         self.gamma = gamma
@@ -260,7 +260,7 @@ class DqnNetBn(Network):
 
         self.saver = tf.train.Saver()
         self.merged = tf.summary.merge_all()
-        self.writer = tf.summary.FileWriter(self.path + self.folder + '/log_tb', self.sess.graph)
+        self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[8:], self.sess.graph)
 
     def evaluate(self, state):
         return self.sess.run(

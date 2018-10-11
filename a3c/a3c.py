@@ -41,13 +41,13 @@ def run_a3c(args):
         v = log_lo * (1-rate) + log_hi * rate
         return math.exp(v)
 
-    if not os.path.exists('results'):
-        os.mkdir('results')
+    if not os.path.exists('results/a3c'):
+        os.makedirs('results/a3c')
 
     if args.folder is not None:
-        folder = 'results/{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
+        folder = 'results/a3c/{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
     else:
-        folder = 'results/{}'.format(args.gym_env.replace('-', '_'))
+        folder = 'results/a3c/{}'.format(args.gym_env.replace('-', '_'))
         end_str = ''
         if args.use_transfer:
             end_str += '_transfer'
@@ -66,13 +66,13 @@ def run_a3c(args):
         if args.use_demo_threads:
             end_str += '_demothreads'
         if args.use_mnih_2015:
-            end_str += '_use_mnih'
+            end_str += '_mnih2015'
         if args.use_lstm:
-            end_str += '_use_lstm'
+            end_str += '_lstm'
         if args.log_scale_reward:
             end_str += '_log_reward'
         if args.use_egreedy_threads:
-            end_str += '_use_egreedy'
+            end_str += '_egreedy'
         if args.load_pretrained_model:
             if args.use_pretrained_model_as_advice:
                 end_str += '_modelasadvice'
@@ -289,8 +289,7 @@ def run_a3c(args):
     if args.use_transfer:
         initialize_uninitialized(sess)
     else:
-        init = tf.global_variables_initializer()
-        sess.run(init)
+        sess.run(tf.global_variables_initializer())
 
     # summary for tensorboard
     score_input = tf.placeholder(tf.float32)
@@ -299,7 +298,7 @@ def run_a3c(args):
     tf.summary.scalar("steps", steps_input)
 
     summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter('log/{}/'.format(args.gym_env.replace('-', '_')) + folder[8:], sess.graph)
+    summary_writer = tf.summary.FileWriter('results/log/a3c/{}/'.format(args.gym_env.replace('-', '_')) + folder[8:], sess.graph)
 
     # init or load checkpoint with saver
     root_saver = tf.train.Saver(max_to_keep=1)
@@ -522,3 +521,5 @@ def run_a3c(args):
 
     pickle.dump(rewards, open(folder + '/' + args.gym_env.replace('-', '_') + '-a3c-rewards.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
     logger.info('Data saved!')
+
+    sess.close()

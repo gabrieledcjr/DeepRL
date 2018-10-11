@@ -32,10 +32,13 @@ class AtariWrapper(gym.Wrapper):
         # self.unwrapped.ale.setInt('frame_skip'.encode('utf-8'), self.unwrapped.frameskip)
         # self.unwrapped.seed()
 
-        logger.info("lives: {}".format(self.unwrapped.ale.lives()))
-        logger.info("frameskip: {} / {}".format(self.unwrapped.ale.getInt('frame_skip'.encode('utf-8')), self.unwrapped.frameskip))
-        logger.info("repeat_action_probability: {}".format(self.unwrapped.ale.getFloat('repeat_action_probability'.encode('utf-8'))))
-        logger.info("action_space: {}".format(self.env.action_space))
+        logger.info("ALE lives: {}".format(self.unwrapped.ale.lives()))
+        #logger.info("frameskip: {} / {}".format(self.unwrapped.ale.getInt('frame_skip'.encode('utf-8')), self.unwrapped.frameskip))
+        logger.info("ALE frameskip: {} / {}".format(self.unwrapped.ale.getInt('frame_skip'.encode('utf-8')), self.unwrapped.frameskip))
+        logger.info("ALE repeat_action_probability: {}".format(self.unwrapped.ale.getFloat('repeat_action_probability'.encode('utf-8'))))
+        logger.info("Gym action_space: {}".format(self.env.action_space))
+        logger.info("AtariWrapper frameskip: {}".format(self._skip))
+        logger.info("AtariWrapper noop_max: {}".format(self.noop_max))
 
     def step(self, a):
         return self.env.step(a)
@@ -72,6 +75,7 @@ class FireResetEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
         assert len(env.unwrapped.get_action_meanings()) >= 3
+        logger.info("FireResetEnv: {}".format(True))
 
     def reset(self, **kwargs):
         self.env.reset(**kwargs)
@@ -93,6 +97,7 @@ class MaxAndSkipEnv(gym.Wrapper):
         # most recent raw observations (for max pooling across time steps)
         self._obs_buffer = np.zeros((2,)+env.observation_space.shape, dtype=np.uint8)
         self._skip = skip
+        logger.info("MaxAndSkipEnv: {}".format(True))
 
     def step(self, action):
         """Repeat action, sum reward, and max over last observations."""
@@ -122,6 +127,7 @@ class EpisodicLifeEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         self.lives = 0
         self.was_real_done = True
+        logger.info("EpisodicLifeEnv: {}".format(True))
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
@@ -153,6 +159,7 @@ class EpisodicLifeEnv(gym.Wrapper):
 class HumanDemoEnv(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
+        logger.info("HumanDemoEnv: {}".format(True))
 
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
@@ -222,6 +229,7 @@ class WarpFrame(gym.ObservationWrapper):
         self.height = 84
         self.observation_space = spaces.Box(low=0, high=255,
             shape=(self.height, self.width, 1), dtype=np.uint8)
+        logger.info("WarpFrame: {}".format(True))
 
     def observation(self, frame):
         # convert to grayscale 210x160
@@ -244,6 +252,7 @@ class ScaledFloatFrame(gym.ObservationWrapper):
     def __init__(self, env):
         gym.ObservationWrapper.__init__(self, env)
         self.observation_space = gym.spaces.Box(low=0, high=1, shape=env.observation_space.shape, dtype=np.float32)
+        logger.info("ScaledFloatFrame: {}".format(True))
 
     def observation(self, observation):
         # careful! This undoes the memory optimization, use
