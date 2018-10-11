@@ -481,11 +481,12 @@ class A3CTrainingThread(object):
             values.append(value_)
 
             if self.thread_index == 0 and self.local_t % self.log_interval == 0:
-                logger.debug("lg={}".format(np.array_str(logits_, precision=4, suppress_small=True)))
-                logger.debug("pi={}".format(np.array_str(pi_, precision=4, suppress_small=True)))
-                logger.debug("V={}".format(value_))
+                log_msg = "lg={} ".format(np.array_str(logits_, precision=4, suppress_small=True))
+                log_msg += "pi={} ".format(np.array_str(pi_, precision=4, suppress_small=True))
+                log_msg += "V={:.4f} ".format(value_)
                 if self.use_pretrained_model_as_advice:
-                    logger.debug("psi={}".format(self.psi))
+                    log_msg += "psi={:.4f}".format(self.psi)
+                logger.debug(log_msg)
 
             # process game
             self.game_state.step(action)
@@ -532,7 +533,7 @@ class A3CTrainingThread(object):
 
             if terminal:
                 if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
-                    log_msg = "t_idx={} local_t={}".format(self.thread_index, self.local_t)
+                    log_msg = "train: worker={} global_t={}".format(self.thread_index, global_t)
                     if self.use_pretrained_model_as_advice:
                         log_msg += " advice_ctr={}".format(self.advice_ctr)
                     if self.use_pretrained_model_as_reward_shaping:
@@ -575,7 +576,7 @@ class A3CTrainingThread(object):
             rho.append(self.last_rho)
             self.last_rho = rho[0]
             i = 0
-            # compute and accmulate gradients
+            # compute and accumulate gradients
             for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
                 # Wiewiora et al.(2003) Principled Methods for Advising RL agents
                 # Look-Back Advice
@@ -600,7 +601,7 @@ class A3CTrainingThread(object):
                 batch_R.append(R)
                 i += 1
         else:
-            # compute and accmulate gradients
+            # compute and accumulate gradients
             for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
                 R = ri + self.gamma * R
                 td = R - Vi
