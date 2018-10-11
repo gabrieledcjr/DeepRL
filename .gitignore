@@ -12,6 +12,15 @@ checkpoints*/*
 *_demo_samples*/
 *demo_samples
 
+# Singularity/Tensorflow files
+.bash_history
+.python_history
+.nv/
+.keras/
+.imageio/
+cmd
+*.srun
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
