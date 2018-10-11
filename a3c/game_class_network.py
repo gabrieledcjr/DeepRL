@@ -66,7 +66,7 @@ class GameClassNetwork(ABC):
                 return tf.group(*sync_ops, name=name)
 
     def conv_variable(self, shape, layer_name='conv'):
-        initial = self.xavier_initializer(
+        initial = self.he_initializer(
             shape,
             fan_in=shape[2] * shape[0] * shape[1],
             fan_out=shape[3] * shape[0] * shape[1])
@@ -76,7 +76,7 @@ class GameClassNetwork(ABC):
         return weight, bias
 
     def fc_variable(self, shape, layer_name='fc'):
-        initial = self.xavier_initializer(shape, fan_in=shape[0], fan_out=shape[1])
+        initial = self.he_initializer(shape, fan_in=shape[0], fan_out=shape[1])
         with tf.variable_scope(layer_name):
             weight = tf.Variable(initial, name='weights')
             bias = tf.Variable(tf.zeros([shape[1]]), name='biases')

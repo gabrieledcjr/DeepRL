@@ -118,32 +118,32 @@ def test_keys(env_id):
     while True:
         sys_state = test_game.clone_full_state()
         sys_states.append((sys_state, test_game.get_episode_frame_number()))
-        print("frame number: ", test_game.get_episode_frame_number())
         a = test_game.env.human_agent_action
         test_game.step(a)
         # new_state = test_game.x_t
         # (score, diff) = compare_ssim(state, new_state, full=True)
-        # print("SSIM: {}".format(score))
+        # logger.info("SSIM: {}".format(score))
         # state = new_state
         # edges = filters.sobel(state)
         # cv2.imshow("edges", test_game.x_t)
         # cv2.waitKey(1)
         if test_game.gain_life:
-            print ("Gain Life")
+            logger.info("Gain Life")
         if test_game.loss_life:
-            print ("Lost life!")
+            logger.warn("Lost life!")
+            logger.info("frame number: ", test_game.get_episode_frame_number())
             restore = True
             last_num_ctr += 1
             if last_num_steps == 0:
                 last_num_steps = len(sys_states)
-                print('last_num_steps={}'.format(last_num_steps))
+                logger.info('last_num_steps={}'.format(last_num_steps))
             elif last_num_steps > len(sys_states):
-                print('last_num_ctr={}'.format(last_num_ctr))
+                logger.info('last_num_ctr={}'.format(last_num_ctr))
                 if last_num_ctr == max_repeat:
                     restore = False
             if restore:
                 full_state, frame_num = sys_states.popleft()
-                print("\trestore frame number: ", frame_num)
+                logger.info("\trestore frame number: ", frame_num)
                 test_game.restore_full_state(full_state)
             steps = 0
             sys_states.clear()
@@ -152,19 +152,19 @@ def test_keys(env_id):
             last_num_ctr = 0
             sys_states.clear()
         elif test_game.reward < 0:
-            print ("Reward: ", test_game.reward)
+            logger.info("Reward: ", test_game.reward)
             restore = True
             last_num_ctr += 1
             if last_num_steps == 0:
                 last_num_steps = len(sys_states)
-                print('last_num_steps={}'.format(last_num_steps))
+                logger.info('last_num_steps={}'.format(last_num_steps))
             elif last_num_steps > len(sys_states):
-                print('last_num_ctr={}'.format(last_num_ctr))
+                logger.info('last_num_ctr={}'.format(last_num_ctr))
                 if last_num_ctr == max_repeat:
                     restore = False
             if restore:
                 full_state, frame_num = sys_states.popleft()
-                print("\trestore frame number: ", frame_num)
+                logger.info("\trestore frame number: ", frame_num)
                 test_game.restore_full_state(full_state)
             steps = 0
             sys_states.clear()
