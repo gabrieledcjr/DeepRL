@@ -163,9 +163,9 @@ class A3CTrainingThread(object):
         # copy weights from shared to local
         sess.run( self.sync )
 
-        total_ep_rewards = 0.
+        total_ep_rewards = 0
         total_ep_steps = 0
-        total_steps = 0.
+        total_steps = 0
         episode_count = 0
         while True:
             self.game_state.reset(hard_reset=True)
