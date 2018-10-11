@@ -172,10 +172,13 @@ class DQNTraining(object):
                     time.sleep(0.5)
                 self._reset(testing=True, hard_reset=False)
 
-        # (timestep, total sum of rewards, total # of steps before terminating)
-        total_reward = total_reward / max(1, n_episodes)
-        total_steps = total_steps / max(1, n_episodes)
-        total_reward = total_reward
+        if n_episodes == 0:
+            total_reward = sub_total_reward
+            total_steps = sub_steps
+        else:
+            # (timestep, total sum of rewards, total # of steps before terminating)
+            total_reward = total_reward / n_episodes
+            total_steps = total_steps // n_episodes
         self.rewards['eval'][self.global_t] = (total_reward, total_steps, n_episodes)
         return total_reward, total_steps, n_episodes
 

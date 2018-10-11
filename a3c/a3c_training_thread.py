@@ -225,8 +225,12 @@ class A3CTrainingThread(object):
                 logger.debug("test: global_t={} worker={} total_steps={} score={} steps={} max steps reached".format(global_t, self.thread_index, total_steps, episode_reward, episode_steps))
                 break
 
-        testing_reward = total_ep_rewards / episode_count
-        testing_steps = total_ep_steps // episode_count
+        if episode_count == 0:
+            testing_reward = episode_reward
+            testing_steps = episode_steps
+        else:
+            testing_reward = total_ep_rewards / episode_count
+            testing_steps = total_ep_steps // episode_count
         logger.info("test: global_t={} worker={} final score={} final steps={} # trials={}".format(global_t, self.thread_index, testing_reward, testing_steps, episode_count))
 
         self.record_summary(

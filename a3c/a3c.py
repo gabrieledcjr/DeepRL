@@ -446,9 +446,9 @@ def run_a3c(args):
                             logger.info("Threading race problem averted!")
                             continue
                         test_lock = True
-                        test_reward, test_steps = training_thread.testing(
+                        test_reward, test_steps, n_episodes = training_thread.testing(
                             sess, args.eval_max_steps, temp_global_t)
-                        rewards['eval'][temp_global_t] = (test_reward, test_steps)
+                        rewards['eval'][temp_global_t] = (test_reward, test_steps, n_episodes)
                         if temp_global_t % ((args.max_time_step * args.max_time_step_fraction) // 5) == 0:
                             saver.save(
                                 sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')),
