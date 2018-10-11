@@ -123,7 +123,7 @@ class DQNTraining(object):
             wall_t = 0.0
         return wall_t
 
-    def test(self, render=False):self.global_t - self.observe
+    def test(self, render=False):
         # re-initialize game for evaluation
         episode_buffer = []
         self._reset(testing=True, hard_reset=True)
