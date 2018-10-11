@@ -35,7 +35,7 @@ class DqnNet(Network):
         self.folder = folder
         self.copy_interval = copy_interval
         self.update_counter = 0
-        self_device = device
+        self._device = device
 
         self.slow_learnrate_vars = []
         self.fast_learnrate_vars = []
