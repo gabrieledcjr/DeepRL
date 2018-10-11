@@ -210,7 +210,7 @@ class A3CTrainingThread(object):
                         episode_count += 1
                         score_str = colored("score={}".format(episode_reward), "magenta")
                         steps_str = colored("steps={}".format(episode_steps), "blue")
-                        logger.debug("test: global_t={} t_idx={} total_steps={} {} {}".format(global_t, self.thread_index, total_steps, score_str, steps_str))
+                        logger.debug("test: global_t={} worker={} trial={} {} {} total_steps={}".format(global_t, self.thread_index, episode_count, score_str, steps_str, total_steps))
                         break
 
                     self.game_state.reset(hard_reset=False)
@@ -218,12 +218,12 @@ class A3CTrainingThread(object):
                         self.local_network.reset_state()
 
             if total_steps >= max_steps:
-                logger.debug("test: global_t={} t_idx={} total_steps={} score={} steps={} max steps reached".format(global_t, self.thread_index, total_steps, episode_reward, episode_steps))
+                logger.debug("test: global_t={} worker={} total_steps={} score={} steps={} max steps reached".format(global_t, self.thread_index, total_steps, episode_reward, episode_steps))
                 break
 
         testing_reward = total_ep_rewards / episode_count
         testing_steps = total_ep_steps // episode_count
-        logger.info("Test Evaluation: global_t={} t_idx={} final score={} final steps={}".format(global_t, self.thread_index, testing_reward, testing_steps))
+        logger.info("test: global_t={} worker={} final score={} final steps={} # trials={}".format(global_t, self.thread_index, testing_reward, testing_steps, episode_count))
 
         summary = tf.Summary()
         summary.value.add(tag='Testing/score', simple_value=float(testing_reward))
@@ -258,7 +258,7 @@ class A3CTrainingThread(object):
         #           self.demo_memory_max_count = np.random.randint(self.demo_memory_count+self.local_t_max, len(self.demo_memory[self.demo_memory_idx]))
         # else:
         #           self.demo_memory_max_count = len(self.demo_memory[self.demo_memory_idx])
-        logger.debug("t_idx={} mem_reset demo_memory_idx={} demo_memory_start={}".format(self.thread_index, self.demo_memory_idx, self.demo_memory_count))
+        logger.debug("worker={} mem_reset demo_memory_idx={} demo_memory_start={}".format(self.thread_index, self.demo_memory_idx, self.demo_memory_count))
         s_t, action, reward, terminal = self.demo_memory[self.demo_memory_idx][self.demo_memory_count]
         self.demo_memory_action = action
         self.demo_memory_reward = reward
@@ -312,9 +312,10 @@ class A3CTrainingThread(object):
             values.append(value_)
 
             if (self.thread_index == 0) and (self.local_t % self.log_interval == 0):
-                logger.debug("lg={}".format(np.array_str(logits_, precision=4, suppress_small=True)))
-                logger.debug("pi={}".format(np.array_str(pi_, precision=4, suppress_small=True)))
-                logger.debug("V={}".format(value_))
+                log_msg = "lg={}".format(np.array_str(logits_, precision=4, suppress_small=True))
+                log_msg += " pi={}".format(np.array_str(pi_, precision=4, suppress_small=True))
+                log_msg += " V={:.4f}".format(value_)
+                logger.debug(log_msg)
 
             # process replay memory
             self.replay_mem_process()
@@ -341,7 +342,7 @@ class A3CTrainingThread(object):
             s_t = self.demo_memory_s_t
 
             if terminal or self.demo_memory_count == len(self.demo_memory[self.demo_memory_idx]):
-                logger.debug("t_idx={} score={}".format(self.thread_index, self.episode_reward))
+                logger.debug("worker={} score={}".format(self.thread_index, self.episode_reward))
                 demo_ended = True
                 if terminal:
                     terminal_end = True
@@ -481,11 +482,11 @@ class A3CTrainingThread(object):
             values.append(value_)
 
             if self.thread_index == 0 and self.local_t % self.log_interval == 0:
-                log_msg = "lg={} ".format(np.array_str(logits_, precision=4, suppress_small=True))
-                log_msg += "pi={} ".format(np.array_str(pi_, precision=4, suppress_small=True))
-                log_msg += "V={:.4f} ".format(value_)
+                log_msg = "lg={}".format(np.array_str(logits_, precision=4, suppress_small=True))
+                log_msg += " pi={}".format(np.array_str(pi_, precision=4, suppress_small=True))
+                log_msg += " V={:.4f}".format(value_)
                 if self.use_pretrained_model_as_advice:
-                    log_msg += "psi={:.4f}".format(self.psi)
+                    log_msg += " psi={:.4f}".format(self.psi)
                 logger.debug(log_msg)
 
             # process game

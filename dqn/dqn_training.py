@@ -161,8 +161,10 @@ class DQNTraining(object):
                             true_image=True, salience=False)
                         episode_buffer = []
                     n_episodes += 1
-                    log_data = (self.global_t, n_episodes, sub_total_reward, sub_steps, total_steps)
-                    logger.debug("test: global_t={} trial={} reward={} steps={} total_steps={}".format(*log_data))
+                    score_str = colored("score={}".format(sub_total_reward), "magenta")
+                    steps_str = colored("steps={}".format(sub_steps), "blue")
+                    log_data = (self.global_t, n_episodes, score_str, steps_str, total_steps)
+                    logger.debug("test: global_t={} trial={} score={} steps={} total_steps={}".format(*log_data))
                     total_reward += sub_total_reward
                     total_steps += sub_steps
                     sub_total_reward = 0.0
@@ -218,7 +220,7 @@ class DQNTraining(object):
                 total_reward, total_steps, n_episodes = self.test()
                 self.net.add_accuracy(total_reward, total_steps, n_episodes, (self.global_t - self.observe))
                 log_data = (self.global_t, total_reward, total_steps, n_episodes)
-                logger.debug("test: global_t={} ave_reward={} ave_total_steps={} n_episodes={}".format(*log_data))
+                logger.debug("test: global_t={} final score={} final steps={} # episodes={}".format(*log_data))
                 # re-initialize game for training
                 ## self.game_state.reset(random_restart=True)
                 ## observation = self._reset()
@@ -288,8 +290,10 @@ class DQNTraining(object):
             if terminal:
                 if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
                     self.rewards['train'][self.global_t] = (sub_total_reward, sub_steps)
-                    log_data = (self.global_t, sub_total_reward, sub_steps)
-                    logger.debug("train: global_t={} sub_total_reward={} sub_steps={}".format(*log_data))
+                    score_str = colored("score={}".format(sub_total_reward), "magenta")
+                    steps_str = colored("steps={}".format(sub_steps), "blue")
+                    log_data = (self.global_t, score_str, steps_str)
+                    logger.debug("train: global_t={} score={} steps={}".format(*log_data))
                     sub_total_reward = 0.0
                     sub_steps = 0
                 self._reset(hard_reset=False)
@@ -326,17 +330,17 @@ class DQNTraining(object):
             if self.global_t%10000 == 0:
                 if self.use_human_advice:
                     log_data = (
-                        self.global_t, state, self.epsilon,
+                        state, self.global_t, self.epsilon,
                         self.psi, use_advice, action, np.max(readout_t))
                     logger.debug(
-                        "global_t={0:} state={1:} epsilon={2:.4f} psi={3:.4f} \
+                        "{0:}: global_t={1:} epsilon={2:.4f} psi={3:.4f} \
                         advice={4:} action={5:} q_max={6:.4f}".format(*log_data))
                 else:
                     log_data = (
-                        self.global_t, state, self.epsilon,
+                        state, self.global_t, self.epsilon,
                         action, np.max(readout_t))
                     logger.debug(
-                        "global_t={0:} state={1:} epsilon={2:.4f} action={3:} "
+                        "{0:}: global_t={1:} epsilon={2:.4f} action={3:} "
                         "q_max={4:.4f}".format(*log_data))
 
 NUM_THREADS = 16
