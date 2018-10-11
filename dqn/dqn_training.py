@@ -123,7 +123,7 @@ class DQNTraining(object):
             wall_t = 0.0
         return wall_t
 
-    def test(self, render=False):
+    def test(self, render=False):self.global_t - self.observe
         # re-initialize game for evaluation
         episode_buffer = []
         self._reset(testing=True, hard_reset=True)
@@ -176,7 +176,7 @@ class DQNTraining(object):
         total_reward = total_reward / max(1, n_episodes)
         total_steps = total_steps / max(1, n_episodes)
         total_reward = total_reward
-        self.rewards['eval'][self.global_t] = (total_reward, total_steps)
+        self.rewards['eval'][self.global_t] = (total_reward, total_steps, n_episodes)
         return total_reward, total_steps, n_episodes
 
     def train_with_demo_memory_only(self):
@@ -213,12 +213,14 @@ class DQNTraining(object):
         sub_total_reward = 0.0
         sub_steps = 0
 
-        while (self.global_t - self.observe) < self.train_max_steps:
+        while self.global_t < self.train_max_steps:
             # Evaluation of policy
-            if (self.global_t - self.observe) >= 0 and (self.global_t - self.observe) % self.eval_freq == 0:
+            if self.global_t % self.eval_freq == 0:
                 terminal = 0
                 total_reward, total_steps, n_episodes = self.test()
-                self.net.add_accuracy(total_reward, total_steps, n_episodes, (self.global_t - self.observe))
+                self.net.record_summary(
+                    score=total_reward, steps=total_steps,
+                    episodes=n_episodes, global_t=self.global_t, mode='Test')
                 log_data = (self.global_t, total_reward, total_steps, n_episodes)
                 logger.debug("test: global_t={} final score={} final steps={} # episodes={}".format(*log_data))
                 # re-initialize game for training
@@ -248,6 +250,7 @@ class DQNTraining(object):
                 if (self.global_t - self.observe) >= self.explore:
                     self.psi *= self.init_psi
 
+                # TODO: Determine if I want advice during observation or only during exploration
                 if random.random() > self.final_epsilon:
                     psi_cond = True if self.psi == self.init_psi else (self.psi > random.random())
                     if psi_cond:
@@ -264,7 +267,7 @@ class DQNTraining(object):
             terminal = self.game_state.terminal
             ## next_observation, reward, terminal = self.game_state.step(action, random_restart=True)
             ## next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
-            terminal_ = terminal or ((self.global_t+1 - self.observe) >= 0 and (self.global_t+1 - self.observe) % self.eval_freq == 0)
+            terminal_ = terminal or ((self.global_t+1) % self.eval_freq == 0)
 
             # store the transition in D
             ## self.replay_memory.add_sample(observation, action, reward, (1 if terminal_ else 0))
@@ -285,7 +288,7 @@ class DQNTraining(object):
                 s_j_batch, a_batch, r_batch, terminals, s_j1_batch = self.replay_memory.sample(self.batch)
                 # perform gradient step
                 summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
-                self.net.add_summary(summary, self.global_t-self.observe)
+                self.net.add_summary(summary, self.global_t)
 
             if terminal:
                 if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
@@ -294,13 +297,16 @@ class DQNTraining(object):
                     steps_str = colored("steps={}".format(sub_steps), "blue")
                     log_data = (self.global_t, score_str, steps_str)
                     logger.debug("train: global_t={} score={} steps={}".format(*log_data))
+                    self.net.record_summary(
+                        score=sub_total_reward, steps=sub_steps,
+                        episodes=None, global_t=self.global_t, mode='Train')
                     sub_total_reward = 0.0
                     sub_steps = 0
                 self._reset(hard_reset=False)
 
 
             # save progress every SAVE_FREQ iterations
-            if (self.global_t-self.observe) % self.save_freq == 0:
+            if self.global_t % self.save_freq == 0:
                 wall_t = time.time() - start_time
                 logger.info('Total time: {} seconds'.format(wall_t))
                 wall_t_fname = self.folder + '/' + 'wall_t.' + str(self.global_t)

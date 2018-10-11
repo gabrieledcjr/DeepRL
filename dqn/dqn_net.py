@@ -279,12 +279,13 @@ class DqnNet(Network):
         self.update_counter += 1
         return summary[0]
 
-    def add_accuracy(self, mean_reward, mean_length, n_episodes, step):
+    def record_summary(self, score=0, steps=0, episodes=None, global_t=0, mode='Test'):
         summary = tf.Summary()
-        summary.value.add(tag='Perf/Reward', simple_value=float(mean_reward))
-        summary.value.add(tag='Perf/Length', simple_value=float(mean_length))
-        summary.value.add(tag='Perf/Episodes', simple_value=float(n_episodes))
-        self.writer.add_summary(summary, step)
+        summary.value.add(tag='{}/score'.format(mode), simple_value=float(score))
+        summary.value.add(tag='{}/steps'.format(mode), simple_value=float(steps))
+        if episodes is not None:
+            summary.value.add(tag='{}/episodes'.format(mode), simple_value=float(episodes))
+        self.writer.add_summary(summary, global_t)
         self.writer.flush()
 
     def add_summary(self, summary, step):

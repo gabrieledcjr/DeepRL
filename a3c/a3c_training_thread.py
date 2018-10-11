@@ -147,13 +147,17 @@ class A3CTrainingThread(object):
         confidence = actions_confidence[max_confidence_action]
         return (max_confidence_action+(1 if exclude_noop else 0)), confidence
 
-    def _record_summary(self, sess, summary_writer, summary_op, score_input, steps_input, score, steps, global_t):
-        summary_str = sess.run(summary_op, feed_dict={
-            score_input: float(score),
-            steps_input: steps
-        })
-        summary_writer.add_summary(summary_str, global_t)
-        summary_writer.flush()
+    def set_summary_writer(self, writer):
+        self.writer = writer
+
+    def record_summary(self, score=0, steps=0, episodes=None, global_t=0, mode='Test'):
+        summary = tf.Summary()
+        summary.value.add(tag='{}/score'.format(mode), simple_value=float(score))
+        summary.value.add(tag='{}/steps'.format(mode), simple_value=float(steps))
+        if episodes is not None:
+            summary.value.add(tag='{}/episodes'.format(mode), simple_value=float(episodes))
+        self.writer.add_summary(summary, global_t)
+        self.writer.flush()
 
     def set_start_time(self, start_time):
         self.start_time = start_time
@@ -225,11 +229,9 @@ class A3CTrainingThread(object):
         testing_steps = total_ep_steps // episode_count
         logger.info("test: global_t={} worker={} final score={} final steps={} # trials={}".format(global_t, self.thread_index, testing_reward, testing_steps, episode_count))
 
-        summary = tf.Summary()
-        summary.value.add(tag='Testing/score', simple_value=float(testing_reward))
-        summary.value.add(tag='Testing/steps', simple_value=testing_steps)
-        summary_writer.add_summary(summary, global_t)
-        summary_writer.flush()
+        self.record_summary(
+            score=testing_reward, steps=testing_steps,
+            episodes=episode_count, global_t=global_t, mode='Test')
 
         self.episode_reward = 0
         self.episode_steps = 0
@@ -240,7 +242,7 @@ class A3CTrainingThread(object):
 
         if self.use_lstm:
             self.local_network.reset_state()
-        return testing_reward, testing_steps
+        return testing_reward, testing_steps, episode_count
 
     def pretrain_init(self, demo_memory):
         self.demo_memory_size = len(demo_memory)
@@ -548,6 +550,9 @@ class A3CTrainingThread(object):
                         sess, summary_writer, summary_op,
                         score_input, steps_input,
                         self.episode_reward, self.episode_steps, global_t)
+                    self.record_summary(
+                        score=self.episode_reward, steps=self.episode_steps,
+                        episodes=None, global_t=global_t, mode='Train')
                     self.episode_reward = 0
                     self.episode_steps = 0
 

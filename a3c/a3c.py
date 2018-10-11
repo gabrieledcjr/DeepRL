@@ -291,12 +291,7 @@ def run_a3c(args):
     else:
         sess.run(tf.global_variables_initializer())
 
-    # summary for tensorboard
-    score_input = tf.placeholder(tf.float32)
-    tf.summary.scalar("score", score_input)
-    steps_input = tf.placeholder(tf.int32)
-    tf.summary.scalar("steps", steps_input)
-
+    # summary writer for tensorboard
     summary_op = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter('results/log/a3c/{}/'.format(args.gym_env.replace('-', '_')) + folder[12:], sess.graph)
 
@@ -344,6 +339,8 @@ def run_a3c(args):
             last_temp_global_t, ispretrain_markers, num_demo_thread, \
             ctr_demo_thread
         training_thread = training_threads[parallel_index]
+
+        training_thread.set_summary_writer(summary_writer)
 
         # set all threads as demo threads
         training_thread.is_demo_thread = args.load_memory and args.use_demo_threads
@@ -393,10 +390,10 @@ def run_a3c(args):
         if not stop_requested and global_t == 0:
             with lock:
                 if parallel_index == 0:
-                    test_reward, test_steps = training_threads[0].testing(
+                    test_reward, test_steps, test_episodes = training_threads[0].testing(
                         sess, args.eval_max_steps, global_t,
                         summary_writer)
-                    rewards['eval'][global_t] = (test_reward, test_steps)
+                    rewards['eval'][global_t] = (test_reward, test_steps, test_episodes)
                     saver.save(sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step=global_t)
                     save_best_model(test_reward)
                     test_lock = False
