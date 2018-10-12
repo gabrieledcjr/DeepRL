@@ -140,13 +140,6 @@ class DqnNet(Network):
         with tf.device(self._device):
             # cost of q network
             self.cost = self.build_loss(error_clip, n_actions) #+ self.l2_regularizer_loss
-            # self.parameters = [
-            #     self.W_conv1, self.b_conv1,
-            #     self.W_conv2, self.b_conv2,
-            #     self.W_conv3, self.b_conv3,
-            #     self.W_fc1, self.b_fc1,
-            #     self.W_fc2, self.b_fc2,
-            # ]
 
             with tf.name_scope("Train") as scope:
                 if optimizer == "Graves":
@@ -194,41 +187,43 @@ class DqnNet(Network):
             self.sess.run(tf.global_variables_initializer())
 
         # Make sure q and target model have same initial parameters copy the parameters
-        self.sess.run([
-            self.t_W_conv1.assign(self.W_conv1), self.t_b_conv1.assign(self.b_conv1),
-            self.t_W_conv2.assign(self.W_conv2), self.t_b_conv2.assign(self.b_conv2),
-            self.t_W_conv3.assign(self.W_conv3), self.t_b_conv3.assign(self.b_conv3),
-            self.t_W_fc1.assign(self.W_fc1), self.t_b_fc1.assign(self.b_fc1),
-            self.t_W_fc2.assign(self.W_fc2), self.t_b_fc2.assign(self.b_fc2)
-        ])
-
-        with tf.device(self._device):
-            if self.slow:
-                self.update_target_op = [
-                    self.t_W_conv1.assign(self.tau*self.W_conv1 + (1-self.tau)*self.t_W_conv1),
-                    self.t_b_conv1.assign(self.tau*self.b_conv1 + (1-self.tau)*self.t_b_conv1),
-                    self.t_W_conv2.assign(self.tau*self.W_conv2 + (1-self.tau)*self.t_W_conv2),
-                    self.t_b_conv2.assign(self.tau*self.b_conv2 + (1-self.tau)*self.t_b_conv2),
-                    self.t_W_conv3.assign(self.tau*self.W_conv3 + (1-self.tau)*self.t_W_conv3),
-                    self.t_b_conv3.assign(self.tau*self.b_conv3 + (1-self.tau)*self.t_b_conv3),
-                    self.t_W_fc1.assign(self.tau*self.W_fc1 + (1-self.tau)*self.t_W_fc1),
-                    self.t_b_fc1.assign(self.tau*self.b_fc1 + (1-self.tau)*self.t_b_fc1),
-                    self.t_W_fc2.assign(self.tau*self.W_fc2 + (1-self.tau)*self.t_W_fc2),
-                    self.t_b_fc2.assign(self.tau*self.b_fc2 + (1-self.tau)*self.t_b_fc2),
-                ]
-            else:
-                self.update_target_op = [
-                    self.t_W_conv1.assign(self.W_conv1), self.t_b_conv1.assign(self.b_conv1),
-                    self.t_W_conv2.assign(self.W_conv2), self.t_b_conv2.assign(self.b_conv2),
-                    self.t_W_conv3.assign(self.W_conv3), self.t_b_conv3.assign(self.b_conv3),
-                    self.t_W_fc1.assign(self.W_fc1), self.t_b_fc1.assign(self.b_fc1),
-                    self.t_W_fc2.assign(self.W_fc2), self.t_b_fc2.assign(self.b_fc2),
-                ]
+        self.update_target_network(slow=False)
+        logger.info("target model assigned the same parameters as q model")
 
         self.saver = tf.train.Saver()
         if self.folder is not None:
-            self.merged = tf.summary.merge_all()
+            self.summary_op = tf.summary.merge_all()
             self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[12:], self.sess.graph)
+
+    def update_target_network(self, name=None, slow=False):
+        self.sess.run(self.update_target_op(name=name, slow=slow))
+
+    def update_target_op(self, name=None, slow=False):
+        src_vars = [
+            self.W_conv1, self.b_conv1,
+            self.W_conv2, self.b_conv2,
+            self.W_conv3, self.b_conv3,
+            self.W_fc1, self.b_fc1,
+            self.W_fc2, self.b_fc2]
+        dst_vars = [
+            self.t_W_conv1, self.t_b_conv1,
+            self.t_W_conv2, self.t_b_conv2,
+            self.t_W_conv3, self.t_b_conv3,
+            self.t_W_fc1, self.t_b_fc1,
+            self.t_W_fc2, self.t_b_fc2]
+
+        sync_ops = []
+        with tf.device(self._device):
+            with tf.name_scope(name, "DqnNet", []) as name:
+                for (src_var, dst_var) in zip(src_vars, dst_vars):
+                    if slow:
+                        slow_src_var = tf.multiply(dst_var, 1 - self.tau) + tf.multiply(src_var, self.tau)
+                        sync_op = tf.assign(dst_var, slow_src_var)
+                    else:
+                        sync_op = tf.assign(dst_var, src_var)
+                    sync_ops.append(sync_op)
+
+                return tf.group(*sync_ops, name=name)
 
     def evaluate(self, state):
         return self.sess.run(self.q_value, feed_dict={self.observation: [state]})
@@ -237,7 +232,7 @@ class DqnNet(Network):
         return self.sess.run(self.t_q_value, feed_dict={self.next_observation: [state]})
 
     def build_loss(self, error_clip, n_actions):
-        with tf.name_scope("Cost") as scope:
+        with tf.name_scope("Loss") as scope:
             predictions = tf.reduce_sum(tf.multiply(self.q_value, self.actions), axis=1)
             max_action_values = tf.reduce_max(self.t_q_value, 1)
             clipped_rewards = tf.clip_by_value(self.rewards, -1., 1.)
@@ -249,8 +244,8 @@ class DqnNet(Network):
                 errors = (0.5 * tf.square(quadratic_part)) + (error_clip * linear_part)
             else:
                 errors = (0.5 * tf.square(difference))
-            cost = tf.reduce_sum(errors, name='loss')
-            tf.summary.scalar("cost", cost)
+            loss = tf.reduce_sum(errors)
+            tf.summary.scalar("loss", loss)
             tf.summary.scalar("cost_0", errors[0])
             tf.summary.scalar("cost_max", tf.reduce_max(errors))
             tf.summary.scalar("target_0", targets[0])
@@ -258,10 +253,10 @@ class DqnNet(Network):
             tf.summary.scalar("acted_Q_0", predictions[0])
             tf.summary.scalar("acted_Q_max", tf.reduce_max(predictions))
             tf.summary.scalar("reward_max", tf.reduce_max(clipped_rewards))
-            return cost
+            return loss
 
     def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal):
-        t_ops = [self.merged, self.train_step, self.cost]
+        t_ops = [self.summary_op, self.train_step, self.cost]
         summary = self.sess.run(
             t_ops,
             feed_dict={
@@ -269,13 +264,10 @@ class DqnNet(Network):
                 self.actions: a_batch,
                 self.next_observation: s_j1_batch,
                 self.rewards: r_batch,
-                self.terminals: terminal
-            }
-        )
+                self.terminals: terminal})
         if self.update_counter % self.copy_interval == 0:
-            if not self.slow:
-                logger.info('Update target network')
-            self.update_target_network()
+            logger.info('Update target network')
+            self.update_target_network(slow=self.slow)
         self.update_counter += 1
         return summary[0]
 
@@ -291,9 +283,6 @@ class DqnNet(Network):
     def add_summary(self, summary, step):
         self.writer.add_summary(summary, step)
         self.writer.flush()
-
-    def update_target_network(self):
-        self.sess.run(self.update_target_op)
 
     def load(self, folder=None):
         has_checkpoint = False
