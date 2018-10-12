@@ -27,12 +27,12 @@ class GameACNetwork(ABC):
         self._device = device
 
     def prepare_loss(self):
-        with tf.device(self._device):
+        with tf.name_scope("Loss") as scope:
             # taken action (input for policy)
-            self.a = tf.placeholder(tf.float32, [None, self._action_size])
+            self.a = tf.placeholder(tf.float32, shape=[None, self._action_size], name="action")
 
             # temporary difference (R-V) (input for policy)
-            self.td = tf.placeholder(tf.float32, [None])
+            self.td = tf.placeholder(tf.float32, shape=[None], name="td")
 
             # avoid NaN with clipping when value in pi becomes zero
             #log_pi = tf.nn.log_softmax(tf.clip_by_value(self.logits, -10.0, 10.0))
@@ -57,11 +57,11 @@ class GameACNetwork(ABC):
             self.entropy_beta = tf.placeholder(tf.float32, shape=(), name="entropy_beta")
 
             # policy loss (output)  (Adding minus, because the original paper's objective function is for gradient ascent, but we use gradient descent optimizer.)
-            policy_loss = -tf.reduce_sum( tf.reduce_sum( tf.multiply(log_pi, self.a), axis=1 ) * self.td + entropy * self.entropy_beta)
+            policy_loss = -tf.reduce_sum(tf.reduce_sum(tf.multiply(log_pi, self.a), axis=1) * self.td + entropy * self.entropy_beta)
             # policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ) + l_losses, axis=1 ) * self.td + entropy * entropy_beta)
 
             # R (input for value)
-            self.r = tf.placeholder(tf.float32, [None])
+            self.r = tf.placeholder(tf.float32, shape=[None], name="reward")
 
             # value loss (output)
             # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
@@ -95,7 +95,6 @@ class GameACNetwork(ABC):
             dst_vars = self.get_vars()
 
         sync_ops = []
-
         with tf.device(self._device):
             with tf.name_scope(name, "GameACNetwork", []) as name:
                 for(src_var, dst_var) in zip(src_vars, dst_vars):
@@ -295,8 +294,8 @@ class GameACLSTMNetwork(GameACNetwork):
                 self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
                 self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.lstm_cells_size], layer_name='fc1')
             else:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2')
                 self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.lstm_cells_size], layer_name='fc1')
 
             # lstm
@@ -320,8 +319,8 @@ class GameACLSTMNetwork(GameACNetwork):
                 h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n, self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n, self.W_conv1, 4) + self.b_conv1) # stride=4
+                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2) # stride=2
 
                 h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)

@@ -78,6 +78,7 @@ def run_a3c(args):
                 end_str += '_modelasadvice'
             if args.use_pretrained_model_as_reward_shaping:
                 end_str += '_modelasshaping'
+        end_str += '_tmax{}'.format(args.local_t_max)
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -173,7 +174,7 @@ def run_a3c(args):
 
     training_threads = []
 
-    learning_rate_input = tf.placeholder("float")
+    learning_rate_input = tf.placeholder(tf.float32, shape=(), name="opt_lr")
 
     grad_applier = RMSPropApplier(
         learning_rate = learning_rate_input,
@@ -323,6 +324,7 @@ def run_a3c(args):
         prepare_dir(folder, empty=True)
         prepare_dir(folder + '/model_checkpoints', empty=True)
         prepare_dir(folder + '/model_best', empty=True)
+        prepare_dir(folder + '/frames', empty=True)
 
     lock = threading.Lock()
     test_lock = False
@@ -391,7 +393,7 @@ def run_a3c(args):
             with lock:
                 if parallel_index == 0:
                     test_reward, test_steps, test_episodes = training_threads[0].testing(
-                        sess, args.eval_max_steps, global_t)
+                        sess, args.eval_max_steps, global_t, folder)
                     rewards['eval'][global_t] = (test_reward, test_steps, test_episodes)
                     saver.save(sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step=global_t)
                     save_best_model(test_reward)
@@ -447,7 +449,7 @@ def run_a3c(args):
                             continue
                         test_lock = True
                         test_reward, test_steps, n_episodes = training_thread.testing(
-                            sess, args.eval_max_steps, temp_global_t)
+                            sess, args.eval_max_steps, temp_global_t, folder)
                         rewards['eval'][temp_global_t] = (test_reward, test_steps, n_episodes)
                         if temp_global_t % ((args.max_time_step * args.max_time_step_fraction) // 5) == 0:
                             saver.save(

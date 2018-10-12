@@ -7,7 +7,7 @@ import logging
 from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
-from common.util import get_action_index
+from common.util import get_action_index, make_gif
 
 logger = logging.getLogger("a3c_training_thread")
 
@@ -71,9 +71,8 @@ class A3CTrainingThread(object):
             GameACFFNetwork.use_mnih_2015 = self.use_mnih_2015
             self.local_network = GameACFFNetwork(self.action_size, thread_index, device)
 
-        self.local_network.prepare_loss()
-
         with tf.device(device):
+            self.local_network.prepare_loss()
             local_vars = self.local_network.get_vars
             if self.finetune_upper_layers_only:
                 local_vars = self.local_network.get_vars_upper
@@ -162,81 +161,89 @@ class A3CTrainingThread(object):
     def set_start_time(self, start_time):
         self.start_time = start_time
 
-    def testing(self, sess, max_steps, global_t):
+    def testing(self, sess, max_steps, global_t, folder):
         logger.info("Evaluate policy at global_t={}...".format(global_t))
         # copy weights from shared to local
         sess.run( self.sync )
 
-        total_ep_rewards = 0
-        total_ep_steps = 0
+        episode_buffer = []
+        self.game_state.reset(hard_reset=True)
+        episode_buffer.append(self.game_state.get_screen_rgb())
+
+        total_reward = 0
         total_steps = 0
-        episode_count = 0
-        while True:
-            self.game_state.reset(hard_reset=True)
-            if self.use_lstm:
-                self.local_network.reset_state()
+        episode_reward = 0
+        episode_steps = 0
+        n_episodes = 0
+        while max_steps > 0:
+            pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
+            if self.egreedy_testing:
+                action = get_action_index(pi_, is_random=(np.random.random() <= 0.05), n_actions=self.action_size)
+            else:
+                action = self.choose_action(pi_)
 
-            episode_reward = 0
-            episode_steps = 0
-            while total_steps < max_steps:
-                pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
-                if self.egreedy_testing:
-                    action = get_action_index(pi_, is_random=(np.random.random() <= 0.1), n_actions=self.action_size)
-                else:
-                    action = self.choose_action(pi_)
+            if self.use_pretrained_model_as_advice:
+                psi = self.psi if self.psi > 0.001 else 0.0
+                if psi > np.random.rand():
+                    model_pi = self.pretrained_model.run_policy(self.pretrained_model_sess, self.game_state.s_t)
+                    model_action, confidence = self.choose_action_with_high_confidence(model_pi, exclude_noop=False)
+                    if (model_action > self.shaping_actions and confidence >= self.advice_confidence):
+                        action = model_action
 
-                if self.use_pretrained_model_as_advice:
-                    psi = self.psi if self.psi > 0.001 else 0.0
-                    if psi > np.random.rand():
-                        model_pi = self.pretrained_model.run_policy(self.pretrained_model_sess, self.game_state.s_t)
-                        model_action, confidence = self.choose_action_with_high_confidence(model_pi, exclude_noop=False)
-                        if (model_action > self.shaping_actions and confidence >= self.advice_confidence):
-                            action = model_action
+            # take action
+            self.game_state.step(action)
+            terminal = self.game_state.terminal
 
-                # process game
-                self.game_state.step(action)
+            if n_episodes == 0 and global_t % 2000000 == 0:
+                episode_buffer.append(self.game_state.get_screen_rgb())
 
-                # receive game result
-                reward = self.game_state.reward
-                terminal = self.game_state.terminal
-                episode_reward += reward
-                episode_steps += 1
-                total_steps += 1
+            episode_reward = self.game_state.reward
+            episode_steps += 1
+            max_steps -= 1
 
-                # s_t1 -> s_t
-                self.game_state.update()
+            # s_t = s_t1
+            self.game_state.update()
 
-                if terminal or (episode_count == 0 and total_steps == max_steps):
-                    if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done or \
-                       (episode_count == 0 and total_steps == max_steps):
-                        total_ep_rewards += episode_reward
-                        total_ep_steps += episode_steps
-                        episode_count += 1
-                        score_str = colored("score={}".format(episode_reward), "magenta")
-                        steps_str = colored("steps={}".format(episode_steps), "blue")
-                        logger.debug("test: global_t={} worker={} trial={} {} {} total_steps={}".format(global_t, self.thread_index, episode_count, score_str, steps_str, total_steps))
-                        break
+            if terminal:
+                if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
+                    if n_episodes == 0 and global_t % 5000000 == 0:
+                        time_per_step = 0.0167
+                        images = np.array(episode_buffer)
+                        make_gif(
+                            images, folder + '/frames/image{ep:010d}.gif'.format(ep=(global_t)),
+                            duration=len(images)*time_per_step,
+                            true_image=True, salience=False)
+                        episode_buffer = []
+                    n_episodes += 1
+                    score_str = colored("score={}".format(episode_reward), "magenta")
+                    steps_str = colored("steps={}".format(episode_steps), "blue")
+                    log_data = (global_t, self.thread_index, n_episodes, score_str, steps_str, total_steps)
+                    logger.debug("test: global_t={} worker={} trial={} {} {} total_steps={}".format(*log_data))
+                    total_reward += episode_reward
+                    total_steps += episode_steps
+                    episode_reward = 0
+                    episode_steps = 0
 
-                    self.game_state.reset(hard_reset=False)
-                    if self.use_lstm:
-                        self.local_network.reset_state()
+                self.game_state.reset(hard_reset=False)
+                if self.use_lstm:
+                    self.local_network.reset_state()
 
-            if total_steps >= max_steps:
-                logger.debug("test: global_t={} worker={} total_steps={} score={} steps={} max steps reached".format(global_t, self.thread_index, total_steps, episode_reward, episode_steps))
-                break
-
-        if episode_count == 0:
-            testing_reward = episode_reward
-            testing_steps = episode_steps
+        if n_episodes == 0:
+            total_reward = episode_reward
+            total_steps = episode_steps
         else:
-            testing_reward = total_ep_rewards / episode_count
-            testing_steps = total_ep_steps // episode_count
-        logger.info("test: global_t={} worker={} final score={} final steps={} # trials={}".format(global_t, self.thread_index, testing_reward, testing_steps, episode_count))
+            # (timestep, total sum of rewards, total # of steps before terminating)
+            total_reward = total_reward / n_episodes
+            total_steps = total_steps // n_episodes
+
+        log_data = (global_t, self.thread_index, total_reward, total_steps, n_episodes)
+        logger.info("test: global_t={} worker={} final score={} final steps={} # trials={}".format(*log_data))
 
         self.record_summary(
-            score=testing_reward, steps=testing_steps,
-            episodes=episode_count, global_t=global_t, mode='Test')
+            score=total_reward, steps=total_steps,
+            episodes=n_episodes, global_t=global_t, mode='Test')
 
+        # reset variables used in training
         self.episode_reward = 0
         self.episode_steps = 0
         self.game_state.reset(hard_reset=True)
@@ -246,7 +253,7 @@ class A3CTrainingThread(object):
 
         if self.use_lstm:
             self.local_network.reset_state()
-        return testing_reward, testing_steps, episode_count
+        return total_reward, total_steps, n_episodes
 
     def pretrain_init(self, demo_memory):
         self.demo_memory_size = len(demo_memory)
@@ -555,8 +562,8 @@ class A3CTrainingThread(object):
                         episodes=None, global_t=global_t, mode='Train')
                     self.episode_reward = 0
                     self.episode_steps = 0
+                    terminal_end = True
 
-                terminal_end = True
                 self.last_rho = 0.
                 if self.use_lstm:
                     self.local_network.reset_state()
@@ -564,7 +571,7 @@ class A3CTrainingThread(object):
                 break
 
         R = 0.0
-        if not terminal_end:
+        if not terminal:
             R = self.local_network.run_value(sess, self.game_state.s_t)
 
         actions.reverse()
@@ -589,7 +596,7 @@ class A3CTrainingThread(object):
                 #F = rho[i] - (self.shaping_gamma**-1) * rho[i+1]
                 #F = rho[i] - self.shaping_gamma * rho[i+1]
                 F = (self.shaping_gamma**-1) * rho[i] - rho[i+1]
-                if (i == 0 and terminal_end) or (F != 0 and (ri > 0 or ri < 0)):
+                if (i == 0 and terminal) or (F != 0 and (ri > 0 or ri < 0)):
                     #logger.warn("averted additional F in absorbing state")
                     F = 0.
                 # if (F < 0. and ri > 0) or (F > 0. and ri < 0):
@@ -639,7 +646,7 @@ class A3CTrainingThread(object):
                     self.local_network.entropy_beta: self.entropy_beta,
                     self.local_network.initial_lstm_state: start_lstm_state,
                     self.local_network.step_size : [len(batch_a)],
-                    self.learning_rate_input: cur_learning_rate} )
+                    self.learning_rate_input: cur_learning_rate})
         else:
             sess.run(self.apply_gradients,
                 feed_dict = {
@@ -650,7 +657,7 @@ class A3CTrainingThread(object):
                     self.local_network.policy_lr: 1.0,
                     self.local_network.critic_lr: 0.5,
                     self.local_network.entropy_beta: self.entropy_beta,
-                    self.learning_rate_input: cur_learning_rate} )
+                    self.learning_rate_input: cur_learning_rate})
 
         if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
             self.prev_local_t += self.performance_log_interval
