@@ -64,17 +64,16 @@ class DQNTraining(object):
         if not os.path.exists(self.folder + '/frames'):
             os.makedirs(self.folder + '/frames')
 
-    def _reset(self, testing=False, hard_reset=True):
+    def _reset(self, hard_reset=True):
         self.game_state.reset(hard_reset=hard_reset)
-        if not testing:
-            for _ in range(self.phi_length):
-                self.replay_memory.add(
-                    self.game_state.x_t,
-                    0,
-                    self.game_state.reward,
-                    self.game_state.terminal,
-                    self.game_state.lives,
-                    fullstate=self.game_state.full_state)
+        for _ in range(self.phi_length):
+            self.replay_memory.add(
+                self.game_state.x_t,
+                0,
+                self.game_state.reward,
+                self.game_state.terminal,
+                self.game_state.lives,
+                fullstate=self.game_state.full_state)
 
     def _add_demo_experiences(self):
         if self.demo_memory_folder is not None:
