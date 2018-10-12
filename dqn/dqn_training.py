@@ -123,61 +123,71 @@ class DQNTraining(object):
         return wall_t
 
     def test(self, render=False):
-        # re-initialize game for evaluation
+        logger.info("Evaluate policy at global_t={}...".format(self.global_t))
+
         episode_buffer = []
-        self._reset(testing=True, hard_reset=True)
+        self.game_state.reset(hard_reset=True)
         episode_buffer.append(self.game_state.get_screen_rgb())
 
         max_steps = self.eval_max_steps
-        total_reward = 0.0
+        total_reward = 0
         total_steps = 0
-        sub_total_reward = 0.0
-        sub_steps = 0
+        episode_reward = 0
+        episode_steps = 0
         n_episodes = 0
-        time.sleep(0.5)
         while max_steps > 0:
             readout_t = self.net.evaluate(self.game_state.s_t)[0]
             action = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.game_state.env.action_space.n)
+
+            # take action
             self.game_state.step(action)
             terminal = self.game_state.terminal
 
-            if n_episodes == 0:
+            if n_episodes == 0 and self.global_t % 2000000 == 0:
                 episode_buffer.append(self.game_state.get_screen_rgb())
 
-            sub_total_reward += self.game_state.reward
-            sub_steps += 1
+            episode_reward += self.game_state.reward
+            episode_steps += 1
             max_steps -= 1
+
+            # s_t = s_t1
             self.game_state.update()
 
             if terminal:
                 if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
-                    if n_episodes == 0:
+                    if n_episodes == 0 and self.global_t % 2000000 == 0:
                         time_per_step = 0.0167
                         images = np.array(episode_buffer)
                         make_gif(
-                            images, self.folder + '/frames/image{ep:010d}.gif'.format(ep=(self.global_t-self.observe)),
+                            images, self.folder + '/frames/image{ep:010d}.gif'.format(ep=(self.global_t)),
                             duration=len(images)*time_per_step,
                             true_image=True, salience=False)
                         episode_buffer = []
                     n_episodes += 1
-                    score_str = colored("score={}".format(sub_total_reward), "magenta")
-                    steps_str = colored("steps={}".format(sub_steps), "blue")
+                    score_str = colored("score={}".format(episode_reward), "magenta")
+                    steps_str = colored("steps={}".format(episode_steps), "blue")
                     log_data = (self.global_t, n_episodes, score_str, steps_str, total_steps)
                     logger.debug("test: global_t={} trial={} score={} steps={} total_steps={}".format(*log_data))
-                    total_reward += sub_total_reward
-                    total_steps += sub_steps
-                    sub_total_reward = 0.0
-                    sub_steps = 0
-                    time.sleep(0.5)
-                self._reset(testing=True, hard_reset=False)
+                    total_reward += episode_reward
+                    total_steps += episode_steps
+                    episode_reward = 0
+                    episode_steps = 0
+                self.game_state.reset(hard_reset=False)
 
         if n_episodes == 0:
-            total_reward = sub_total_reward
-            total_steps = sub_steps
+            total_reward = episode_reward
+            total_steps = episode_steps
         else:
             # (timestep, total sum of rewards, total # of steps before terminating)
             total_reward = total_reward / n_episodes
             total_steps = total_steps // n_episodes
+
+        log_data = (self.global_t, total_reward, total_steps, n_episodes)
+        logger.debug("test: global_t={} final score={} final steps={} # episodes={}".format(*log_data))
+        self.net.record_summary(
+            score=total_reward, steps=total_steps,
+            episodes=n_episodes, global_t=self.global_t, mode='Test')
+
         self.rewards['eval'][self.global_t] = (total_reward, total_steps, n_episodes)
         return total_reward, total_steps, n_episodes
 
@@ -195,14 +205,17 @@ class DQNTraining(object):
             if self.train_with_demo_steps % 10000 == 0:
                 logger.info("\t{} train with demo steps left".format(self.train_with_demo_steps))
         self.net.update_counter = start_update_counter
-        self.net.update_target_network()
+        self.net.update_target_network(slow=self.net.slow)
         logger.info((colored('Training with demo memory only completed!', 'green')))
 
     def run(self):
-        # get the first state by doing nothing and preprocess the image to 80x80x4
-        ## observation = self._reset()
-        self._reset(hard_reset=True)
+        # load if starting from a checkpoint
         wall_t = self._load()
+
+        # get the first state by doing nothing and preprocess the image to 80x80x4
+        # only reset when it doesn't evaluate first when it enters loop below
+        if self.global_t % self.eval_freq != 0:
+            self._reset(hard_reset=True)
 
         # only executed at the very beginning of training and never again
         if self.global_t == 0 and self.train_with_demo_steps > 0:
@@ -220,14 +233,7 @@ class DQNTraining(object):
             if self.global_t % self.eval_freq == 0:
                 terminal = 0
                 total_reward, total_steps, n_episodes = self.test()
-                self.net.record_summary(
-                    score=total_reward, steps=total_steps,
-                    episodes=n_episodes, global_t=self.global_t, mode='Test')
-                log_data = (self.global_t, total_reward, total_steps, n_episodes)
-                logger.debug("test: global_t={} final score={} final steps={} # episodes={}".format(*log_data))
                 # re-initialize game for training
-                ## self.game_state.reset(random_restart=True)
-                ## observation = self._reset()
                 self._reset(hard_reset=True)
                 sub_total_reward = 0.0
                 sub_steps = 0
@@ -267,8 +273,6 @@ class DQNTraining(object):
             # run the selected action and observe next state and reward
             self.game_state.step(action)
             terminal = self.game_state.terminal
-            ## next_observation, reward, terminal = self.game_state.step(action, random_restart=True)
-            ## next_observation = process_frame(next_observation, self.resized_h, self.resized_w)
             terminal_ = terminal or ((self.global_t+1) % self.eval_freq == 0)
 
             # store the transition in D
@@ -290,7 +294,7 @@ class DQNTraining(object):
                 s_j_batch, a_batch, r_batch, terminals, s_j1_batch = self.replay_memory.sample(self.batch)
                 # perform gradient step
                 summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
-                self.net.add_summary(summary, self.global_t)
+                # self.net.add_summary(summary, self.global_t)
 
             if terminal:
                 if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
@@ -305,7 +309,6 @@ class DQNTraining(object):
                     sub_total_reward = 0.0
                     sub_steps = 0
                 self._reset(hard_reset=False)
-
 
             # save progress every SAVE_FREQ iterations
             if self.global_t % self.save_freq == 0:
@@ -328,24 +331,24 @@ class DQNTraining(object):
 
             # log information
             state = ""
-            if self.global_t <= self.observe:
+            if self.global_t-1 < self.observe:
                 state = "observe"
-            elif self.global_t > self.observe and self.global_t <= self.observe + self.explore:
+            elif self.global_t-1 < self.observe + self.explore:
                 state = "explore"
             else:
                 state = "train"
 
-            if self.global_t%10000 == 0:
+            if (self.global_t-1) % 10000 == 0:
                 if self.use_human_advice:
                     log_data = (
-                        state, self.global_t, self.epsilon,
+                        state, self.global_t-1, self.epsilon,
                         self.psi, use_advice, action, np.max(readout_t))
                     logger.debug(
                         "{0:}: global_t={1:} epsilon={2:.4f} psi={3:.4f} \
                         advice={4:} action={5:} q_max={6:.4f}".format(*log_data))
                 else:
                     log_data = (
-                        state, self.global_t, self.epsilon,
+                        state, self.global_t-1, self.epsilon,
                         action, np.max(readout_t))
                     logger.debug(
                         "{0:}: global_t={1:} epsilon={2:.4f} action={3:} "
