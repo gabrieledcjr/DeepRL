@@ -131,7 +131,7 @@ def test_keys(env_id):
             logger.info("Gain Life")
         if test_game.loss_life:
             logger.warn("Lost life!")
-            logger.info("frame number: ", test_game.get_episode_frame_number())
+            logger.info("frame number={}".format(test_game.get_episode_frame_number()))
             restore = True
             last_num_ctr += 1
             if last_num_steps == 0:
@@ -143,7 +143,7 @@ def test_keys(env_id):
                     restore = False
             if restore:
                 full_state, frame_num = sys_states.popleft()
-                logger.info("\trestore frame number: ", frame_num)
+                logger.info("\trestore frame number={}".format(frame_num))
                 test_game.restore_full_state(full_state)
             steps = 0
             sys_states.clear()
@@ -152,7 +152,7 @@ def test_keys(env_id):
             last_num_ctr = 0
             sys_states.clear()
         elif test_game.reward < 0:
-            logger.info("Reward: ", test_game.reward)
+            logger.info("reward={}".format(test_game.reward))
             restore = True
             last_num_ctr += 1
             if last_num_steps == 0:
@@ -164,7 +164,7 @@ def test_keys(env_id):
                     restore = False
             if restore:
                 full_state, frame_num = sys_states.popleft()
-                logger.info("\trestore frame number: ", frame_num)
+                logger.info("\trestore frame number={}".format(frame_num))
                 test_game.restore_full_state(full_state)
             steps = 0
             sys_states.clear()
@@ -173,7 +173,7 @@ def test_keys(env_id):
             break
         elif test_game.terminal:
             test_game.reset(hard_reset=False)
-        sleep(.02 * test_game.env.unwrapped.frameskip)
+        sleep(0.0167)
 
     # cv2.destroyAllWindows()
     test_game.close()
