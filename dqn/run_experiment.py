@@ -97,10 +97,10 @@ def main():
     parser.add_argument('--batch', type=int, default=32)
 
     parser.add_argument('--update-freq', type=int, default=4)
-    parser.add_argument('--save-freq', type=int, default=125000)
-    parser.add_argument('--eval-freq', type=int, default=250000)
+    parser.add_argument('--save-freq', type=int, default=1000000)
+    parser.add_argument('--eval-freq', type=int, default=1000000)
     parser.add_argument('--eval-max-steps', type=int, default=125000)
-    parser.add_argument('--train-max-steps', type=int, default=30125000)
+    parser.add_argument('--train-max-steps', type=int, default=41 * 10**6)
 
     parser.add_argument('--c-freq', type=int, default=10000)
     parser.add_argument('--use-slow', action='store_true')
