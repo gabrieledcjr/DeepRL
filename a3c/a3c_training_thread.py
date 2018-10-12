@@ -197,7 +197,7 @@ class A3CTrainingThread(object):
             if n_episodes == 0 and global_t % 2000000 == 0:
                 episode_buffer.append(self.game_state.get_screen_rgb())
 
-            episode_reward = self.game_state.reward
+            episode_reward += self.game_state.reward
             episode_steps += 1
             max_steps -= 1
 
