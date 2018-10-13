@@ -7,7 +7,7 @@ import logging
 from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
-from common.util import get_action_index, make_gif
+from common.util import get_action_index, make_movie
 
 logger = logging.getLogger("a3c_training_thread")
 
@@ -209,8 +209,8 @@ class A3CTrainingThread(object):
                     if n_episodes == 0 and global_t % 5000000 == 0:
                         time_per_step = 0.0167
                         images = np.array(episode_buffer)
-                        make_gif(
-                            images, folder + '/frames/image{ep:010d}.gif'.format(ep=(global_t)),
+                        make_movie(
+                            images, folder + '/frames/image{ep:010d}'.format(ep=(global_t)),
                             duration=len(images)*time_per_step,
                             true_image=True, salience=False)
                         episode_buffer = []

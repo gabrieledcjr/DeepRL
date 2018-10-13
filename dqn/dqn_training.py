@@ -9,7 +9,7 @@ import time
 import logging
 
 from termcolor import colored
-from common.util import egreedy, get_action_index, make_gif, load_memory
+from common.util import egreedy, get_action_index, make_movie, load_memory
 from common.game_state import get_wrapper_by_name
 
 logger = logging.getLogger("dqn")
@@ -158,8 +158,8 @@ class DQNTraining(object):
                     if n_episodes == 0 and self.global_t % 2000000 == 0:
                         time_per_step = 0.0167
                         images = np.array(episode_buffer)
-                        make_gif(
-                            images, self.folder + '/frames/image{ep:010d}.gif'.format(ep=(self.global_t)),
+                        make_movie(
+                            images, self.folder + '/frames/image{ep:010d}'.format(ep=(self.global_t)),
                             duration=len(images)*time_per_step,
                             true_image=True, salience=False)
                         episode_buffer = []
@@ -357,7 +357,7 @@ class DQNTraining(object):
 NUM_THREADS = 16
 def playGame():
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333)
-    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True, log_device_placement=True)) as sess:
+    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True, log_device_placement=False)) as sess:
         with tf.device('/gpu:'+os.environ["CUDA_VISIBLE_DEVICES"]):
             train(sess)
 
