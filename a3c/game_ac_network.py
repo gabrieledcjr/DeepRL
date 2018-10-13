@@ -203,22 +203,23 @@ class GameACFFNetwork(GameACNetwork):
         GameACNetwork.__init__(self, action_size, thread_index, device)
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
         scope_name = "net_" + str(self._thread_index)
+        self.last_hidden_fc_output_size = 512
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
                 self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
                 self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
-                self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], layer_name='fc1')
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1')
             else:
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
                 self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
-                self.W_fc1, self.b_fc1 = self.fc_variable([2592, 512], layer_name='fc1')
+                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1')
 
             # weight for policy output layer
-            self.W_fc2, self.b_fc2 = self.fc_variable([512, action_size], layer_name='fc2')
+            self.W_fc2, self.b_fc2 = self.fc_variable([self.last_hidden_fc_output_size, action_size], layer_name='fc2')
 
             # weight for value output layer
-            self.W_fc3, self.b_fc3 = self.fc_variable([512, 1], layer_name='fc3')
+            self.W_fc3, self.b_fc3 = self.fc_variable([self.last_hidden_fc_output_size, 1], layer_name='fc3')
 
             # state (input)
             self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
@@ -286,26 +287,26 @@ class GameACLSTMNetwork(GameACNetwork):
         GameACNetwork.__init__(self, action_size, thread_index, device)
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
         scope_name = "net_" + str(self._thread_index)
-        self.lstm_cells_size = 256
+        self.last_hidden_fc_output_size = 512
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
                 self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
                 self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
-                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.lstm_cells_size], layer_name='fc1')
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1')
             else:
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')
                 self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2')
-                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.lstm_cells_size], layer_name='fc1')
+                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1')
 
             # lstm
-            self.lstm = tf.nn.rnn_cell.LSTMCell(self.lstm_cells_size, name='basic_lstm_cell')
+            self.lstm = tf.nn.rnn_cell.LSTMCell(self.last_hidden_fc_output_size, name='basic_lstm_cell')
 
             # weight for policy output layer
-            self.W_fc2, self.b_fc2 = self.fc_variable([self.lstm_cells_size, action_size], layer_name='fc2')
+            self.W_fc2, self.b_fc2 = self.fc_variable([self.last_hidden_fc_output_size, action_size], layer_name='fc2')
 
             # weight for value output layer
-            self.W_fc3, self.b_fc3 = self.fc_variable([self.lstm_cells_size, 1], layer_name='fc3')
+            self.W_fc3, self.b_fc3 = self.fc_variable([self.last_hidden_fc_output_size, 1], layer_name='fc3')
 
             # state (input)
             self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
@@ -325,13 +326,13 @@ class GameACLSTMNetwork(GameACNetwork):
                 h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
-            h_fc1_reshaped = tf.reshape(self.h_fc1, [1, -1, self.lstm_cells_size])
+            h_fc1_reshaped = tf.reshape(self.h_fc1, [1, -1, self.last_hidden_fc_output_size])
 
             # place holder for LSTM unrolling time step size.
             self.step_size = tf.placeholder(tf.float32, [1])
 
-            self.initial_lstm_state0 = tf.placeholder(tf.float32, [1, self.lstm_cells_size])
-            self.initial_lstm_state1 = tf.placeholder(tf.float32, [1, self.lstm_cells_size])
+            self.initial_lstm_state0 = tf.placeholder(tf.float32, [1, self.last_hidden_fc_output_size])
+            self.initial_lstm_state1 = tf.placeholder(tf.float32, [1, self.last_hidden_fc_output_size])
             self.initial_lstm_state = tf.contrib.rnn.LSTMStateTuple(
                 self.initial_lstm_state0,
                 self.initial_lstm_state1)
@@ -349,9 +350,8 @@ class GameACLSTMNetwork(GameACNetwork):
                 time_major = False,
                 scope = scope)
 
-            # lstm_outputs: (1,5,256) for back prop, (1,1,256) for forward prop.
-
-            lstm_outputs = tf.reshape(lstm_outputs, [-1, self.lstm_cells_size])
+            # lstm_outputs: (1,5,fc_output_size) for back prop, (1,1,fc_output_size) for forward prop.
+            lstm_outputs = tf.reshape(lstm_outputs, [-1, self.last_hidden_fc_output_size])
 
             # policy (output)
             self.logits = tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2
@@ -369,8 +369,8 @@ class GameACLSTMNetwork(GameACNetwork):
 
     def reset_state(self):
         self.lstm_state_out = tf.contrib.rnn.LSTMStateTuple(
-            np.zeros([1, self.lstm_cells_size]),
-            np.zeros([1, self.lstm_cells_size]))
+            np.zeros([1, self.last_hidden_fc_output_size]),
+            np.zeros([1, self.last_hidden_fc_output_size]))
 
     def run_policy_and_value(self, sess, s_t):
         # This run_policy_and_value() is used when forward propagating.
