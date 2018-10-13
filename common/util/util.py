@@ -330,7 +330,7 @@ def prepare_dir(path, empty=False):
         empty_dir(path)
 
 #This code allows gifs to be saved of the training episode for use in the Control Center.
-def make_gif(images, fname, duration=2, true_image=False,salience=False,salIMGS=None):
+def make_movie(images, fname, duration=2, true_image=False,salience=False,salIMGS=None):
     """
     src: https://github.com/awjuliani/DeepRL-Agents/blob/master/helper.py
     """
@@ -360,10 +360,11 @@ def make_gif(images, fname, duration=2, true_image=False,salience=False,salIMGS=
         clipB = clip.set_mask(mask)
         clipB = clip.set_opacity(0)
         mask = mask.set_opacity(0.1)
-        mask.write_gif(fname, fps = len(images) / duration,verbose=False)
-        #clipB.write_gif(fname, fps = len(images) / duration,verbose=False)
+        mask.write_videofile(fname + ".mp4", fps=24)
+        #mask.write_gif(fname + ".gif", fps=(len(images) / duration), verbose=False)
     else:
-        clip.write_gif(fname, fps = len(images) / duration,verbose=False)
+        clip.write_videofile(fname + ".mp4", fps=24)
+        #clip.write_gif(fname + ".gif", fps=(len(images) / duration), verbose=False)
 
 def process_frame42(frame):
     frame = frame[34:34+160, :160]
