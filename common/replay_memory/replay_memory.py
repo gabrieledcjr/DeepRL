@@ -29,7 +29,7 @@ class ReplayMemory(object):
     def __init__(self,
         width=1, height=1, rng=np.random.RandomState(),
         max_steps=10, phi_length=4, num_actions=1, wrap_memory=False,
-        full_state_size=1013, clip_reward=True):
+        full_state_size=1013):
         """Construct a replay memory.
 
         Arguments:
@@ -48,7 +48,6 @@ class ReplayMemory(object):
         self.num_actions = num_actions
         self.rng = rng
         self.full_state_size = full_state_size
-        self.clip_reward = clip_reward
 
         # Allocate the circular buffers and indices.
         self.imgs = np.zeros((self.max_steps, height, width), dtype=np.uint8)
@@ -246,8 +245,6 @@ class ReplayMemory(object):
         for i in range(self.phi_length):
             s1[:, :, i] = temp[i]
         r1 = self.rewards.take(end_index+1, mode=mode)
-        if self.clip_reward:
-            r1 = np.sign(r1)
         t1 = self.terminal.take(end_index+1, mode=mode)
         l1 = self.lives.take(end_index+1, mode=mode)
 
@@ -357,9 +354,10 @@ class ReplayMemory(object):
 
         return states, actions, rewards, terminals
 
-    def sample(self, batch_size, normalize=False, onevsall=False, n_class=None):
+    def sample(self, batch_size, normalize=False, onevsall=False, n_class=None, reward_type=''):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
+        reward_type = CLIP | LOG
         """
         assert self.wrap_memory
         # Allocate the response.
@@ -405,6 +403,10 @@ class ReplayMemory(object):
                     actions[count][1] = 1
             else:
                 actions[count][a0] = 1 # convert to one-hot vector
+            if reward_type == 'CLIP':
+                r1 = np.sign(r1)
+            elif reward_type == 'LOG':
+                r1 = np.sign(r1) * np.log(1. + np.abs(r1))
             rewards[count] = r1
             terminals[count] = t1
             count += 1
