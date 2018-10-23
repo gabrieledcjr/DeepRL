@@ -13,6 +13,7 @@ class RMSPropApplier(object):
                  epsilon=1e-10,
                  clip_norm=40.0,
                  device="/cpu:0",
+                 centered=False,
                  name="RMSPropApplier"):
 
         self._name = name
@@ -20,6 +21,7 @@ class RMSPropApplier(object):
         self._decay = decay
         self._momentum = momentum
         self._epsilon = epsilon
+        self._centered = centered
         self._clip_norm = clip_norm
         self._device = device
 
@@ -36,6 +38,8 @@ class RMSPropApplier(object):
             # 'val' is Variable's intial value tensor.
             val = tf.constant(1.0, dtype=v.dtype, shape=v.get_shape())
             self._get_or_make_slot(v, val, "rms", self._name)
+            if self._centered:
+                self._zeros_slot(v, "mg", self._name)
             self._zeros_slot(v, "momentum", self._name)
 
     def _prepare(self):
@@ -76,14 +80,25 @@ class RMSPropApplier(object):
     def _apply_dense(self, grad, var):
         rms = self.get_slot(var, "rms")
         mom = self.get_slot(var, "momentum")
-        return training_ops.apply_rms_prop(
-            var, rms, mom,
-            self._learning_rate_tensor,
-            self._decay_tensor,
-            self._momentum_tensor,
-            self._epsilon_tensor,
-            grad,
-            use_locking=False).op
+        if self._centered:
+            mg = self.get_slot(var, "mg")
+            return training_ops.apply_centered_rms_prop(
+                var, mg, rms, mom,
+                self._learning_rate_tensor,
+                self._decay_tensor,
+                self._momentum_tensor,
+                self._epsilon_tensor,
+                grad,
+                use_locking=False).op
+        else:
+            return training_ops.apply_rms_prop(
+                var, rms, mom,
+                self._learning_rate_tensor,
+                self._decay_tensor,
+                self._momentum_tensor,
+                self._epsilon_tensor,
+                grad,
+                use_locking=False).op
 
     # Apply accumulated gradients to var.
     def apply_gradients(self, var_list, accum_grad_list, name=None):
