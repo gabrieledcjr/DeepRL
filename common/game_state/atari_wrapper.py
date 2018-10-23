@@ -164,6 +164,7 @@ class HumanDemoEnv(gym.Wrapper):
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
         self.env.render(mode='human')
+        self.env.unwrapped.viewer.window.set_size(110+300, 210+300)
         self.env.unwrapped.viewer.window.push_handlers(self.keys)
 
         self.human_agent_action = 0
