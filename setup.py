@@ -13,5 +13,5 @@ setup(
     install_requires=['gym', 'atari_py', 'coloredlogs',
         'termcolor', 'pyglet', 'tables', 'matplotlib',
         'numpy', 'opencv-python', 'moviepy', 'scipy',
-        'scikit-image']
+        'scikit-image', 'tensorflow']
 )
