@@ -34,7 +34,7 @@ def get_demo(args):
         84, 84, 4,
         args.gym_env,
         folder=demo_memory_folder,
-        create_gif=args.create_gif)
+        create_movie=args.create_movie)
     collect_demo.run_episodes(
         args.num_episodes,
         minutes_limit=args.demo_time_limit,
@@ -54,8 +54,8 @@ def main():
     parser.add_argument('--append-experiment-num', type=str, default=None)
     parser.add_argument('--num-episodes', type=int, default=5, help='number of episodes')
     parser.add_argument('--demo-time-limit', type=int, default=5, help='time limit per episode')
-    parser.add_argument('--create-gif', action='store_true')
-    parser.set_defaults(create_gif=False)
+    parser.add_argument('--create-movie', action='store_true')
+    parser.set_defaults(create_movie=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
 
     args = parser.parse_args()

@@ -9,7 +9,7 @@ import cv2
 
 from collections import deque
 from datetime import datetime
-from common.util import prepare_dir, get_action_index, make_gif
+from common.util import prepare_dir, get_action_index, make_movie
 from common.replay_memory import ReplayMemory
 from common.game_state.atari_wrapper import get_wrapper_by_name
 
@@ -19,7 +19,7 @@ class CollectDemonstration(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
-        folder='', create_gif=False):
+        folder='', create_movie=False):
         """ Initialize collection of demo """
         assert folder != ''
         self.game_state = game_state
@@ -40,7 +40,7 @@ class CollectDemonstration(object):
         if "SpaceInvaders" in self.game_state.env.spec.id:
             self._skip = 3 # NIPS (makes laser always visible)
 
-        self.create_gif = create_gif
+        self.create_movie = create_movie
         self.obs_buffer = np.zeros((2, 84 , 84), dtype=np.uint8)
 
     def _create_table(self):
@@ -137,7 +137,7 @@ class CollectDemonstration(object):
         self.conn.close()
 
     def run(self, minutes_limit=5, ep_num=0, num_episodes=0, demo_type=0, model_net=None, replay_memory=None):
-        if self.create_gif:
+        if self.create_movie:
             gif_images = []
 
         rewards = {'train':[], 'eval':[]}
@@ -196,7 +196,7 @@ class CollectDemonstration(object):
             total_reward += self.game_state.reward
             t += 1
 
-            if self.create_gif:
+            if self.create_movie:
                 gif_images.append(self.game_state.get_screen_rgb())
 
             # Ensure that D does not reach max memory that mitigate
@@ -245,10 +245,10 @@ class CollectDemonstration(object):
         logger.info("Total Replay memory saved: {}".format(replay_memory.size))
 
         replay_memory.save(name=self.name, folder=self.folder, resize=True)
-        if self.create_gif:
+        if self.create_movie:
             time_per_step = 0.0167
-            make_gif(
-                gif_images, self.folder+"demo.gif",
+            make_movie(
+                gif_images, self.folder+"demo",
                 duration=len(gif_images)*time_per_step,
                 true_image=True, salience=False)
 
@@ -263,7 +263,7 @@ def test_collect(env_id):
         game_state,
         84, 84, 4,
         env_id,
-        folder=test_folder, create_gif=True)
+        folder=test_folder, create_movie=True)
     num_episodes = 1
     collect_demo.run_episodes(
         num_episodes,
