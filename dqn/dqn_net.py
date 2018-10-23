@@ -40,16 +40,10 @@ class DqnNet(Network):
         self.slow_learnrate_vars = []
         self.fast_learnrate_vars = []
 
+        self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation')
+        self.observation_n = tf.div(self.observation, 255.)
+
         with tf.device(self._device), tf.variable_scope('net_-1') as scope:
-            self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation')
-            self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name=self.name + "actions") # one-hot matrix
-            self.next_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='t_next_observation')
-            self.rewards = tf.placeholder(tf.float32, shape=[None], name="rewards")
-            self.terminals = tf.placeholder(tf.float32, shape=[None], name="terminals")
-
-            self.observation_n = tf.div(self.observation, 255.)
-            self.next_observation_n = tf.div(self.next_observation, 255.)
-
             # q network model:
             self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1')
             self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
@@ -109,7 +103,10 @@ class DqnNet(Network):
         if verbose:
             self.init_verbosity()
 
-        with tf.device(self._device), tf.variable_scope('net_-1') as scope:
+        self.next_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='t_next_observation')
+        self.next_observation_n = tf.div(self.next_observation, 255.)
+
+        with tf.device(self._device), tf.variable_scope('net_-1-target') as scope:
             # target q network model:
             kernel_shape = [8, 8, phi_length, 32]
             self.t_W_conv1, self.t_b_conv1 = self.conv_variable(kernel_shape, layer_name='t_conv1')
@@ -196,6 +193,7 @@ class DqnNet(Network):
             self.writer = tf.summary.FileWriter('results/log/dqn/{}/'.format(self.name.replace('-', '_')) + self.folder[12:], self.sess.graph)
 
     def update_target_network(self, name=None, slow=False):
+        logger.info('update target network')
         self.sess.run(self.update_target_op(name=name, slow=slow))
 
     def update_target_op(self, name=None, slow=False):
