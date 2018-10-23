@@ -31,12 +31,11 @@ class DqnNetClass(Network):
         self.folder = folder
         self._device = device
 
+        self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation')
+        self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name="actions")
+        self.observation_n = tf.div(self.observation, 255.)
+
         with tf.device(self._device), self.graph.as_default(), tf.variable_scope('net_-1') as scope:
-            self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation')
-            self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name="actions")
-
-            self.observation_n = tf.div(self.observation, 255.)
-
             # q network model:
             self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1')
             self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
