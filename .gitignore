@@ -1,4 +1,5 @@
 # ignore output files
+*.idea
 *.png
 results/*
 log/*
