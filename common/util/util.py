@@ -356,7 +356,7 @@ def make_movie(images, fname, duration=2, true_image=False,salience=False,salIMG
 
     clip = mpy.VideoClip(make_frame, duration=duration)
     if salience == True:
-        mask = mpy.VideoClip(make_mask, ismask=True,duration= duration)
+        mask = mpy.VideoClip(make_mask, ismask=True, duration=duration)
         clipB = clip.set_mask(mask)
         clipB = clip.set_opacity(0)
         mask = mask.set_opacity(0.1)

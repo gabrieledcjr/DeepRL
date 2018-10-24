@@ -44,7 +44,7 @@ def get_demo(args):
 def main():
     """
     Requirements: sudo apt-get install python3-tk
-    python3 get_demo.py --gym-env=PongNoFrameskip-v4 --num-episodes=5 --demo-time-limit=5
+    python3 get_demo.py --gym-env=PongNoFrameskip-v4 --num-episodes=5 --demo-time-limit=20
     """
     coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
     logger.setLevel(logging.DEBUG)

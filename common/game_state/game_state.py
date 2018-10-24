@@ -39,7 +39,7 @@ class GameState(object):
         env = WarpFrame(env)
         # override keyboard controls for human demo
         if self.human_demo:
-            env = HumanDemoEnv(env)
+            env = HumanDemoEnv(env)    
             logger.info(env.unwrapped.get_action_meanings())
         self.env = env
 
@@ -61,7 +61,7 @@ class GameState(object):
 
     def step(self, action):
         if self.display:
-            self.env.render()
+            self.env.render(mode='human' if self.human_demo else '')
 
         obs, reward, terminal, env_info = self.env.step(action)
 

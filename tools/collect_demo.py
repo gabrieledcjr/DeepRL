@@ -7,6 +7,7 @@ import os
 import coloredlogs, logging
 import cv2
 
+from tkinter import Tk, messagebox
 from collections import deque
 from datetime import datetime
 from common.util import prepare_dir, get_action_index, make_movie
@@ -28,6 +29,7 @@ class CollectDemonstration(object):
         self.phi_length = phi_length
         self.name = name
         self.main_folder = folder
+        self.min_mem_size = 10000
 
         # Create or connect to database
         self.conn = sqlite3.connect(
@@ -83,7 +85,7 @@ class CollectDemonstration(object):
                 self.game_state.reward,
                 self.game_state.terminal,
                 self.game_state.lives,
-                fullstate=self.game_state.fullstate)
+                fullstate=self.game_state.full_state)
 
     def _update_state_input(self, observation):
         self.state_input = np.roll(self.state_input, -1, axis=3)
@@ -94,7 +96,9 @@ class CollectDemonstration(object):
         steps = []
         durations = []
         mem_sizes = []
-        for ep in range(start_ep, num_episodes+start_ep):
+        ep = start_ep
+
+        while True:
             replay_memory = ReplayMemory(
                 self.resized_w, self.resized_h,
                 np.random.RandomState(),
@@ -102,8 +106,7 @@ class CollectDemonstration(object):
                 phi_length=self.phi_length,
                 num_actions=self.game_state.env.action_space.n,
                 wrap_memory=False,
-                full_state_size=self.game_state.clone_full_state().shape[0],
-                clip_reward=True)
+                full_state_size=self.game_state.clone_full_state().shape[0])
 
             self.folder = self.main_folder + '/{n:03d}/'.format(n=(ep))
             prepare_dir(self.folder, empty=True)
@@ -119,6 +122,10 @@ class CollectDemonstration(object):
             del replay_memory
 
             self.insert_data_to_db([(ep, self.name, total_reward, mem_size, start_time, end_time, str(duration), total_steps)])
+
+            ep += 1
+            if np.sum(mem_sizes) >= self.min_mem_size and ep >= (num_episodes + start_ep):
+                break
 
         logger.debug("steps / episode: {}".format(steps))
         logger.debug("reward / episode: {}".format(rewards))
@@ -138,7 +145,7 @@ class CollectDemonstration(object):
 
     def run(self, minutes_limit=5, ep_num=0, num_episodes=0, demo_type=0, model_net=None, replay_memory=None):
         if self.create_movie:
-            gif_images = []
+            movie_images = []
 
         rewards = {'train':[], 'eval':[]}
 
@@ -161,10 +168,7 @@ class CollectDemonstration(object):
         # loss_life = self.game_state.loss_life
         # gain_life = self.game_state.gain_life and not loss_life
 
-        import tkinter
-        from tkinter import messagebox
-
-        root = tkinter.Tk()
+        root = Tk()
         root.withdraw()
 
         messagebox.showinfo(self.name, "Start episode {} of {}. Press OK to start playing".format(ep_num, num_episodes))
@@ -175,7 +179,18 @@ class CollectDemonstration(object):
 
         actions = deque()
 
+        hz = 50.0
+        dtm = time.time()
+        pulse = 1.0 / hz
+
         while True:
+            dtm += pulse
+            delay = dtm - time.time()
+            if delay > 0:
+                time.sleep(delay) #60 hz
+            else:
+                dtm = time.time()
+
             if not terminal:
                 if demo_type == 1: # RANDOM AGENT
                     action = np.random.randint(self.game_state.n_actions)
@@ -197,7 +212,7 @@ class CollectDemonstration(object):
             t += 1
 
             if self.create_movie:
-                gif_images.append(self.game_state.get_screen_rgb())
+                movie_images.append(self.game_state.get_screen_rgb())
 
             # Ensure that D does not reach max memory that mitigate
             # problems when combining different human demo files
@@ -235,7 +250,6 @@ class CollectDemonstration(object):
                     continue
 
             self.game_state.update()
-            time.sleep(0.0167) #60 hz
 
         end_time = datetime.now()
         duration = end_time - start_time
@@ -248,8 +262,8 @@ class CollectDemonstration(object):
         if self.create_movie:
             time_per_step = 0.0167
             make_movie(
-                gif_images, self.folder+"demo",
-                duration=len(gif_images)*time_per_step,
+                movie_images, self.folder+"demo",
+                duration=len(movie_images)*time_per_step,
                 true_image=True, salience=False)
 
         return total_reward, t, start_time, end_time, duration, replay_memory.size
