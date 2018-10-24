@@ -82,7 +82,6 @@ def run_a3c(args):
                 end_str += '_modelasadvice'
             if args.use_pretrained_model_as_reward_shaping:
                 end_str += '_modelasshaping'
-        end_str += '_tmax{}'.format(args.local_t_max)
         folder += end_str
 
     if args.append_experiment_num is not None:
