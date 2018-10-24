@@ -26,7 +26,7 @@ class DQNTraining(object):
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
         folder, load_demo_memory=False, demo_memory_folder=None,
         train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995,
-        train_with_demo_steps=0, use_transfer=False):
+        train_with_demo_steps=0, use_transfer=False, reward_type='CLIP'):
         """ Initialize experiment """
         self.sess = sess
         self.net = network
@@ -51,6 +51,7 @@ class DQNTraining(object):
         self.train_max_steps = train_max_steps
         self.train_with_demo_steps = train_with_demo_steps
         self.use_transfer = use_transfer
+        self.reward_type = reward_type
 
         self.human_net = human_net
         self.confidence = confidence
@@ -167,7 +168,7 @@ class DQNTraining(object):
                     score_str = colored("score={}".format(episode_reward), "magenta")
                     steps_str = colored("steps={}".format(episode_steps), "blue")
                     log_data = (self.global_t, n_episodes, score_str, steps_str, total_steps)
-                    logger.debug("test: global_t={} trial={} score={} steps={} total_steps={}".format(*log_data))
+                    logger.debug("test: global_t={} trial={} {} {} total_steps={}".format(*log_data))
                     total_reward += episode_reward
                     total_steps += episode_steps
                     episode_reward = 0
@@ -239,6 +240,9 @@ class DQNTraining(object):
                 sub_steps = 0
                 time.sleep(0.5)
 
+            if self.global_t % self.copy_freq == 0:
+                self.net.update_target_network(slow=False)
+
             # choose an action epsilon greedily
             ## self._update_state_input(observation)
             readout_t = self.net.evaluate(self.game_state.s_t)[0]
@@ -291,9 +295,9 @@ class DQNTraining(object):
 
             # only train if done observing
             if self.global_t > self.observe and self.global_t % self.update_freq == 0:
-                s_j_batch, a_batch, r_batch, terminals, s_j1_batch = self.replay_memory.sample(self.batch)
+                s_j_batch, a_batch, r_batch, terminals, s_j1_batch = self.replay_memory.sample(self.batch, reward_type=self.reward_type)
                 # perform gradient step
-                summary = self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals)
+                self.net.train(s_j_batch, a_batch, r_batch, s_j1_batch, terminals, self.global_t)
                 # self.net.add_summary(summary, self.global_t)
 
             if terminal:
@@ -302,7 +306,7 @@ class DQNTraining(object):
                     score_str = colored("score={}".format(sub_total_reward), "magenta")
                     steps_str = colored("steps={}".format(sub_steps), "blue")
                     log_data = (self.global_t, score_str, steps_str)
-                    logger.debug("train: global_t={} score={} steps={}".format(*log_data))
+                    logger.debug("train: global_t={} {} {}".format(*log_data))
                     self.net.record_summary(
                         score=sub_total_reward, steps=sub_steps,
                         episodes=None, global_t=self.global_t, mode='Train')

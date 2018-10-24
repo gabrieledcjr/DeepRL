@@ -19,12 +19,14 @@ class DqnNet(Network):
     """ DQN Network Model of DQN Algorithm """
 
     def __init__(
-        self, sess, height, width, phi_length, n_actions, name, gamma=0.99, copy_interval=4,
-        optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95, momentum=0., l2_decay=0.0001, error_clip=1.0,
-        slow=False, tau=0.01, verbose=False, folder='_networks',
+        self, sess, height, width, phi_length, n_actions, name, gamma=0.99,
+        optimizer='RMS', learning_rate=0.00025, epsilon=0.01, decay=0.95,
+        momentum=0., l2_decay=0.0001, slow=False, tau=0.01, verbose=False,
+        folder='_networks',
         transfer=False, transfer_folder='',
         transfer_conv2=False, transfer_conv3=False,
-        transfer_fc1=False, transfer_fc2=False, device="/cpu:0"):
+        transfer_fc1=False, transfer_fc2=False, device="/cpu:0",
+        transformed_bellman=False, target_consistency_loss=False):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
         self.gamma = gamma
@@ -33,9 +35,9 @@ class DqnNet(Network):
         self.name = name
         self.sess = sess
         self.folder = folder
-        self.copy_interval = copy_interval
-        self.update_counter = 0
         self._device = device
+        self.transformed_bellman = transformed_bellman
+        self.target_consistency_loss = target_consistency_loss
 
         self.slow_learnrate_vars = []
         self.fast_learnrate_vars = []
@@ -136,38 +138,34 @@ class DqnNet(Network):
 
         with tf.device(self._device):
             # cost of q network
-            self.cost = self.build_loss(error_clip, n_actions) #+ self.l2_regularizer_loss
+            self.cost = self.build_loss(n_actions) #+ self.l2_regularizer_loss
 
             with tf.name_scope("Train") as scope:
-                if optimizer == "Graves":
-                    # Nature RMSOptimizer
-                    self.train_step, self.grads_vars = graves_rmsprop_optimizer(self.cost, learning_rate, decay, epsilon, 1)
+                #if optimizer == "Graves":
+                #    # Nature RMSOptimizer
+                #    self.train_step, self.grads_vars = graves_rmsprop_optimizer(self.cost, learning_rate, decay, epsilon, 1)
+                #else:
+                if optimizer == "Adam":
+                    self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
+                elif optimizer == "RMS":
+                    # Tensorflow RMSOptimizer
+                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon, centered=True)
                 else:
-                    if optimizer == "Adam":
-                        self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
-                    elif optimizer == "RMS":
-                        # Tensorflow RMSOptimizer
-                        self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
-                    else:
-                        logger.error("Unknown Optimizer!")
-                        sys.exit()
+                    logger.error("Unknown Optimizer!")
+                    sys.exit()
 
-                    self.grads_vars = self.opt.compute_gradients(self.cost)
-                    grads = []
-                    params = []
-                    for p in self.grads_vars:
-                        if p[0] == None:
-                            continue
-                        grads.append(p[0])
-                        params.append(p[1])
-                    #grads = tf.clip_by_global_norm(grads, 1)[0]
-                    self.grads_vars_updates = zip(grads, params)
-                    self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
-
-                # for grad, var in self.grads_vars:
-                #     if grad == None:
-                #         continue
-                #     tf.summary.histogram(var.op.name + '/gradients', grad)
+                #self.grads_vars = self.opt.compute_gradients(self.cost)
+                #grads = []
+                #params = []
+                #for p in self.grads_vars:
+                #    if p[0] == None:
+                #        continue
+                #    grads.append(p[0])
+                #    params.append(p[1])
+                ##grads = tf.clip_by_global_norm(grads, 40.)[0]
+                #self.grads_vars_updates = zip(grads, params)
+                #self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
+                self.train_step = self.opt.minimize(self.cost)
 
         def initialize_uninitialized(sess):
             global_vars = tf.global_variables()
@@ -229,45 +227,82 @@ class DqnNet(Network):
     def evaluate_target(self, state):
         return self.sess.run(self.t_q_value, feed_dict={self.next_observation: [state]})
 
-    def build_loss(self, error_clip, n_actions):
+    def evaluate_tc(self, state):
+        return self.sess.run(self.q_value, feed_dict={self.observation: state})
+
+    def build_loss(self, n_actions):
         with tf.name_scope("Loss") as scope:
+            self.actions = tf.placeholder(tf.float32, shape=[None, n_actions], name="actions") # one-hot matrix
+            self.rewards = tf.placeholder(tf.float32, shape=[None], name="rewards")
+            self.terminals = tf.placeholder(tf.float32, shape=[None], name="terminals")
             predictions = tf.reduce_sum(tf.multiply(self.q_value, self.actions), axis=1)
-            max_action_values = tf.reduce_max(self.t_q_value, 1)
-            clipped_rewards = tf.clip_by_value(self.rewards, -1., 1.)
-            targets = tf.stop_gradient(clipped_rewards + (self.gamma * max_action_values * (1 - self.terminals)))
-            difference = tf.abs(targets - predictions)
-            if error_clip >= 0:
-                quadratic_part = tf.minimum(difference, error_clip)
-                linear_part = difference - quadratic_part
-                errors = (0.5 * tf.square(quadratic_part)) + (error_clip * linear_part)
+            max_action_values = tf.reduce_max(self.t_q_value, axis=1)
+
+            def h(z, eps=10**-2):
+                return (tf.sign(z) * (tf.sqrt(tf.abs(z) + 1.) - 1.)) + (eps * z)
+
+            def h_inv(z, eps=10**-2):
+                return tf.sign(z) * (tf.square((tf.sqrt(1 + 4 * eps * (tf.abs(z) + 1 + eps)) - 1) / (2 * eps)) - 1)
+
+            def h_log(z, eps=1):
+                return (tf.sign(z) * tf.log(1. + tf.abs(z)) * eps)
+
+            def h_inv_log(z, eps=1):
+                return tf.sign(z) * (tf.math.exp(tf.abs(z) / eps) - 1)
+
+            if self.transformed_bellman:
+                #transformed = h(self.rewards + self.gamma * h(max_action_values) * (1 - self.terminals))
+                transformed = h(self.rewards + self.gamma * h_inv(max_action_values) * (1 - self.terminals))
+                targets = tf.stop_gradient(transformed)
             else:
-                errors = (0.5 * tf.square(difference))
-            loss = tf.reduce_sum(errors)
+                targets = tf.stop_gradient(self.rewards + (self.gamma * max_action_values * (1 - self.terminals)))
+
+            td_loss = tf.reduce_mean(tf.losses.huber_loss(targets, predictions, reduction=tf.losses.Reduction.NONE))
+
+            if self.target_consistency_loss:
+                self.q_values_tc = tf.placeholder(tf.float32, shape=[None, n_actions], name="q_values_tc")
+                t_actions_one_hot = tf.one_hot(tf.argmax(self.t_q_value, axis=1), self.q_values_tc.shape[1])
+                max_action_values_q = tf.stop_gradient(tf.reduce_sum(self.q_values_tc * t_actions_one_hot, axis=1))
+                tc_loss = tf.reduce_mean(tf.squared_difference(max_action_values, max_action_values_q))
+                total_loss = td_loss + tc_loss
+            else:
+                total_loss = td_loss
+
+            loss = total_loss
+
             tf.summary.scalar("loss", loss)
-            tf.summary.scalar("cost_0", errors[0])
-            tf.summary.scalar("cost_max", tf.reduce_max(errors))
-            tf.summary.scalar("target_0", targets[0])
+            tf.summary.scalar("cost_min", tf.reduce_max(td_loss))
+            tf.summary.scalar("cost_max", tf.reduce_max(td_loss))
+            tf.summary.scalar("target_min", tf.reduce_min(targets))
             tf.summary.scalar("target_max", tf.reduce_max(targets))
-            tf.summary.scalar("acted_Q_0", predictions[0])
+            tf.summary.scalar("acted_Q_min", tf.reduce_min(predictions))
             tf.summary.scalar("acted_Q_max", tf.reduce_max(predictions))
-            tf.summary.scalar("reward_max", tf.reduce_max(clipped_rewards))
+            tf.summary.scalar("reward_max", tf.reduce_max(self.rewards))
+            # tf.summary.scalar("reward_max", tf.reduce_max(clipped_rewards))
             return loss
 
-    def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal):
-        t_ops = [self.summary_op, self.train_step, self.cost]
-        summary = self.sess.run(
-            t_ops,
-            feed_dict={
-                self.observation: s_j_batch,
-                self.actions: a_batch,
-                self.next_observation: s_j1_batch,
-                self.rewards: r_batch,
-                self.terminals: terminal})
-        if self.update_counter % self.copy_interval == 0:
-            logger.info('Update target network')
-            self.update_target_network(slow=self.slow)
-        self.update_counter += 1
-        return summary[0]
+    def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal, global_t):
+        if self.target_consistency_loss:
+            q_values_tc = self.evaluate_tc(s_j1_batch)
+            summary, _, _ = self.sess.run(
+                [self.summary_op, self.train_step, self.cost],
+                feed_dict={
+                    self.observation: s_j_batch,
+                    self.actions: a_batch,
+                    self.q_values_tc: q_values_tc,
+                    self.next_observation: s_j1_batch,
+                    self.rewards: r_batch,
+                    self.terminals: terminal})
+        else:
+            summary, _, _ = self.sess.run(
+                [self.summary_op, self.train_step, self.cost],
+                feed_dict={
+                    self.observation: s_j_batch,
+                    self.actions: a_batch,
+                    self.next_observation: s_j1_batch,
+                    self.rewards: r_batch,
+                    self.terminals: terminal})
+        self.add_summary(summary, global_t)
 
     def record_summary(self, score=0, steps=0, episodes=None, global_t=0, mode='Test'):
         summary = tf.Summary()
@@ -298,8 +333,6 @@ class DqnNet(Network):
             tokens = checkpoint.model_checkpoint_path.split("-")
             self.global_t = int(tokens[1])
             has_checkpoint = True
-            data = pickle.load(open(__folder + '/' + self.name + '-net-variables.pkl', 'rb'))
-            self.update_counter = data['update_counter']
 
         return has_checkpoint
 
@@ -309,8 +342,7 @@ class DqnNet(Network):
             self.saver.save(self.sess, self.folder + '/{}_checkpoint_dqn'.format(self.name.replace('-', '_')))
         else:
             self.saver.save(self.sess, self.folder + '/{}_checkpoint_dqn'.format(self.name.replace('-', '_')), global_step=step)
-            data = {'update_counter': self.update_counter}
-            pickle.dump(data, open(self.folder + '/' + self.name + '-net-variables.pkl', 'wb'), pickle.HIGHEST_PROTOCOL)
+
         logger.info('Successfully saved checkpoint!')
 
         logger.info('Saving parameters as csv files...')
