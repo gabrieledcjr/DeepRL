@@ -27,48 +27,36 @@ class GameACNetwork(ABC):
         self._device = device
 
     def prepare_loss(self):
+        """Based from A2C OpenAI Baselines
+        A2C (aka PAAC), we use the loss function explained in the PAAC paper
+        Clemente et al 2017. Efficient Parallel Methods for Deep Reinforcement Learning
+        """
+
+        def cat_entropy(logits):
+            a0 = logits - tf.reduce_max(logits, 1, keepdims=True)
+            ea0 = tf.exp(a0)
+            z0 = tf.reduce_sum(ea0, 1, keepdims=True)
+            p0 = ea0 / z0
+            return tf.reduce_sum(p0 * (tf.log(z0) - a0), 1)
+
         with tf.name_scope("Loss") as scope:
             # taken action (input for policy)
             self.a = tf.placeholder(tf.float32, shape=[None, self._action_size], name="action")
 
-            # temporary difference (R-V) (input for policy)
-            self.td = tf.placeholder(tf.float32, shape=[None], name="td")
-
-            # avoid NaN with clipping when value in pi becomes zero
-            #log_pi = tf.nn.log_softmax(tf.clip_by_value(self.logits, -10.0, 10.0))
-            log_pi = tf.nn.log_softmax(self.logits)
-
-            # policy entropy
-            entropy = -tf.reduce_sum(self.pi * log_pi, axis=1)
-
-            # net_vars = self.get_vars()
-            # l2_losses = []
-            # l1_losses = []
-            # for i in range(len(net_vars)):
-            # if i%2 == 0:
-            #       l1_losses.append(self.l1_beta * tf.reduce_sum(tf.abs(net_vars[i])))
-            #       l2_losses.append(self.l2_beta * tf.nn.l2_loss(net_vars[i]))
-            # l1_loss = sum(l1_losses)
-            # l2_loss = sum(l2_losses)
-            # l_losses = l1_loss + l2_loss
+            # temporal difference (R-V) (input for policy)
+            self.advantage = tf.placeholder(tf.float32, shape=[None], name="advantage")
 
             self.policy_lr = tf.placeholder(tf.float32, shape=(), name="policy_lr")
             self.critic_lr = tf.placeholder(tf.float32, shape=(), name="critic_lr")
             self.entropy_beta = tf.placeholder(tf.float32, shape=(), name="entropy_beta")
+            self.cumulative_reward = tf.placeholder(tf.float32, shape=[None], name="cumulative_reward")
 
-            # policy loss (output)  (Adding minus, because the original paper's objective function is for gradient ascent, but we use gradient descent optimizer.)
-            policy_loss = -tf.reduce_sum(tf.reduce_sum(tf.multiply(log_pi, self.a), axis=1) * self.td + entropy * self.entropy_beta)
-            # policy_loss = - tf.reduce_sum( tf.reduce_sum( tf.multiply( log_pi, self.a ) + l_losses, axis=1 ) * self.td + entropy * entropy_beta)
-
-            # R (input for value)
-            self.r = tf.placeholder(tf.float32, shape=[None], name="reward")
-
-            # value loss (output)
-            # (Learning rate for Critic is half of Actor's, so multiply by 0.5)
-            value_loss = 0.5 * tf.reduce_sum(tf.square(self.r - self.v))
-
-            # gradient of policy and value are summed up
-            self.total_loss = self.policy_lr * policy_loss + self.critic_lr * value_loss
+            assert self.a.shape.as_list() == self.logits.shape.as_list()
+            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.a)
+            pg_loss = tf.reduce_mean(self.advantage * neglogpac)
+            vf_loss = tf.reduce_mean(tf.squared_difference(tf.squeeze(self.v), self.cumulative_reward) / 2.0)
+            entropy = tf.reduce_mean(cat_entropy(self.logits))
+            self.total_loss = self.policy_lr * pg_loss - entropy * self.entropy_beta + vf_loss * self.critic_lr
 
     @abstractmethod
     def run_policy_and_value(self, sess, s_t):
