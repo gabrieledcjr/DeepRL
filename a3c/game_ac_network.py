@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import tensorflow as tf
 import numpy as np
 import os
@@ -10,9 +10,11 @@ from termcolor import colored
 
 logger = logging.getLogger("game_ac_network")
 
-# Actor-Critic Network Base Class
-# (Policy network and Value network)
+
 class GameACNetwork(ABC):
+    """Actor-Critic Network Base Class
+    (Policy network and Value network)
+    """
     use_mnih_2015 = False
     l1_beta = 0.
     l2_beta = 0.
@@ -192,6 +194,11 @@ class GameACFFNetwork(GameACNetwork):
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
+
+        # state (input)
+        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4], name="state")
+        self.s_n = tf.div(self.s, 255.)
+
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
@@ -208,10 +215,6 @@ class GameACFFNetwork(GameACNetwork):
 
             # weight for value output layer
             self.W_fc3, self.b_fc3 = self.fc_variable([self.last_hidden_fc_output_size, 1], layer_name='fc3')
-
-            # state (input)
-            self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
-            self.s_n = tf.div(self.s, 255.)
 
             if self.use_mnih_2015:
                 self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
@@ -276,6 +279,14 @@ class GameACLSTMNetwork(GameACNetwork):
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
+
+        # state (input)
+        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4], name="state")
+        self.s_n = tf.div(self.s, 255.)
+
+        # place holder for LSTM unrolling time step size.
+        self.step_size = tf.placeholder(tf.float32, [1])
+
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
@@ -296,10 +307,6 @@ class GameACLSTMNetwork(GameACNetwork):
             # weight for value output layer
             self.W_fc3, self.b_fc3 = self.fc_variable([self.last_hidden_fc_output_size, 1], layer_name='fc3')
 
-            # state (input)
-            self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
-            self.s_n = tf.div(self.s, 255.)
-
             if self.use_mnih_2015:
                 self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
                 self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
@@ -315,9 +322,6 @@ class GameACLSTMNetwork(GameACNetwork):
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
             h_fc1_reshaped = tf.reshape(self.h_fc1, [1, -1, self.last_hidden_fc_output_size])
-
-            # place holder for LSTM unrolling time step size.
-            self.step_size = tf.placeholder(tf.float32, [1])
 
             self.initial_lstm_state0 = tf.placeholder(tf.float32, [1, self.last_hidden_fc_output_size])
             self.initial_lstm_state1 = tf.placeholder(tf.float32, [1, self.last_hidden_fc_output_size])

@@ -121,6 +121,11 @@ class MultiClassNetwork(GameClassNetwork):
         logger.info("L1_beta: {}".format(colored(self.l1_beta, "green" if self.l1_beta > 0. else "red")))
         logger.info("L2_beta: {}".format(colored(self.l2_beta, "green" if self.l2_beta > 0. else "red")))
         scope_name = "net_" + str(self._thread_index)
+
+        # state (input)
+        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
+        self.s_n = tf.div(self.s, 255.)
+
         with self.graph.as_default():
             with tf.device(self._device), tf.variable_scope(scope_name) as scope:
                 if self.use_mnih_2015:
@@ -151,10 +156,6 @@ class MultiClassNetwork(GameClassNetwork):
                 self.W_fc2, self.b_fc2 = self.fc_variable([256, action_size], layer_name='fc2')
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
-
-                # state (input)
-                self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
-                self.s_n = tf.div(self.s, 255.)
 
                 if self.use_mnih_2015:
                     h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
@@ -271,6 +272,11 @@ class MTLBinaryClassNetwork(GameClassNetwork):
         logger.info("L1_beta: {}".format(colored(self.l1_beta, "green" if self.l1_beta > 0. else "red")))
         logger.info("L2_beta: {}".format(colored(self.l2_beta, "green" if self.l2_beta > 0. else "red")))
         scope_name = "net_" + str(self._thread_index)
+
+        # state (input)
+        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
+        self.s_n = tf.div(self.s, 255.)
+
         with self.graph.as_default():
             with tf.device(self._device), tf.variable_scope(scope_name) as scope:
                 if self.use_mnih_2015:
@@ -305,10 +311,6 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                     self.b_fc2.append(b)
                     tf.add_to_collection('transfer_params', self.W_fc2[n_class])
                     tf.add_to_collection('transfer_params', self.b_fc2[n_class])
-
-                # state (input)
-                self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
-                self.s_n = tf.div(self.s, 255.)
 
                 if self.use_mnih_2015:
                     h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
