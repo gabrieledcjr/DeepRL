@@ -69,8 +69,12 @@ def run_a3c(args):
             end_str += '_mnih2015'
         if args.use_lstm:
             end_str += '_lstm'
-        if args.log_scale_reward:
-            end_str += '_log_reward'
+        if args.unclipped_reward:
+            end_str += '_rawreward'
+        elif args.log_scale_reward:
+            end_str += '_logreward'
+        if args.transformed_bellman:
+            end_str += '_transformedbell'
         if args.use_egreedy_threads:
             end_str += '_egreedy'
         if args.load_pretrained_model:
@@ -177,12 +181,13 @@ def run_a3c(args):
     learning_rate_input = tf.placeholder(tf.float32, shape=(), name="opt_lr")
 
     grad_applier = RMSPropApplier(
-        learning_rate = learning_rate_input,
-        decay = args.rmsp_alpha,
-        momentum = 0.0,
-        epsilon = args.rmsp_epsilon,
-        clip_norm = args.grad_norm_clip,
-        device = device)
+        learning_rate=learning_rate_input,
+        decay=args.rmsp_alpha,
+        momentum=0.0,
+        epsilon=args.rmsp_epsilon,
+        clip_norm=args.grad_norm_clip,
+        device=device,
+        centered=False)
     A3CTrainingThread.log_interval = args.log_interval
     A3CTrainingThread.performance_log_interval = args.performance_log_interval
     A3CTrainingThread.local_t_max = args.local_t_max
@@ -195,8 +200,16 @@ def run_a3c(args):
     A3CTrainingThread.use_mnih_2015 = args.use_mnih_2015
     A3CTrainingThread.env_id = args.gym_env
     A3CTrainingThread.egreedy_testing = args.egreedy_testing
-    A3CTrainingThread.log_scale_reward = args.log_scale_reward
     A3CTrainingThread.finetune_upper_layers_only = args.finetune_upper_layers_only
+    A3CTrainingThread.transformed_bellman = args.transformed_bellman
+
+    if args.unclipped_reward:
+        A3CTrainingThread.reward_type = "RAW"
+    elif args.log_scale_reward:
+        A3CTrainingThread.reward_type = "LOG"
+    else:
+        A3CTrainingThread.reward_type = "CLIP"
+
     n_shapers = args.parallel_size #int(args.parallel_size * .25)
     mod = args.parallel_size // n_shapers
     for i in range(args.parallel_size):

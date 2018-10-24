@@ -101,8 +101,15 @@ def main():
     parser.add_argument('--extract-transfer-layers', action='store_true')
     parser.set_defaults(extract_transfer_layers=False)
 
+    # Alternatives to reward clipping
+    parser.add_argument('--unclipped-reward', action='store_true', help='use raw reward')
+    parser.set_defaults(unclipped_reward=False)
+    # DQfD Hester, et. al 2017
     parser.add_argument('--log-scale-reward', action='store_true', help='use log scale reward r = sign(r) * log(1 + abs(r)) from DQfD (Hester et. al)')
     parser.set_defaults(log_scale_reward=False)
+    # Ape-X Pohlen, et. al 2018
+    parser.add_argument('--transformed-bellman', action='store_true', help='use transofrmed bellman equation')
+    parser.set_defaults(transformed_bellman=False)
 
     parser.add_argument('--egreedy-testing', action='store_true', help='testing/evaluation uses egreedy')
     parser.set_defaults(egreedy_testing=False)

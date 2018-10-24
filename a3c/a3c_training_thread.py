@@ -11,6 +11,7 @@ from common.util import get_action_index, make_movie
 
 logger = logging.getLogger("a3c_training_thread")
 
+
 class A3CTrainingThread(object):
     log_interval = 100
     performance_log_interval = 1000
@@ -23,14 +24,15 @@ class A3CTrainingThread(object):
     gamma = 0.99
     use_mnih_2015 = False
     env_id = None
-    log_scale_reward = False
+    reward_type = 'CLIP'  # CLIP | LOG | RAW
     egreedy_testing = False
     finetune_upper_layers_oinly = False
     shaping_reward = 0.001
     shaping_factor = 1.
     shaping_gamma = 0.85
     advice_confidence = 0.8
-    shaping_actions = -1 # -1 all actions, 0 exclude noop
+    shaping_actions = -1  # -1 all actions, 0 exclude noop
+    transformed_bellman = False
 
     def __init__(self,
                  thread_index,
@@ -58,11 +60,18 @@ class A3CTrainingThread(object):
         logger.info("action_size: {}".format(self.action_size))
         logger.info("entropy_beta: {}".format(self.entropy_beta))
         logger.info("gamma: {}".format(self.gamma))
-        logger.info("log_scale_reward: {}".format(colored(self.log_scale_reward, "green" if self.log_scale_reward else "red")))
-        logger.info("egreedy_testing: {}".format(colored(self.egreedy_testing, "green" if self.egreedy_testing else "red")))
-        logger.info("finetune_upper_layers_only: {}".format(colored(self.finetune_upper_layers_only, "green" if self.finetune_upper_layers_only else "red")))
-        logger.info("use_pretrained_model_as_advice: {}".format(colored(self.use_pretrained_model_as_advice, "green" if self.use_pretrained_model_as_advice else "red")))
-        logger.info("use_pretrained_model_as_reward_shaping: {}".format(colored(self.use_pretrained_model_as_reward_shaping, "green" if self.use_pretrained_model_as_reward_shaping else "red")))
+        logger.info("reward_type: {}".format(self.reward_type))
+        logger.info("egreedy_testing: {}".format(
+            colored(self.egreedy_testing, "green" if self.egreedy_testing else "red")))
+        logger.info("finetune_upper_layers_only: {}".format(
+            colored(self.finetune_upper_layers_only, "green" if self.finetune_upper_layers_only else "red")))
+        logger.info("use_pretrained_model_as_advice: {}".format(
+            colored(self.use_pretrained_model_as_advice, "green" if self.use_pretrained_model_as_advice else "red")))
+        logger.info("use_pretrained_model_as_reward_shaping: {}".format(
+            colored(self.use_pretrained_model_as_reward_shaping,
+                    "green" if self.use_pretrained_model_as_reward_shaping else "red")))
+        logger.info("transformed_bellman: {}".format(
+            colored(self.transformed_bellman, "green" if self.transformed_bellman else "red")))
 
         if self.use_lstm:
             GameACLSTMNetwork.use_mnih_2015 = self.use_mnih_2015
@@ -95,7 +104,9 @@ class A3CTrainingThread(object):
         self.sync = self.local_network.sync_from(
             global_network, upper_layers_only=self.finetune_upper_layers_only)
 
-        self.game_state = GameState(env_id=self.env_id, display=False, no_op_max=30, human_demo=False, episode_life=True)
+        self.game_state = GameState(
+            env_id=self.env_id, display=False,
+            no_op_max=30, human_demo=False, episode_life=True)
 
         self.local_t = 0
 
@@ -104,7 +115,7 @@ class A3CTrainingThread(object):
         self.episode_reward = 0
         self.episode_steps = 0
 
-        # variable controling log output
+        # variable controlling log output
         self.prev_local_t = 0
 
         self.is_demo_thread = False
@@ -164,7 +175,7 @@ class A3CTrainingThread(object):
     def testing(self, sess, max_steps, global_t, folder):
         logger.info("Evaluate policy at global_t={}...".format(global_t))
         # copy weights from shared to local
-        sess.run( self.sync )
+        sess.run(self.sync)
 
         episode_buffer = []
         self.game_state.reset(hard_reset=True)
@@ -187,14 +198,14 @@ class A3CTrainingThread(object):
                 if psi > np.random.rand():
                     model_pi = self.pretrained_model.run_policy(self.pretrained_model_sess, self.game_state.s_t)
                     model_action, confidence = self.choose_action_with_high_confidence(model_pi, exclude_noop=False)
-                    if (model_action > self.shaping_actions and confidence >= self.advice_confidence):
+                    if model_action > self.shaping_actions and confidence >= self.advice_confidence:
                         action = model_action
 
             # take action
             self.game_state.step(action)
             terminal = self.game_state.terminal
 
-            if n_episodes == 0 and global_t % 2000000 == 0:
+            if n_episodes == 0 and global_t % 5000000 == 0:
                 episode_buffer.append(self.game_state.get_screen_rgb())
 
             episode_reward += self.game_state.reward
@@ -210,7 +221,7 @@ class A3CTrainingThread(object):
                         time_per_step = 0.0167
                         images = np.array(episode_buffer)
                         make_movie(
-                            images, folder + '/frames/image{ep:010d}'.format(ep=(global_t)),
+                            images, folder + '/frames/image{ep:010d}'.format(ep=global_t),
                             duration=len(images)*time_per_step,
                             true_image=True, salience=False)
                         episode_buffer = []
@@ -339,9 +350,9 @@ class A3CTrainingThread(object):
 
             self.episode_reward += reward
 
-            if self.log_scale_reward:
+            if self.reward_type == 'LOG':
                 reward = np.sign(reward) * np.log(1 + np.abs(reward))
-            else:
+            elif self.reward_type == 'CLIP':
                 # clip reward
                 reward = np.sign(reward)
 
@@ -372,51 +383,53 @@ class A3CTrainingThread(object):
                 self.replay_mem_reset(demo_memory_idx=demo_memory_idx)
                 break
 
-        R = 0.0
+        cumulative_reward = 0.0
         if not terminal_end:
-            R = self.local_network.run_value(sess, s_t)
+            cumulative_reward = self.local_network.run_value(sess, s_t)
 
         actions.reverse()
         states.reverse()
         rewards.reverse()
         values.reverse()
 
-        batch_si = []
-        batch_a = []
-        batch_td = []
-        batch_R = []
+        batch_state = []
+        batch_action = []
+        batch_adv = []
+        batch_cumulative_reward = []
 
         # compute and accmulate gradients
-        for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
-            R = ri + self.gamma * R
-            td = R - Vi
+        for(ai, ri, si, vi) in zip(actions, rewards, states, values):
+            cumulative_reward = ri + self.gamma * cumulative_reward
+            advantage = cumulative_reward - vi
+
+            # convert action to one-hot vector
             a = np.zeros([self.action_size])
             a[ai] = 1
 
-            batch_si.append(si)
-            batch_a.append(a)
-            batch_td.append(td)
-            batch_R.append(R)
+            batch_state.append(si)
+            batch_action.append(a)
+            batch_adv.append(advantage)
+            batch_cumulative_reward.append(cumulative_reward)
 
         cur_learning_rate = self._anneal_learning_rate(global_t) #* 0.005
 
         if self.use_lstm:
-            batch_si.reverse()
-            batch_a.reverse()
-            batch_td.reverse()
-            batch_R.reverse()
+            batch_state.reverse()
+            batch_action.reverse()
+            batch_adv.reverse()
+            batch_cumulative_reward.reverse()
 
             sess.run(self.apply_gradients,
                      feed_dict = {
-                         self.local_network.s: batch_si,
-                         self.local_network.a: batch_a,
-                         self.local_network.td: batch_td,
-                         self.local_network.r: batch_R,
+                         self.local_network.s: batch_state,
+                         self.local_network.a: batch_action,
+                         self.local_network.advantage: batch_adv,
+                         self.local_network.cumulative_reward: batch_cumulative_reward,
                          self.local_network.policy_lr: 1.0,
                          self.local_network.critic_lr: 0.5,
                          self.local_network.entropy_beta: self.demo_entropy_beta,
                          self.local_network.initial_lstm_state: start_lstm_state,
-                         self.local_network.step_size : [len(batch_a)],
+                         self.local_network.step_size : [len(batch_action)],
                          self.learning_rate_input: cur_learning_rate} )
 
             # some demo episodes doesn't reach terminal state
@@ -426,10 +439,10 @@ class A3CTrainingThread(object):
         else:
             sess.run(self.apply_gradients,
                      feed_dict = {
-                         self.local_network.s: batch_si,
-                         self.local_network.a: batch_a,
-                         self.local_network.td: batch_td,
-                         self.local_network.r: batch_R,
+                         self.local_network.s: batch_state,
+                         self.local_network.a: batch_action,
+                         self.local_network.advantage: batch_adv,
+                         self.local_network.cumulative_reward: batch_R,
                          self.local_network.policy_lr: 1.0,
                          self.local_network.critic_lr: 0.5,
                          self.local_network.entropy_beta: self.demo_entropy_beta,
@@ -495,12 +508,14 @@ class A3CTrainingThread(object):
             values.append(value_)
 
             if self.thread_index == 0 and self.local_t % self.log_interval == 0:
-                log_msg = "lg={}".format(np.array_str(logits_, precision=4, suppress_small=True))
-                log_msg += " pi={}".format(np.array_str(pi_, precision=4, suppress_small=True))
-                log_msg += " V={:.4f}".format(value_)
+                log_msg1 = "lg={}".format(np.array_str(logits_, precision=4, suppress_small=True))
+                log_msg2 = "pi={}".format(np.array_str(pi_, precision=4, suppress_small=True))
+                log_msg3 = "V={:.4f}".format(value_)
                 if self.use_pretrained_model_as_advice:
-                    log_msg += " psi={:.4f}".format(self.psi)
-                logger.debug(log_msg)
+                    log_msg3 += " psi={:.4f}".format(self.psi)
+                logger.debug(log_msg1)
+                logger.debug(log_msg2)
+                logger.debug(log_msg3)
 
             # process game
             self.game_state.step(action)
@@ -532,10 +547,11 @@ class A3CTrainingThread(object):
 
             self.episode_reward += reward
 
-            if self.log_scale_reward:
+            if self.reward_type == 'LOG':
                 reward = np.sign(reward) * np.log(1 + np.abs(reward))
-            else:
-                reward = np.sign(reward)  # clip reward
+            elif self.reward_type == 'CLIP':
+                # clip reward
+                reward = np.sign(reward)
 
             rewards.append(reward)
 
@@ -570,19 +586,19 @@ class A3CTrainingThread(object):
                 self.game_state.reset(hard_reset=False)
                 break
 
-        R = 0.0
+        cumulative_reward = 0.0
         if not terminal:
-            R = self.local_network.run_value(sess, self.game_state.s_t)
+            cumulative_reward = self.local_network.run_value(sess, self.game_state.s_t)
 
         actions.reverse()
         states.reverse()
         rewards.reverse()
         values.reverse()
 
-        batch_si = []
-        batch_a = []
-        batch_td = []
-        batch_R = []
+        batch_state = []
+        batch_action = []
+        batch_adv = []
+        batch_cumulative_reward = []
 
         if self.use_pretrained_model_as_reward_shaping:
             rho.reverse()
@@ -590,70 +606,86 @@ class A3CTrainingThread(object):
             self.last_rho = rho[0]
             i = 0
             # compute and accumulate gradients
-            for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
+            for(ai, ri, si, vi) in zip(actions, rewards, states, values):
                 # Wiewiora et al.(2003) Principled Methods for Advising RL agents
                 # Look-Back Advice
                 #F = rho[i] - (self.shaping_gamma**-1) * rho[i+1]
                 #F = rho[i] - self.shaping_gamma * rho[i+1]
-                F = (self.shaping_gamma**-1) * rho[i] - rho[i+1]
-                if (i == 0 and terminal) or (F != 0 and (ri > 0 or ri < 0)):
+                f = (self.shaping_gamma**-1) * rho[i] - rho[i+1]
+                if (i == 0 and terminal) or (f != 0 and (ri > 0 or ri < 0)):
                     #logger.warn("averted additional F in absorbing state")
                     F = 0.
                 # if (F < 0. and ri > 0) or (F > 0. and ri < 0):
                 #     logger.warn("Negative reward shaping F={} ri={} rho[s]={} rhos[s-1]={}".format(F, ri, rho[i], rho[i+1]))
                 #     F = 0.
-                R = (ri + F*self.shaping_factor) + self.gamma * R
-                td = R - Vi
+                cumulative_reward = (ri + f*self.shaping_factor) + self.gamma * cumulative_reward
+                advantage = cumulative_reward - vi
 
                 a = np.zeros([self.action_size])
                 a[ai] = 1
 
-                batch_si.append(si)
-                batch_a.append(a)
-                batch_td.append(td)
-                batch_R.append(R)
+                batch_state.append(si)
+                batch_action.append(a)
+                batch_adv.append(advantage)
+                batch_cumulative_reward.append(cumulative_reward)
                 i += 1
         else:
-            # compute and accumulate gradients
-            for(ai, ri, si, Vi) in zip(actions, rewards, states, values):
-                R = ri + self.gamma * R
-                td = R - Vi
+            def h(z, eps=10**-2):
+                return (np.sign(z) * (np.sqrt(np.abs(z) + 1.) - 1.)) + (eps * z)
 
+            def h_inv(z, eps=10**-2):
+                return np.sign(z) * (np.square((np.sqrt(1 + 4 * eps * (np.abs(z) + 1 + eps)) - 1) / (2 * eps)) - 1)
+
+            def h_log(z, eps=.6):
+                return (np.sign(z) * np.log(1. + np.abs(z)) * eps)
+
+            def h_inv_log(z, eps=.6):
+                return np.sign(z) * (np.exp(np.abs(z) / eps) - 1)
+
+            # compute and accumulate gradients
+            for(ai, ri, si, vi) in zip(actions, rewards, states, values):
+                if self.transformed_bellman:
+                    cumulative_reward = h(ri + self.gamma * h_inv(cumulative_reward))
+                else:
+                    cumulative_reward = ri + self.gamma * cumulative_reward
+                advantage = cumulative_reward - vi
+
+                # convert action to one-hot vector
                 a = np.zeros([self.action_size])
                 a[ai] = 1
 
-                batch_si.append(si)
-                batch_a.append(a)
-                batch_td.append(td)
-                batch_R.append(R)
+                batch_state.append(si)
+                batch_action.append(a)
+                batch_adv.append(advantage)
+                batch_cumulative_reward.append(cumulative_reward)
 
         cur_learning_rate = self._anneal_learning_rate(global_t)
 
         if self.use_lstm:
-            batch_si.reverse()
-            batch_a.reverse()
-            batch_td.reverse()
-            batch_R.reverse()
+            batch_state.reverse()
+            batch_action.reverse()
+            batch_adv.reverse()
+            batch_cumulative_reward.reverse()
 
             sess.run(self.apply_gradients,
                 feed_dict = {
-                    self.local_network.s: batch_si,
-                    self.local_network.a: batch_a,
-                    self.local_network.td: batch_td,
-                    self.local_network.r: batch_R,
+                    self.local_network.s: batch_state,
+                    self.local_network.a: batch_action,
+                    self.local_network.advantage: batch_adv,
+                    self.local_network.cumulative_reward: batch_cumulative_reward,
                     self.local_network.policy_lr: 1.0,
                     self.local_network.critic_lr: 0.5,
                     self.local_network.entropy_beta: self.entropy_beta,
                     self.local_network.initial_lstm_state: start_lstm_state,
-                    self.local_network.step_size : [len(batch_a)],
+                    self.local_network.step_size : [len(batch_action)],
                     self.learning_rate_input: cur_learning_rate})
         else:
             sess.run(self.apply_gradients,
                 feed_dict = {
-                    self.local_network.s: batch_si,
-                    self.local_network.a: batch_a,
-                    self.local_network.td: batch_td,
-                    self.local_network.r: batch_R,
+                    self.local_network.s: batch_state,
+                    self.local_network.a: batch_action,
+                    self.local_network.advantage: batch_adv,
+                    self.local_network.cumulative_reward: batch_cumulative_reward,
                     self.local_network.policy_lr: 1.0,
                     self.local_network.critic_lr: 0.5,
                     self.local_network.entropy_beta: self.entropy_beta,
