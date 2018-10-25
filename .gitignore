@@ -3,6 +3,7 @@
 *.png
 results/*
 log/*
+*results*
 *_classifier_*/*
 *.pyc
 tmp/*
@@ -11,7 +12,7 @@ checkpoints*/*
 *_networks_*/
 *_demo_samples/
 *_demo_samples*/
-*demo_samples
+*collected_demo
 
 # Singularity/Tensorflow files
 .bash_history
