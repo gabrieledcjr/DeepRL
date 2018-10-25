@@ -6,10 +6,10 @@ import sqlite3
 import os
 import coloredlogs, logging
 import cv2
+import datetime
 
 from tkinter import Tk, messagebox
 from collections import deque
-from datetime import datetime
 from common.util import prepare_dir, get_action_index, make_movie
 from common.replay_memory import ReplayMemory
 from common.game_state.atari_wrapper import get_wrapper_by_name
@@ -20,7 +20,7 @@ class CollectDemonstration(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
-        folder='', create_movie=False):
+        folder='', create_movie=False, hertz=60.0):
         """ Initialize collection of demo """
         assert folder != ''
         self.game_state = game_state
@@ -29,7 +29,7 @@ class CollectDemonstration(object):
         self.phi_length = phi_length
         self.name = name
         self.main_folder = folder
-        self.min_mem_size = 10000
+        self.hertz = hertz
 
         # Create or connect to database
         self.conn = sqlite3.connect(
@@ -50,26 +50,37 @@ class CollectDemonstration(object):
         self.db.execute(
             '''CREATE TABLE
                IF NOT EXISTS demo_samples
-               (id INTEGER PRIMARY KEY,
-                episode_num INTEGER,
+               (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                datetime_collected TEXT,
                 env_id TEXT,
+                episodic_life INTEGER,
                 total_reward REAL,
                 memory_size INTEGER,
                 start_time TIMESTAMP,
                 end_time TIMESTAMP,
                 duration TEXT,
-                total_steps INTEGER)''')
-        self.db.execute(
-            '''CREATE UNIQUE INDEX
-               IF NOT EXISTS demo_samples_idx
-               ON demo_samples(episode_num)''')
+                time_limit TEXT,
+                total_steps INTEGER,
+                log_file TEXT,
+                hostname TEXT,
+                demo_speed_hz REAL)''')
+        # self.db.execute(
+        #     '''CREATE UNIQUE INDEX
+        #        IF NOT EXISTS demo_samples_idx
+        #        ON demo_samples(episode_num)''')
 
     def insert_data_to_db(self, demos=None):
         assert demos is not None
+        # self.db.executemany(
+        #     '''INSERT OR REPLACE INTO
+        #        demo_samples(data_path, env_id, total_reward, memory_size, start_time, end_time, duration, total_steps)
+        #        VALUES(?,?,?,?,?,?,?,?)''', demos)
         self.db.executemany(
-            '''INSERT OR REPLACE INTO
-               demo_samples(episode_num, env_id, total_reward, memory_size, start_time, end_time, duration, total_steps)
-               VALUES(?,?,?,?,?,?,?,?)''', demos)
+            '''INSERT INTO demo_samples
+               (datetime_collected, env_id, episodic_life, total_reward, 
+                memory_size, start_time, end_time, 
+                duration, time_limit, total_steps, log_file, hostname, demo_speed_hz)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', demos)
         self.conn.commit()
 
     def _reset(self, replay_memory, hard_reset=True):
@@ -91,12 +102,16 @@ class CollectDemonstration(object):
         self.state_input = np.roll(self.state_input, -1, axis=3)
         self.state_input[0, :, :, -1] = observation
 
-    def run_episodes(self, num_episodes, start_ep=1, minutes_limit=5, demo_type=0, model_net=None):
+    def run_episodes(self, num_episodes, minutes_limit=5, demo_type=0, model_net=None, log_file='', hostname=None):
+        assert hostname is not None
         rewards = []
         steps = []
         durations = []
         mem_sizes = []
-        ep = start_ep
+        episode = 0
+
+        if minutes_limit < 0:
+            minutes_limit = 0
 
         while True:
             replay_memory = ReplayMemory(
@@ -108,12 +123,14 @@ class CollectDemonstration(object):
                 wrap_memory=False,
                 full_state_size=self.game_state.clone_full_state().shape[0])
 
-            self.folder = self.main_folder + '/{n:03d}/'.format(n=(ep))
+            datetime_collected = datetime.datetime.today().strftime('%Y%m%d_%H%M%S')
+            self.folder = self.main_folder + '/data/{}/{}/'.format(hostname, datetime_collected)
             prepare_dir(self.folder, empty=True)
 
             total_reward, total_steps, start_time, end_time, duration, mem_size = self.run(
-                minutes_limit=minutes_limit, ep_num=ep, num_episodes=(num_episodes+start_ep)-1,
-                demo_type=demo_type, model_net=model_net, replay_memory=replay_memory)
+                minutes_limit=minutes_limit, episode=episode, num_episodes=num_episodes,
+                demo_type=demo_type, model_net=model_net, replay_memory=replay_memory,
+                total_memory=np.sum(mem_sizes))
 
             rewards.append(total_reward)
             steps.append(total_steps)
@@ -121,10 +138,14 @@ class CollectDemonstration(object):
             mem_sizes.append(mem_size)
             del replay_memory
 
-            self.insert_data_to_db([(ep, self.name, total_reward, mem_size, start_time, end_time, str(duration), total_steps)])
+            self.insert_data_to_db([(
+                datetime_collected, self.name, 1 if self.game_state.episode_life else 0,
+                total_reward, mem_size, start_time, end_time,
+                str(duration), str(datetime.time(minute=minutes_limit)),
+                total_steps, log_file, hostname, self.hertz)])
 
-            ep += 1
-            if np.sum(mem_sizes) >= self.min_mem_size and ep >= (num_episodes + start_ep):
+            episode += 1
+            if episode >= num_episodes:
                 break
 
         logger.debug("steps / episode: {}".format(steps))
@@ -143,21 +164,19 @@ class CollectDemonstration(object):
         self.game_state.close()
         self.conn.close()
 
-    def run(self, minutes_limit=5, ep_num=0, num_episodes=0, demo_type=0, model_net=None, replay_memory=None):
+    def run(self, minutes_limit=5, episode=0, num_episodes=0, demo_type=0,
+            model_net=None, replay_memory=None, total_memory=0):
         if self.create_movie:
             movie_images = []
 
         rewards = {'train':[], 'eval':[]}
 
         full_episode = False
-        if minutes_limit < 0:
-            minutes_limit = 0
+        if minutes_limit == 0:
             full_episode = True
         timeout = 60 * minutes_limit
         t = 0
-        is_reset = True
         total_reward = 0.0
-        score1 = score2 = 0
 
         # re-initialize game for evaluation
         self._reset(replay_memory, hard_reset=True)
@@ -171,17 +190,19 @@ class CollectDemonstration(object):
         root = Tk()
         root.withdraw()
 
-        messagebox.showinfo(self.name, "Start episode {} of {}. Press OK to start playing".format(ep_num, num_episodes))
+        messagebox.showinfo(
+            self.name,
+            "Start episode {} of {}. total memory={}. "
+            "Press OK to start playing".format(episode, num_episodes, total_memory))
 
         # regular game
-        start_time = datetime.now()
+        start_time = datetime.datetime.now()
         timeout_start = time.time()
 
         actions = deque()
 
-        hz = 50.0
         dtm = time.time()
-        pulse = 1.0 / hz
+        pulse = 1.0 / self.hertz
 
         while True:
             dtm += pulse
@@ -192,9 +213,9 @@ class CollectDemonstration(object):
                 dtm = time.time()
 
             if not terminal:
-                if demo_type == 1: # RANDOM AGENT
+                if demo_type == 1:  # RANDOM AGENT
                     action = np.random.randint(self.game_state.n_actions)
-                elif demo_type == 2: # MODEL AGENT
+                elif demo_type == 2:  # MODEL AGENT
                     if sub_t % self._skip == 0:
                         self._update_state_input(self.game_state.s_t)
                         readout_t = model_net.evaluate(self.state_input)[0]
@@ -242,7 +263,7 @@ class CollectDemonstration(object):
                 actions.clear()
                 rew = 0
 
-                if terminal or get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done:
+                if terminal or (self.game_state.episode_life and get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done):
                     break
 
                 if self.game_state.terminal:
@@ -251,7 +272,7 @@ class CollectDemonstration(object):
 
             self.game_state.update()
 
-        end_time = datetime.now()
+        end_time = datetime.datetime.now()
         duration = end_time - start_time
         logger.info("Duration: {}".format(duration))
         logger.info("Total steps: {}".format(t))
