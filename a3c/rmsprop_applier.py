@@ -11,7 +11,7 @@ class RMSPropApplier(object):
                  decay=0.9,
                  momentum=0.0,
                  epsilon=1e-10,
-                 clip_norm=40.0,
+                 clip_norm=1e-5,
                  device="/cpu:0",
                  centered=False,
                  name="RMSPropApplier"):
