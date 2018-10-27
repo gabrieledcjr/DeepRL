@@ -318,7 +318,7 @@ def run_a3c(args):
         logger.info("checkpoint loaded:{}".format(checkpoint.model_checkpoint_path))
         tokens = checkpoint.model_checkpoint_path.split("-")
         # set global step
-        global_t = int(tokens[1])
+        global_t = int(tokens[-1])
         logger.info(">>> global step set: {}".format(global_t))
         # set wall time
         wall_t_fname = folder + '/' + 'wall_t.' + str(global_t)

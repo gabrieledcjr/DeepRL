@@ -93,44 +93,17 @@ class GameACNetwork(ABC):
 
                 return tf.group(*sync_ops, name=name)
 
-    def conv_variable(self, shape, layer_name='conv'):
-        initial = self.he_initializer(
-            shape,
-            fan_in=shape[2] * shape[0] * shape[1],
-            fan_out=shape[3] * shape[0] * shape[1])
+    def conv_variable(self, shape, layer_name='conv', gain=1.0):
         with tf.variable_scope(layer_name):
-            weight = tf.Variable(initial, name='weights')
-            bias = tf.Variable(tf.zeros([shape[3]]), name='biases')
+            weight = tf.get_variable('weights', shape, initializer=tf.orthogonal_initializer(gain=gain))
+            bias = tf.get_variable('biases', [shape[3]], initializer=tf.zeros_initializer())
         return weight, bias
 
-    def fc_variable(self, shape, layer_name='fc'):
-        initial = self.he_initializer(shape, fan_in=shape[0], fan_out=shape[1])
+    def fc_variable(self, shape, layer_name='fc', gain=1.0):
         with tf.variable_scope(layer_name):
-            weight = tf.Variable(initial, name='weights')
-            bias = tf.Variable(tf.zeros([shape[1]]), name='biases')
+            weight = tf.get_variable('weights', shape, initializer=tf.orthogonal_initializer(gain=gain))
+            bias = tf.get_variable('biases', [shape[1]], initializer=tf.zeros_initializer())
         return weight, bias
-
-    def he_initializer(self, shape, fan_in=1.0, fan_out=1.0):
-        return self.variance_scaling_initializer(
-            shape, fan_in, fan_out, factor=2.0, mode='FAN_IN', uniform=False)
-
-    def xavier_initializer(self, shape, fan_in, fan_out):
-        return self.variance_scaling_initializer(
-            shape, fan_in, fan_out, factor=1.0, mode='FAN_AVG', uniform=True)
-
-    def variance_scaling_initializer(self, shape, fan_in, fan_out, factor=2.0, mode='FAN_IN', uniform=False):
-        if mode == 'FAN_IN':
-            n = fan_in
-        elif mode == 'FAN_AVG':
-            n = (fan_in + fan_out) / 2.0
-
-        if uniform:
-            limit = np.sqrt(3.0 * factor / n)
-            # sampling from a uniform distribution
-            return tf.random_uniform(shape, minval=-limit, maxval=limit, dtype=tf.float32)
-        else:
-            trunc_stddev = np.sqrt(1.3 * factor / n)
-            return tf.truncated_normal(shape, mean=0.0, stddev=trunc_stddev, dtype=tf.float32)
 
     def conv2d(self, x, W, stride, data_format='NHWC'):
         return tf.nn.conv2d(x, W, strides=[1,stride,stride,1], padding = "VALID",
@@ -201,14 +174,14 @@ class GameACFFNetwork(GameACNetwork):
 
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
-                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
-                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
+                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
             else:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')  # stride=4
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2') # stride=2
-                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))  # stride=4
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2)) # stride=2
+                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
 
             # weight for policy output layer
             self.W_fc2, self.b_fc2 = self.fc_variable([self.last_hidden_fc_output_size, action_size], layer_name='fc2')
@@ -289,17 +262,17 @@ class GameACLSTMNetwork(GameACNetwork):
 
         with tf.device(self._device), tf.variable_scope(scope_name) as scope:
             if self.use_mnih_2015:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1')
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
-                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
-                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
+                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
+                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
             else:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1')
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2')
-                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1')
+                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))
+                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2))
+                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
 
             # lstm
-            self.lstm = tf.nn.rnn_cell.LSTMCell(self.last_hidden_fc_output_size, name='basic_lstm_cell')
+            self.lstm = tf.nn.rnn_cell.LSTMCell(self.last_hidden_fc_output_size, name='basic_lstm_cell', initializer=tf.orthogonal_initializer(gain=np.sqrt(2)))
 
             # weight for policy output layer
             self.W_fc2, self.b_fc2 = self.fc_variable([self.last_hidden_fc_output_size, action_size], layer_name='fc2')

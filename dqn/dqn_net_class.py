@@ -37,21 +37,21 @@ class DqnNetClass(Network):
 
         with tf.device(self._device), self.graph.as_default(), tf.variable_scope('net_-1') as scope:
             # q network model:
-            self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1')
+            self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1', gain=np.sqrt(2))
             self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
             tf.add_to_collection('conv_weights', self.W_conv1)
             tf.add_to_collection('conv_output', self.h_conv1)
             tf.add_to_collection('transfer_params', self.W_conv1)
             tf.add_to_collection('transfer_params', self.b_conv1)
 
-            self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2')
+            self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
             self.h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.h_conv1, self.W_conv2, 2), self.b_conv2), name=self.name + '_conv2_activations')
             tf.add_to_collection('conv_weights', self.W_conv2)
             tf.add_to_collection('conv_output', self.h_conv2)
             tf.add_to_collection('transfer_params', self.W_conv2)
             tf.add_to_collection('transfer_params', self.b_conv2)
 
-            self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3')
+            self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
             self.h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.h_conv2, self.W_conv3, 1), self.b_conv3), name=self.name + '_conv3_activations')
             tf.add_to_collection('conv_weights', self.W_conv3)
             tf.add_to_collection('conv_output', self.h_conv3)
@@ -60,7 +60,7 @@ class DqnNetClass(Network):
 
             self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
 
-            self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], layer_name='fc1')
+            self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], layer_name='fc1', gain=np.sqrt(2))
             self.h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.h_conv3_flat, self.W_fc1), self.b_fc1), name=self.name + '_fc1_activations')
             tf.add_to_collection('transfer_params', self.W_fc1)
             tf.add_to_collection('transfer_params', self.b_fc1)
