@@ -422,7 +422,7 @@ def run_a3c(args):
         while True:
             if stop_requested:
                 return
-            if global_t > (args.max_time_step * args.max_time_step_fraction):
+            if global_t >= (args.max_time_step * args.max_time_step_fraction):
                 return
 
             if args.use_demo_threads and global_t < args.max_steps_threads_as_demo and episode_end and num_demo_thread < 16:
@@ -502,6 +502,7 @@ def run_a3c(args):
         train_threads.append(threading.Thread(target=train_function, args=(i,)))
 
     signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
     # set start time
     start_time = time.time() - wall_t
@@ -510,12 +511,11 @@ def run_a3c(args):
         t.start()
 
     print ('Press Ctrl+C to stop')
-    signal.pause()
-
-    logger.info('Now saving data. Please wait')
 
     for t in train_threads:
         t.join()
+
+    logger.info('Now saving data. Please wait')
 
     # write wall time
     wall_t = time.time() - start_time
