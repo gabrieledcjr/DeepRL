@@ -20,7 +20,7 @@ class CollectDemonstration(object):
 
     def __init__(
         self, game_state, resized_height, resized_width, phi_length, name,
-        folder='', create_movie=False, hertz=60.0):
+        folder='', create_movie=False, hertz=60.0, skip=4):
         """ Initialize collection of demo """
         assert folder != ''
         self.game_state = game_state
@@ -38,9 +38,10 @@ class CollectDemonstration(object):
         self.db = self.conn.cursor()
         self._create_table()
 
-        self._skip = 4
-        if "SpaceInvaders" in self.game_state.env.spec.id:
+        if "SpaceInvaders" in self.game_state.env.spec.id and skip == 4:
             self._skip = 3 # NIPS (makes laser always visible)
+        else:
+            self._skip = skip
 
         self.create_movie = create_movie
         self.obs_buffer = np.zeros((2, 84 , 84), dtype=np.uint8)
@@ -54,6 +55,7 @@ class CollectDemonstration(object):
                 datetime_collected TEXT,
                 env_id TEXT,
                 episodic_life INTEGER,
+                frameskip INTEGER,
                 total_reward REAL,
                 memory_size INTEGER,
                 start_time TIMESTAMP,
@@ -77,10 +79,10 @@ class CollectDemonstration(object):
         #        VALUES(?,?,?,?,?,?,?,?)''', demos)
         self.db.executemany(
             '''INSERT INTO demo_samples
-               (datetime_collected, env_id, episodic_life, total_reward, 
+               (datetime_collected, env_id, episodic_life, frameskip, total_reward, 
                 memory_size, start_time, end_time, 
                 duration, time_limit, total_steps, log_file, hostname, demo_speed_hz)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', demos)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', demos)
         self.conn.commit()
 
     def _reset(self, replay_memory, hard_reset=True):
@@ -139,7 +141,7 @@ class CollectDemonstration(object):
             del replay_memory
 
             self.insert_data_to_db([(
-                datetime_collected, self.name, 1 if self.game_state.episode_life else 0,
+                datetime_collected, self.name, 1 if self.game_state.episode_life else 0, self._skip,
                 total_reward, mem_size, start_time, end_time,
                 str(duration), str(datetime.time(minute=minutes_limit)),
                 total_steps, log_file, hostname, self.hertz)])

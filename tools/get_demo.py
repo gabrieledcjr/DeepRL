@@ -48,7 +48,8 @@ def get_demo(args):
         args.gym_env,
         folder=demo_memory_folder,
         create_movie=args.create_movie,
-        hertz=args.hz)
+        hertz=args.hz,
+        skip=args.skip)
     collect_demo.run_episodes(
         args.num_episodes,
         minutes_limit=args.demo_time_limit,
@@ -69,6 +70,8 @@ def main():
     parser.add_argument('--gym-env', type=str, default='PongNoFrameskip-v4', help='OpenAi Gym environment ID')
     parser.add_argument('--not-episodic-life', action='store_true')
     parser.set_defaults(not_episodic_life=False)
+
+    parser.add_argument('--skip', type=int, default=4, help='games is played with no skip but frames are saved every skip steps')
 
     parser.add_argument('--append-experiment-num', type=str, default=None)
     parser.add_argument('--num-episodes', type=int, default=5, help='number of episodes')
