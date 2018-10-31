@@ -56,7 +56,7 @@ class GameACNetwork(ABC):
             assert self.a.shape.as_list() == self.logits.shape.as_list()
             neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.a)
             pg_loss = tf.reduce_mean(self.advantage * neglogpac)
-            vf_loss = tf.reduce_mean(tf.squared_difference(tf.squeeze(self.v), self.cumulative_reward) / 2.0)
+            vf_loss = tf.losses.mean_squared_error(tf.squeeze(self.v), self.cumulative_reward)
             entropy = tf.reduce_mean(cat_entropy(self.logits))
             self.total_loss = self.policy_lr * pg_loss - entropy * self.entropy_beta + vf_loss * self.critic_lr
 
