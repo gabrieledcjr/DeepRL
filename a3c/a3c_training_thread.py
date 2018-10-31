@@ -87,11 +87,7 @@ class A3CTrainingThread(object):
                 local_vars = self.local_network.get_vars_upper
             var_refs = [v._ref() for v in local_vars()]
 
-            self.gradients = tf.gradients(
-                self.local_network.total_loss, var_refs,
-                gate_gradients=False,
-                aggregation_method=None,
-                colocate_gradients_with_ops=False)
+            self.gradients = tf.gradients(self.local_network.total_loss, var_refs)
 
         global_vars = global_network.get_vars
         if self.finetune_upper_layers_only:
