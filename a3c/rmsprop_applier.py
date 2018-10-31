@@ -11,7 +11,7 @@ class RMSPropApplier(object):
                  decay=0.9,
                  momentum=0.0,
                  epsilon=1e-10,
-                 clip_norm=1e-5,
+                 clip_norm=None,
                  device="/cpu:0",
                  centered=False,
                  name="RMSPropApplier"):
@@ -101,18 +101,20 @@ class RMSPropApplier(object):
                 use_locking=False).op
 
     # Apply accumulated gradients to var.
-    def apply_gradients(self, var_list, accum_grad_list, name=None):
+    def apply_gradients(self, var_list, grads, name=None):
         update_ops = []
 
         with tf.device(self._device):
             with tf.control_dependencies(None):
                 self._create_slots(var_list)
 
-            grads, grad_norm = tf.clip_by_global_norm(accum_grad_list, self._clip_norm)
             with tf.name_scope(name, self._name, []) as name:
                 self._prepare()
+
+                if self._clip_norm is not None:
+                    grads, grad_norm = tf.clip_by_global_norm(grads, self._clip_norm)
+
                 for var, accum_grad in zip(var_list, grads):
                     with tf.name_scope("update_" + var.op.name), tf.device(var.device):
-                        #clipped_accum_grad = tf.clip_by_norm(accum_grad, self._clip_norm)
                         update_ops.append(self._apply_dense(accum_grad, var))
                 return tf.group(*update_ops, name=name)
