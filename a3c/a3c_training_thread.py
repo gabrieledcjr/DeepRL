@@ -143,6 +143,11 @@ class A3CTrainingThread(object):
     def choose_action(self, pi_values):
         return np.random.choice(range(self.action_size), p=pi_values)
 
+    def choose_action2(self, logits):
+        """sample() in https://github.com/ppyht2/tf-a2c/blob/master/src/policy.py"""
+        noise = np.random.uniform(0, 1, np.shape(logits))
+        return np.argmax(logits - np.log(-np.log(noise)))
+
     def choose_action_egreedy(self, pi_values, global_time_step):
         if global_time_step < 1000000:
             epsilon = 0.2 * (global_time_step//200000)
@@ -190,11 +195,13 @@ class A3CTrainingThread(object):
         episode_steps = 0
         n_episodes = 0
         while max_steps > 0:
-            pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
+            #pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
+            pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
             if self.egreedy_testing:
                 action = get_action_index(pi_, is_random=(np.random.random() <= 0.05), n_actions=self.action_size)
             else:
-                action = self.choose_action(pi_)
+                #action = self.choose_action(pi_)
+                action = self.choose_action2(logits_)
 
             if self.use_pretrained_model_as_advice:
                 psi = self.psi if self.psi > 0.001 else 0.0
@@ -475,7 +482,8 @@ class A3CTrainingThread(object):
             if self.is_egreedy:
                 action = self.choose_action_egreedy(pi_, global_t)
             else:
-                action = self.choose_action(pi_)
+                #action = self.choose_action(pi_)
+                action = self.choose_action2(logits_)
 
             model_pi = None
             confidence = 0.
@@ -554,6 +562,7 @@ class A3CTrainingThread(object):
 
             self.local_t += 1
             self.episode_steps += 1
+            global_t += 1
 
             # s_t1 -> s_t
             self.game_state.update()
