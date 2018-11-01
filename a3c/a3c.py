@@ -179,14 +179,18 @@ def run_a3c(args):
 
     learning_rate_input = tf.placeholder(tf.float32, shape=(), name="opt_lr")
 
-    grad_applier = RMSPropApplier(
-        learning_rate=learning_rate_input,
-        decay=args.rmsp_alpha,
-        momentum=0.0,
-        epsilon=args.rmsp_epsilon,
-        clip_norm=args.grad_norm_clip,
-        device=device,
-        centered=False)
+    grad_applier = tf.train.RMSPropOptimizer(
+        learning_rate=learning_rate_input, 
+        decay=args.rmsp_alpha, 
+        epsilon=args.rmsp_epsilon)
+    #grad_applier = RMSPropApplier(
+    #    learning_rate=learning_rate_input,
+    #    decay=args.rmsp_alpha,
+    #    momentum=0.0,
+    #    epsilon=args.rmsp_epsilon,
+    #    clip_norm=args.grad_norm_clip,
+    #    device=device,
+    #    centered=False)
     A3CTrainingThread.log_interval = args.log_interval
     A3CTrainingThread.performance_log_interval = args.performance_log_interval
     A3CTrainingThread.local_t_max = args.local_t_max
@@ -201,6 +205,7 @@ def run_a3c(args):
     A3CTrainingThread.egreedy_testing = args.egreedy_testing
     A3CTrainingThread.finetune_upper_layers_only = args.finetune_upper_layers_only
     A3CTrainingThread.transformed_bellman = args.transformed_bellman
+    A3CTrainingThread.clip_norm = args.grad_norm_clip
 
     if args.unclipped_reward:
         A3CTrainingThread.reward_type = "RAW"
