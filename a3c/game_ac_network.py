@@ -201,10 +201,10 @@ class GameACFFNetwork(GameACNetwork):
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
             # policy (output)
-            self.logits = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
+            self.logits = tf.matmul(self.h_fc1, self.W_fc2) + self.b_fc2
             self.pi = tf.nn.softmax(self.logits)
             # value (output)
-            self.v = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
+            self.v = tf.matmul(self.h_fc1, self.W_fc3) + self.b_fc3
             self.v0 = self.v[:, 0]
 
     def run_policy_and_value(self, sess, s_t):
