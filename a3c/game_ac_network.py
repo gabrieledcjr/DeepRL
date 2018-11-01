@@ -28,7 +28,7 @@ class GameACNetwork(ABC):
         self._thread_index = thread_index
         self._device = device
 
-    def prepare_loss(self):
+    def prepare_loss(self, entropy_beta=0.01, critic_lr=0.5):
         """Based from A2C OpenAI Baselines
         A2C (aka PAAC), we use the loss function explained in the PAAC paper
         Clemente et al 2017. Efficient Parallel Methods for Deep Reinforcement Learning
@@ -47,18 +47,15 @@ class GameACNetwork(ABC):
 
             # temporal difference (R-V) (input for policy)
             self.advantage = tf.placeholder(tf.float32, shape=[None], name="advantage")
-
-            self.policy_lr = tf.placeholder(tf.float32, shape=(), name="policy_lr")
-            self.critic_lr = tf.placeholder(tf.float32, shape=(), name="critic_lr")
-            self.entropy_beta = tf.placeholder(tf.float32, shape=(), name="entropy_beta")
             self.cumulative_reward = tf.placeholder(tf.float32, shape=[None], name="cumulative_reward")
 
             assert self.a.shape.as_list() == self.logits.shape.as_list()
             neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.a)
             pg_loss = tf.reduce_mean(self.advantage * neglogpac)
-            vf_loss = tf.losses.mean_squared_error(tf.squeeze(self.v), self.cumulative_reward)
+            #vf_loss = tf.losses.mean_squared_error(tf.squeeze(self.v), self.cumulative_reward)
+            vf_loss = tf.reduce_mean(tf.squared_difference(tf.squeeze(self.v), self.cumulative_reward) / 2.0)
             entropy = tf.reduce_mean(cat_entropy(self.logits))
-            self.total_loss = self.policy_lr * pg_loss - entropy * self.entropy_beta + vf_loss * self.critic_lr
+            self.total_loss = pg_loss - entropy * entropy_beta + vf_loss * critic_lr
 
     @abstractmethod
     def run_policy_and_value(self, sess, s_t):
@@ -207,11 +204,11 @@ class GameACFFNetwork(GameACNetwork):
             self.logits = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
             self.pi = tf.nn.softmax(self.logits)
             # value (output)
-            v_ = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
-            self.v = tf.reshape( v_, [-1] )
+            self.v = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
+            self.v0 = self.v[:, 0]
 
     def run_policy_and_value(self, sess, s_t):
-        pi_out, v_out, logits = sess.run( [self.pi, self.v, self.logits], feed_dict = {self.s : [s_t]} )
+        pi_out, v_out, logits = sess.run( [self.pi, self.v0, self.logits], feed_dict = {self.s : [s_t]} )
         return (pi_out[0], v_out[0], logits[0])
 
     def run_policy(self, sess, s_t):
@@ -219,7 +216,7 @@ class GameACFFNetwork(GameACNetwork):
         return pi_out[0]
 
     def run_value(self, sess, s_t):
-        v_out = sess.run( self.v, feed_dict = {self.s : [s_t]} )
+        v_out = sess.run( self.v0, feed_dict = {self.s : [s_t]} )
         return v_out[0]
 
     def get_vars(self):
@@ -319,12 +316,13 @@ class GameACLSTMNetwork(GameACNetwork):
             lstm_outputs = tf.reshape(lstm_outputs, [-1, self.last_hidden_fc_output_size])
 
             # policy (output)
+            # tf.shape(logits) [1, 6]
             self.logits = tf.matmul(lstm_outputs, self.W_fc2) + self.b_fc2
             self.pi = tf.nn.softmax(self.logits)
 
             # value (output)
-            v_ = tf.matmul(lstm_outputs, self.W_fc3) + self.b_fc3
-            self.v = tf.reshape(v_, [-1])
+            self.v = tf.matmul(lstm_outputs, self.W_fc3) + self.b_fc3
+            self.v0 = self.v[:, 0]
 
             scope.reuse_variables()
             self.W_lstm = tf.get_variable("basic_lstm_cell/kernel")
@@ -341,7 +339,7 @@ class GameACLSTMNetwork(GameACNetwork):
         # This run_policy_and_value() is used when forward propagating.
         # so the step size is 1.
         pi_out, v_out, self.lstm_state_out, logits = sess.run(
-            [self.pi, self.v, self.lstm_state, self.logits],
+            [self.pi, self.v0, self.lstm_state, self.logits],
             feed_dict = {
                 self.s : [s_t],
                 self.initial_lstm_state0 : self.lstm_state_out[0],
@@ -365,11 +363,11 @@ class GameACLSTMNetwork(GameACNetwork):
     def run_value(self, sess, s_t):
         # This run_value() is used for calculating V for bootstrapping at the
         # end of LOCAL_T_MAX time step sequence.
-        # When next sequcen starts, V will be calculated again with the same state using updated network weights,
+        # When next sequence starts, V will be calculated again with the same state using updated network weights,
         # so we don't update LSTM state here.
         prev_lstm_state_out = self.lstm_state_out
         v_out, _ = sess.run(
-            [self.v, self.lstm_state],
+            [self.v0, self.lstm_state],
             feed_dict = {
                 self.s : [s_t],
                 self.initial_lstm_state0 : self.lstm_state_out[0],

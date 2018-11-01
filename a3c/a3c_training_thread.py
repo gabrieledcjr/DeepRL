@@ -33,6 +33,7 @@ class A3CTrainingThread(object):
     advice_confidence = 0.8
     shaping_actions = -1  # -1 all actions, 0 exclude noop
     transformed_bellman = False
+    clip_norm = 0.5
 
     def __init__(self,
                  thread_index,
@@ -81,7 +82,7 @@ class A3CTrainingThread(object):
             self.local_network = GameACFFNetwork(self.action_size, thread_index, device)
 
         with tf.device(device):
-            self.local_network.prepare_loss()
+            self.local_network.prepare_loss(entropy_beta=self.entropy_beta, critic_lr=0.5)
             local_vars = self.local_network.get_vars
             if self.finetune_upper_layers_only:
                 local_vars = self.local_network.get_vars_upper
@@ -93,9 +94,15 @@ class A3CTrainingThread(object):
         if self.finetune_upper_layers_only:
             global_vars = global_network.get_vars_upper
 
-        self.apply_gradients = grad_applier.apply_gradients(
-            global_vars(),
-            self.gradients)
+        with tf.device(device):
+            if self.clip_norm is not None:
+                self.gradients, grad_norm = tf.clip_by_global_norm(self.gradients, self.clip_norm)
+            self.gradients = list(zip(self.gradients, global_vars()))
+            self.apply_gradients = grad_applier.apply_gradients(self.gradients)
+
+            #self.apply_gradients = grad_applier.apply_gradients(
+            #    global_vars(),
+            #    self.gradients)
 
         self.sync = self.local_network.sync_from(
             global_network, upper_layers_only=self.finetune_upper_layers_only)
@@ -421,9 +428,6 @@ class A3CTrainingThread(object):
                          self.local_network.a: batch_action,
                          self.local_network.advantage: batch_adv,
                          self.local_network.cumulative_reward: batch_cumulative_reward,
-                         self.local_network.policy_lr: 1.0,
-                         self.local_network.critic_lr: 0.5,
-                         self.local_network.entropy_beta: self.demo_entropy_beta,
                          self.local_network.initial_lstm_state: start_lstm_state,
                          self.local_network.step_size : [len(batch_action)],
                          self.learning_rate_input: cur_learning_rate} )
@@ -439,9 +443,6 @@ class A3CTrainingThread(object):
                          self.local_network.a: batch_action,
                          self.local_network.advantage: batch_adv,
                          self.local_network.cumulative_reward: batch_R,
-                         self.local_network.policy_lr: 1.0,
-                         self.local_network.critic_lr: 0.5,
-                         self.local_network.entropy_beta: self.demo_entropy_beta,
                          self.learning_rate_input: cur_learning_rate} )
 
         if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
@@ -669,9 +670,6 @@ class A3CTrainingThread(object):
                     self.local_network.a: batch_action,
                     self.local_network.advantage: batch_adv,
                     self.local_network.cumulative_reward: batch_cumulative_reward,
-                    self.local_network.policy_lr: 1.0,
-                    self.local_network.critic_lr: 0.5,
-                    self.local_network.entropy_beta: self.entropy_beta,
                     self.local_network.initial_lstm_state: start_lstm_state,
                     self.local_network.step_size : [len(batch_action)],
                     self.learning_rate_input: cur_learning_rate})
@@ -682,9 +680,6 @@ class A3CTrainingThread(object):
                     self.local_network.a: batch_action,
                     self.local_network.advantage: batch_adv,
                     self.local_network.cumulative_reward: batch_cumulative_reward,
-                    self.local_network.policy_lr: 1.0,
-                    self.local_network.critic_lr: 0.5,
-                    self.local_network.entropy_beta: self.entropy_beta,
                     self.learning_rate_input: cur_learning_rate})
 
         if (self.thread_index == 0) and (self.local_t - self.prev_local_t >= self.performance_log_interval):
