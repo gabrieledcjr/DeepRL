@@ -1,14 +1,10 @@
 #!/usr/bin/env python
 import tensorflow as tf
 import os
-import random
 import numpy as np
-from math import sqrt
-from batch_norm import batch_norm
 from termcolor import colored
 
 from net import Network
-from common.util import plot_conv_weights
 
 try:
     import cPickle as pickle
