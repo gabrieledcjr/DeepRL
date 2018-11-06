@@ -47,7 +47,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
         demo_memory_folder + '/demo.db',
         detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     db = conn.cursor()
-    replay_buffers = []
+    replay_buffers = {}
     total_memory = 0
     action_distribution = defaultdict(int)
     total_rewards = defaultdict(float)
@@ -56,8 +56,9 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
         # logger.info(demo)
         if name is None:
             name = demo[2]
+        demo_id = demo[0]
         datetime_collected = demo[1]
-        total_rewards[demo[0]] = demo[5]
+        total_rewards[demo_id] = demo[5]
         total_memory += demo[6]
         hostname = demo[13]
 
@@ -71,7 +72,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
         for index, action in enumerate(actions_count[0]):
             action_distribution[action] += actions_count[1][index]
 
-        replay_buffers.append(replay_memory)
+        replay_buffers[demo_id] = replay_memory
 
     if rewards_propagated:
         for i in range(len(replay_buffers)):
