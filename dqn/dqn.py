@@ -70,8 +70,7 @@ def run_dqn(args):
     config = tf.ConfigProto(
         gpu_options=gpu_options,
         allow_soft_placement=True,
-        log_device_placement=False
-    )
+        log_device_placement=False)
 
     game_state = GameState(env_id=args.gym_env, display=False, no_op_max=30, human_demo=False, episode_life=True)
     human_net = None
