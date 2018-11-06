@@ -88,7 +88,7 @@ def run_a3c(args):
         folder += '_' + args.append_experiment_num
 
     if False:
-        from log_formatter import LogFormatter
+        from common.util import LogFormatter
         fh = logging.FileHandler('{}/a3c.log'.format(folder), mode='w')
         fh.setLevel(logging.DEBUG)
         formatter = LogFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -165,13 +165,9 @@ def run_a3c(args):
 
     if args.use_lstm:
         GameACLSTMNetwork.use_mnih_2015 = args.use_mnih_2015
-        GameACLSTMNetwork.l1_beta = args.l1_beta
-        GameACLSTMNetwork.l2_beta = args.l2_beta
         global_network = GameACLSTMNetwork(action_size, -1, device)
     else:
         GameACFFNetwork.use_mnih_2015 = args.use_mnih_2015
-        GameACFFNetwork.l1_beta = args.l1_beta
-        GameACFFNetwork.l2_beta = args.l2_beta
         global_network = GameACFFNetwork(action_size, -1, device)
 
 

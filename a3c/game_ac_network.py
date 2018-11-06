@@ -16,8 +16,6 @@ class GameACNetwork(ABC):
     (Policy network and Value network)
     """
     use_mnih_2015 = False
-    l1_beta = 0.
-    l2_beta = 0.
     use_gpu = False
 
     def __init__(self,

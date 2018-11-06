@@ -1,13 +1,10 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import os
 import argparse
 import coloredlogs, logging
 
 from time import sleep
 from a3c import run_a3c
-from classify_demo import classify_demo
-from extract_transfer_layers import extract_layers
-from common.util import LogFormatter
 
 logger = logging.getLogger()
 
@@ -83,23 +80,11 @@ def main():
     parser.set_defaults(use_demo_threads=False)
     parser.add_argument('--max-steps-threads-as-demo', type=int, default=1000000)
 
-    parser.add_argument('--classify-demo', action='store_true')
-    parser.set_defaults(classify_demo=False)
-    parser.add_argument('--l1-beta', type=float, default=0., help='L1 regularization beta')
     parser.add_argument('--l2-beta', type=float, default=0., help='L2 regularization beta')
     parser.add_argument('--model-folder', type=str, default=None)
-    parser.add_argument('--exclude-num-demo-ep', type=int, default=0, help='exclude number of demo episodes from classification training')
-    parser.add_argument('--exclude-k-steps-bad-state', type=int, default=0, help='exclude k number of steps from a bad state (negative reward or life loss)')
-    parser.add_argument('--weighted-cross-entropy', action='store_true')
-    parser.set_defaults(weighted_cross_entropy=False)
 
     parser.add_argument('--onevsall-mtl', action='store_true')
     parser.set_defaults(onevsall_mtl=False)
-    parser.add_argument('--exclude-noop', action='store_true')
-    parser.set_defaults(exclude_noop=False)
-
-    parser.add_argument('--extract-transfer-layers', action='store_true')
-    parser.set_defaults(extract_transfer_layers=False)
 
     # Alternatives to reward clipping
     parser.add_argument('--unclipped-reward', action='store_true', help='use raw reward')
@@ -124,18 +109,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.extract_transfer_layers:
-        logger.info('Extracting transfer layers...')
-        sleep(2)
-        extract_layers(args)
-    elif args.classify_demo:
-        logger.info('Classifying human demonstration...')
-        sleep(2)
-        classify_demo(args)
-    else:
-        logger.info('Running A3C...')
-        sleep(2)
-        run_a3c(args)
+    logger.info('Running A3C...')
+    sleep(2)
+    run_a3c(args)
 
 
 if __name__ == "__main__":
