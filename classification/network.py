@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 import tensorflow as tf
 import numpy as np
 import logging
@@ -6,10 +6,10 @@ import logging
 from abc import ABC, abstractmethod
 from termcolor import colored
 
-logger = logging.getLogger("game_class_network")
+logger = logging.getLogger("network")
 
 # Base Class
-class GameClassNetwork(ABC):
+class Network(ABC):
     use_mnih_2015 = False
     l1_beta = 0. #NOT USED
     l2_beta = 0. #0.0001
@@ -19,7 +19,7 @@ class GameClassNetwork(ABC):
                  action_size,
                  thread_index, # -1 for global
                  device="/cpu:0"):
-        self._action_size = action_size
+        self.action_size = action_size
         self._thread_index = thread_index
         self._device = device
 
@@ -51,8 +51,8 @@ class GameClassNetwork(ABC):
     def get_vars(self):
         raise NotImplementedError()
 
-    def sync_from(self, src_netowrk, name=None):
-        src_vars = src_netowrk.get_vars()
+    def sync_from(self, src_network, name=None):
+        src_vars = src_network.get_vars()
         dst_vars = self.get_vars()
 
         sync_ops = []
@@ -82,30 +82,32 @@ class GameClassNetwork(ABC):
             use_cudnn_on_gpu=self.use_gpu, data_format=data_format)
 
 # Multi-Classification Network
-class MultiClassNetwork(GameClassNetwork):
+class MultiClassNetwork(Network):
     def __init__(self,
                  action_size,
                  thread_index, # -1 for global
                  device="/cpu:0"):
-        GameClassNetwork.__init__(self, action_size, thread_index, device)
+        Network.__init__(self, action_size, thread_index, device)
         self.graph = tf.Graph()
-        logger.info("action_size: {}".format(self._action_size))
+        logger.info("network: MultiClassNetwork")
+        logger.info("action_size: {}".format(self.action_size))
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
         logger.info("L1_beta: {}".format(colored(self.l1_beta, "green" if self.l1_beta > 0. else "red")))
         logger.info("L2_beta: {}".format(colored(self.l2_beta, "green" if self.l2_beta > 0. else "red")))
         scope_name = "net_" + str(self._thread_index)
-
-        # state (input)
-        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
-        self.s_n = tf.div(self.s, 255.)
+        self.last_hidden_fc_output_size = 512
 
         with self.graph.as_default():
+            # state (input)
+            self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
+            self.s_n = tf.div(self.s, 255.)
+
             with tf.device(self._device), tf.variable_scope(scope_name) as scope:
                 if self.use_mnih_2015:
                     self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
                     self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
                     self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
-                    self.W_fc1, self.b_fc1 = self.fc_variable([3136, 256], layer_name='fc1', gain=np.sqrt(2))
+                    self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -117,7 +119,7 @@ class MultiClassNetwork(GameClassNetwork):
                 else:
                     self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))  # stride=4
                     self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2)) # stride=2
-                    self.W_fc1, self.b_fc1 = self.fc_variable([2592, 256], layer_name='fc1', gain=np.sqrt(2))
+                    self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -126,20 +128,20 @@ class MultiClassNetwork(GameClassNetwork):
                     tf.add_to_collection('transfer_params', self.b_fc1)
 
                 # weight for policy output layer
-                self.W_fc2, self.b_fc2 = self.fc_variable([256, action_size], layer_name='fc2')
+                self.W_fc2, self.b_fc2 = self.fc_variable([self.last_hidden_fc_output_size, action_size], layer_name='fc2')
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
 
                 if self.use_mnih_2015:
-                    h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
-                    h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
+                    h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
+                    h_conv2 = tf.nn.relu(self.conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                    h_conv3 = tf.nn.relu(self.conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
 
                     h_conv3_flat = tf.reshape(h_conv3, [-1, 3136])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
                 else:
-                    h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                    h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
+                    h_conv2 = tf.nn.relu(self.conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
                     h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
@@ -153,34 +155,29 @@ class MultiClassNetwork(GameClassNetwork):
 
     def prepare_loss(self, class_weights=None):
         with self.graph.as_default():
-            with tf.device(self._device):
+            with tf.device(self._device), tf.name_scope("Loss") as scope:
                 # taken action (input for policy)
-                self.a = tf.placeholder(tf.float32, shape=[None, self._action_size])
-
-                loss = tf.nn.softmax_cross_entropy_with_logits(
-                    _sentinel=None,
-                    labels=self.a,
-                    logits=self._pi)
+                self.a = tf.placeholder(tf.float32, shape=[None, self.action_size])
 
                 if class_weights is not None:
-                    # http://tf-unet.readthedocs.io/en/latest/_modules/tf_unet/unet.html
-                    class_weights = tf.constant(np.array(class_weights, dtype=np.float32))
-                    #logits = tf.multiply(self._pi, class_weights)
-                    weight_map = tf.multiply(self.a, class_weights)
-                    weight_map = tf.reduce_sum(weight_map, axis=1)
-                    weighted_loss = tf.multiply(loss, weight_map)
+                    class_weights = tf.constant(class_weights, name='class_weights')
+                    logits = tf.multiply(self._pi, class_weights, name='scaled_logits')
                 else:
-                    weighted_loss = loss
+                    logits = self._pi
 
-                total_loss = tf.reduce_mean(weighted_loss)
+                loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                    labels=self.a,
+                    logits=logits)
+
+                total_loss = tf.reduce_mean(loss)
 
                 net_vars = self.get_vars_no_bias()
                 if self.l1_beta > 0:
                     # https://github.com/tensorflow/models/blob/master/inception/inception/slim/losses.py
-                    l1_loss = sum([self.l1_beta * tf.reduce_sum(tf.abs(net_vars[i])) for i in range(len(net_vars))])
+                    l1_loss = tf.add_n([tf.reduce_sum(tf.abs(net_vars[i])) for i in range(len(net_vars))]) * self.l1_beta
                     total_loss += l1_loss
                 if self.l2_beta > 0:
-                    l2_loss = sum([self.l2_beta * tf.nn.l2_loss(net_vars[i]) for i in range(len(net_vars))])
+                    l2_loss = tf.add_n([tf.nn.l2_loss(net_vars[i]) for i in range(len(net_vars))]) * self.l2_beta
                     total_loss += l2_loss
 
                 self.total_loss = total_loss
@@ -233,30 +230,32 @@ class MultiClassNetwork(GameClassNetwork):
 
 
 # MTL Binary Classification Network
-class MTLBinaryClassNetwork(GameClassNetwork):
+class MTLBinaryClassNetwork(Network):
     def __init__(self,
                  action_size,
                  thread_index, # -1 for global
                  device="/cpu:0"):
-        GameClassNetwork.__init__(self, action_size, thread_index, device)
+        Network.__init__(self, action_size, thread_index, device)
         self.graph = tf.Graph()
-        logger.info("action_size: {}".format(self._action_size))
+        logger.info("network: MTLBinaryClassNetwork")
+        logger.info("action_size: {}".format(self.action_size))
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
         logger.info("L1_beta: {}".format(colored(self.l1_beta, "green" if self.l1_beta > 0. else "red")))
         logger.info("L2_beta: {}".format(colored(self.l2_beta, "green" if self.l2_beta > 0. else "red")))
         scope_name = "net_" + str(self._thread_index)
-
-        # state (input)
-        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
-        self.s_n = tf.div(self.s, 255.)
+        self.last_hidden_fc_output_size = 512
 
         with self.graph.as_default():
+            # state (input)
+            self.s = tf.placeholder(tf.float32, [None, 84, 84, 4])
+            self.s_n = tf.div(self.s, 255.)
+
             with tf.device(self._device), tf.variable_scope(scope_name) as scope:
                 if self.use_mnih_2015:
                     self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
                     self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
                     self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
-                    self.W_fc1, self.b_fc1 = self.fc_variable([3136, 256], layer_name='fc1', gain=np.sqrt(2))
+                    self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -268,7 +267,7 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                 else:
                     self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))  # stride=4
                     self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2)) # stride=2
-                    self.W_fc1, self.b_fc1 = self.fc_variable([2592, 256], layer_name='fc1', gain=np.sqrt(2))
+                    self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
                     tf.add_to_collection('transfer_params', self.W_conv1)
                     tf.add_to_collection('transfer_params', self.b_conv1)
                     tf.add_to_collection('transfer_params', self.W_conv2)
@@ -279,22 +278,22 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                 # weight for policy output layer
                 self.W_fc2, self.b_fc2 = [], []
                 for n_class in range(action_size):
-                    W, b = self.fc_variable([256, 2], layer_name='fc2_{}'.format(n_class))
+                    W, b = self.fc_variable([self.last_hidden_fc_output_size, 2], layer_name='fc2_{}'.format(n_class))
                     self.W_fc2.append(W)
                     self.b_fc2.append(b)
                     tf.add_to_collection('transfer_params', self.W_fc2[n_class])
                     tf.add_to_collection('transfer_params', self.b_fc2[n_class])
 
                 if self.use_mnih_2015:
-                    h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
-                    h_conv3 = tf.nn.relu(self._conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
+                    h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
+                    h_conv2 = tf.nn.relu(self.conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                    h_conv3 = tf.nn.relu(self.conv2d(h_conv2, self.W_conv3, 1) + self.b_conv3)
 
                     h_conv3_flat = tf.reshape(h_conv3, [-1, 3136])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
                 else:
-                    h_conv1 = tf.nn.relu(self._conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                    h_conv2 = tf.nn.relu(self._conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
+                    h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
+                    h_conv2 = tf.nn.relu(self.conv2d(h_conv1, self.W_conv2, 2) + self.b_conv2)
 
                     h_conv2_flat = tf.reshape(h_conv2, [-1, 2592])
                     h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
@@ -314,7 +313,7 @@ class MTLBinaryClassNetwork(GameClassNetwork):
 
     def prepare_loss(self, class_weights=None):
         with self.graph.as_default():
-            with tf.device(self._device):
+            with tf.device(self._device), tf.name_scope("Loss") as scope:
                 # taken action (input for policy)
                 self.a = tf.placeholder(tf.float32, shape=[None, 2])
                 self.reward = tf.placeholder(tf.float32, shape=[None, 1])
@@ -329,19 +328,17 @@ class MTLBinaryClassNetwork(GameClassNetwork):
                         l2_regularizers += tf.nn.l2_loss(self.W_conv3)
 
                 self.total_loss = []
-                for n_class in range(self._action_size):
-                    loss = tf.nn.softmax_cross_entropy_with_logits(
-                        _sentinel=None,
-                        labels=self.a,
-                        logits=self._pi[n_class])
+                for n_class in range(self.action_size):
                     if class_weights is not None:
-                        class_w = tf.constant(class_weights[n_class], dtype=tf.float32)
-                        weight_map = tf.multiply(self.a, class_w)
-                        weight_map = tf.reduce_sum(weight_map, axis=1)
-                        weighted_loss = tf.multiply(loss, weight_map)
-                        total_loss = tf.reduce_mean(weighted_loss)
+                        class_w = tf.constant(class_weights[n_class], name='class_weights_{}'.format(n_class))
+                        logits = tf.multiply(self._pi[n_class], class_w, name='scaled_logits_{}'.format(n_class))
                     else:
-                        total_loss = tf.reduce_mean(loss)
+                        logits = self._pi[n_class]
+
+                    loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                        labels=self.a,
+                        logits=logits)
+                    total_loss = tf.reduce_mean(loss)
 
                     if self.l1_beta > 0:
                         l1_loss = self.l1_beta * (l1_regularizers + tf.reduce_sum(tf.abs(self.W_fc2[n_class])))
@@ -387,6 +384,6 @@ class MTLBinaryClassNetwork(GameClassNetwork):
         with self.graph.as_default():
             with tf.device(self._device):
                 self.accuracy = []
-                for n_class in range(self._action_size):
+                for n_class in range(self.action_size):
                     correct_prediction = tf.equal(tf.argmax(self._pi[n_class], 1), tf.argmax(self.a, 1))
                     self.accuracy.append(tf.reduce_mean(tf.cast(correct_prediction, tf.float32)))

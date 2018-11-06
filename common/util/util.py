@@ -30,63 +30,62 @@ def solve_weight(numbers):
     solved = [sum_number / (len_number * (n+1e-20)) for n in numbers]
     return solved
 
-def load_memory(name=None, demo_memory_folder=None, imgs_normalized=False, rewards_propagated=False, exclude_outlier_reward=False):
-    from replay_memory import ReplayMemory
+def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normalized=False, rewards_propagated=False):
+    assert demo_ids is not None
+    assert demo_memory_folder is not None
+
+    from common.replay_memory import ReplayMemory
     assert os.path.isfile(demo_memory_folder + '/demo.db')
+
+    logger.info("Loading data from memory")
+    logger.info("memory_folder: {}".format(demo_memory_folder))
+    logger.info("demo_ids: {}".format(demo_ids))
+    logger.info("imgs_normalized: {}".format(imgs_normalized))
+    logger.info("rewards_propagated: {}".format(rewards_propagated))
+
     conn = sqlite3.connect(
         demo_memory_folder + '/demo.db',
         detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     db = conn.cursor()
     replay_buffers = []
-    logger.info("Loading data from memory")
     total_memory = 0
-    actions_ctr = defaultdict(int)
-    max_reward = 0
-    max_reward_norm = 0.
+    action_distribution = defaultdict(int)
     total_rewards = defaultdict(float)
-    for demo in db.execute("SELECT * FROM demo_samples"):
-        logger.info(demo)
+
+    for demo in db.execute("SELECT * FROM demo_samples WHERE id IN {}".format(demo_ids)):
+        # logger.info(demo)
         if name is None:
             name = demo[2]
-        ep = demo[1]
-        total_memory += demo[4]
-        folder = demo_memory_folder + '/{n:03d}'.format(n=(ep))
-        logger.info(folder + '/' + name + '.pkl')
+        datetime_collected = demo[1]
+        total_rewards[demo[0]] = demo[5]
+        total_memory += demo[6]
+        hostname = demo[13]
+
+        folder = '{}/data/{}/{}'.format(demo_memory_folder, hostname, datetime_collected)
         replay_memory = ReplayMemory()
         replay_memory.load(name=name, folder=folder)
         if imgs_normalized:
             replay_memory.normalize_images()
 
-        temp_max_reward = np.linalg.norm(replay_memory.rewards, np.inf)
-        if temp_max_reward > max_reward:
-            max_reward = temp_max_reward
+        actions_count = np.unique(replay_memory.actions, return_counts=True)
+        for index, action in enumerate(actions_count[0]):
+            action_distribution[action] += actions_count[1][index]
 
-        if exclude_outlier_reward:
-            rewards = replay_memory.rewards[np.nonzero(replay_memory.rewards)]
-            rewards = rewards[np.abs(rewards - np.mean(rewards)) < 2 * np.std(rewards)]
-            if np.shape(rewards)[0] > 0:
-                temp_max_reward_norm = np.linalg.norm(rewards, np.inf)
-            else:
-                temp_max_reward_norm = max_reward
-            if temp_max_reward_norm > max_reward_norm:
-                max_reward_norm = temp_max_reward_norm
-
-        for step in range(len(replay_memory)):
-            _, a, r, _, _, _, _ = replay_memory[step]
-            actions_ctr[a] += 1
-            total_rewards[len(replay_buffers)] += r
         replay_buffers.append(replay_memory)
 
     if rewards_propagated:
         for i in range(len(replay_buffers)):
+            logger.error("DO NOT USE!!! Needs fixing! Should end experiment")
             #replay_buffers[i].propagate_rewards(normalize=True, exclude_outlier=exclude_outlier_reward, max_reward=max_reward_norm)
             replay_buffers[i].propagate_rewards(clip=True)
 
-    logger.info("Replay Buffers size: {}".format(len(replay_buffers)))
-    logger.info("Total memory: {}".format(total_memory))
+    logger.info("replay_buffers size: {}".format(len(replay_buffers)))
+    logger.info("total_rewards: {}".format(dict.__repr__(total_rewards)))
+    logger.info("total_memory: {}".format(total_memory))
+    logger.info("action_distribution: {}".format(dict.__repr__(action_distribution)))
     logger.info("Data loaded!")
     conn.close()
-    return replay_buffers, actions_ctr, max_reward, total_rewards
+    return replay_buffers, action_distribution, total_rewards
 
 def egreedy(readout_t, n_actions=-1):
     assert n_actions > 1

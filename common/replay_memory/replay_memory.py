@@ -448,6 +448,7 @@ class ReplayMemory(object):
         assert name is not None
         assert folder is not None
 
+        logger.info('Load memory from ' + folder + '...')
         pkl_file = '{}.pkl'.format(name)
         h5_file = '{}-images.h5'.format(name)
         data = pickle.load(open(folder + '/' + pkl_file, 'rb'))
