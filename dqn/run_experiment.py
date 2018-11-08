@@ -1,84 +1,13 @@
 #!/usr/bin/env python3
 import argparse
-import multiprocessing
-import os
-import numpy as np
 import coloredlogs, logging
 
 from time import sleep
 from dqn import run_dqn
-from classify_demo import classify_demo
-from common.game_state import GameState
-from common.replay_memory import ReplayMemory
 
 logger = logging.getLogger()
 coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
 
-def get_demo(args):
-    """
-    Human:
-    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --demo-time-limit=5 --collect-demo --demo-type=0 --file-num=1
-
-    Random:
-    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --demo-time-limit=5 --collect-demo --demo-type=1 --file-num=1
-
-    Model:
-    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --demo-time-limit=5 --collect-demo --demo-type=2 --file-num=1
-    python3 run_experiment.py --gym-env=PongNoFrameskip-v4 --demo-time-limit=5 --collect-demo --demo-type=2 --model-folder=pong_networks_rms_1 --file-num=1
-    """
-    if args.demo_type == 2:
-        os.environ['CUDA_VISIBLE_DEVICES'] = ''
-        import tensorflow as tf
-        from dqn_net import DqnNet
-    from collect_demo import CollectDemonstration
-
-    if args.folder is not None:
-        folder = '{}_{}'.format(args.gym_env.replace('-', '_'), args.folder)
-    else:
-        folder = '{}_demo_samples'.format(args.gym_env.replace('-', '_'))
-        if args.demo_type == 1:
-            folder = '{}_demo_samples_random'.format(args.gym_env.replace('-', '_'))
-        elif args.demo_type == 2:
-            folder = '{}_demo_samples_model'.format(args.gym_env.replace('-', '_'))
-
-    game_state = GameState(env_id=args.gym_env, display=False, no_op_max=30, human_demo=False, episode_life=True)
-
-    replay_memory = ReplayMemory(
-        args.resized_width, args.resized_height,
-        np.random.RandomState(),
-        max_steps=args.demo_time_limit * 5000,
-        phi_length=args.phi_len,
-        num_actions=game_state.env.action_space.n,
-        wrap_memory=True,
-        full_state_size=game_state.clone_full_state().shape[0],
-        clip_reward=True)
-
-    model_net = None
-    if args.demo_type == 2: # From model
-        if args.model_folder is not None:
-            model_folder = args.model_folder
-        else:
-            model_folder = '{}_networks_{}'.format(args.gym_env.replace('-', '_'), args.optimizer.lower())
-        sess = tf.Session()
-        with tf.device('/cpu:0'):
-            model_net = DqnNet(
-                sess, args.resized_height, args.resized_width, args.phi_len,
-                game_state.env.action_space.n, args.gym_env, gamma=args.gamma, copy_interval=args.c_freq,
-                optimizer=args.optimizer, learning_rate=args.lr,
-                epsilon=args.epsilon, decay=args.decay, momentum=args.momentum,
-                verbose=args.verbose, path=None, folder=None,
-                slow=args.use_slow, tau=args.tau)
-            model_net.load(folder=model_folder)
-
-    collect_demo = CollectDemonstration(
-        game_state, args.resized_height, args.resized_width, args.phi_len,
-        args.gym_env, replay_memory, terminate_loss_of_life=args.terminate_life_loss,
-        folder=folder, sample_num=args.file_num
-    )
-    collect_demo.run(
-        minutes_limit=args.demo_time_limit,
-        demo_type=args.demo_type,
-        model_net=model_net)
 
 def main():
     logger.setLevel(logging.DEBUG)
@@ -147,18 +76,6 @@ def main():
 
     parser.add_argument('--train-with-demo-steps', type=int, default=0)
 
-    parser.add_argument('--collect-demo', action='store_true')
-    parser.set_defaults(collect_demo=False)
-    parser.add_argument('--demo-type', type=int, default=0, help='[0] human, [1] random, [2] model')
-    parser.add_argument('-n', '--file-num', type=int, default=1)
-    parser.add_argument('--model-folder', type=str, default=None)
-    parser.add_argument('--demo-time-limit', type=int, default=5) # 5 minutes
-    parser.add_argument('--terminate-life-loss', action='store_true')
-    parser.set_defaults(terminate_life_loss=False)
-
-    parser.add_argument('--classify-demo', action='store_true')
-    parser.set_defaults(classify_demo=False)
-
     # Alternatives to reward clipping
     parser.add_argument('--unclipped-reward', action='store_true', help='use raw reward')
     parser.set_defaults(unclipped_reward=False)
@@ -173,18 +90,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.collect_demo:
-        logger.info('Collecting demonstration...')
-        sleep(2)
-        get_demo(args)
-    elif args.classify_demo:
-        logger.info('Classifying human demonstration...')
-        sleep(2)
-        classify_demo(args)
-    else:
-        logger.info('Running DQN...')
-        sleep(2)
-        run_dqn(args)
+    logger.info('Running DQN...')
+    sleep(2)
+    run_dqn(args)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,20 @@ def run_a3c(args):
     else:
         folder = 'results/a3c/{}'.format(args.gym_env.replace('-', '_'))
         end_str = ''
+
+        if args.use_mnih_2015:
+            end_str += '_mnih2015'
+        if args.use_lstm:
+            end_str += '_lstm'
+        if args.unclipped_reward:
+            end_str += '_rawreward'
+        elif args.log_scale_reward:
+            end_str += '_logreward'
+        if args.transformed_bellman:
+            end_str += '_transformedbell'
+        if args.use_egreedy_threads:
+            end_str += '_egreedy'
+
         if args.use_transfer:
             end_str += '_transfer'
             if args.not_transfer_conv2:
@@ -65,18 +79,7 @@ def run_a3c(args):
             end_str += '_pretrain_ina3c'
         if args.use_demo_threads:
             end_str += '_demothreads'
-        if args.use_mnih_2015:
-            end_str += '_mnih2015'
-        if args.use_lstm:
-            end_str += '_lstm'
-        if args.unclipped_reward:
-            end_str += '_rawreward'
-        elif args.log_scale_reward:
-            end_str += '_logreward'
-        if args.transformed_bellman:
-            end_str += '_transformedbell'
-        if args.use_egreedy_threads:
-            end_str += '_egreedy'
+
         if args.load_pretrained_model:
             if args.use_pretrained_model_as_advice:
                 end_str += '_modelasadvice'
@@ -236,12 +239,11 @@ def run_a3c(args):
         if args.transfer_folder is not None:
             transfer_folder = args.transfer_folder
         else:
-            transfer_folder = '{}_classifier'.format(args.gym_env.replace('-', '_'))
+            transfer_folder = 'results/pretrain_models/{}'.format(args.gym_env.replace('-', '_'))
             end_str = ''
             if args.use_mnih_2015:
-                end_str += '_use_mnih'
-            # if args.use_lstm:
-            #     end_str += '_use_lstm'
+                end_str += '_mnih2015'
+            end_str += '_l2beta1E-04_batchprop'  #TODO: make this an argument
             transfer_folder += end_str
             transfer_folder += '/transfer_model'
 

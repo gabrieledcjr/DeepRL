@@ -113,6 +113,8 @@ class GameACNetwork(ABC):
         assert os.path.isdir(folder)
         assert self._thread_index == -1 # only load model to global network
 
+        logger.info('Initialize network from a pretrain model in {}'.format(folder))
+
         transfer_all = False
         if not_transfer_conv2:
             folder += '/noconv2'
@@ -140,7 +142,7 @@ class GameACNetwork(ABC):
             initialized_vars = [v for (v, f) in zip(global_vars, is_initialized) if f]
             for var in initialized_vars:
                 logger.info("    {} loaded".format(var.op.name))
-                sleep(.2)
+                sleep(1)
 
             if transfer_all:
                 # scale down last layer if it's transferred
