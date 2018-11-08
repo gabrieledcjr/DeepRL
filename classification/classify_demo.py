@@ -99,16 +99,16 @@ class ClassifyDemo(object):
                 self.test_batch_a[i][a0] = 1
 
         self.combined_memory = ReplayMemory(
-            width=self.demo_memory[0].width,
-            height=self.demo_memory[0].height,
+            width=self.demo_memory[max_idx].width,
+            height=self.demo_memory[max_idx].height,
             max_steps=total_steps,
-            phi_length=self.demo_memory[0].phi_length,
-            num_actions=self.demo_memory[0].num_actions,
+            phi_length=self.demo_memory[max_idx].phi_length,
+            num_actions=self.demo_memory[max_idx].num_actions,
             wrap_memory=False,
-            full_state_size=self.demo_memory[0].full_state_size)
+            full_state_size=self.demo_memory[max_idx].full_state_size)
 
-        while len(self.demo_memory) > 0:
-            demo = self.demo_memory.pop()
+        for idx in list(self.demo_memory.keys()):
+            demo = self.demo_memory[idx]
             for i in range(demo.max_steps):
                 self.combined_memory.add(
                     demo.imgs[i], demo.actions[i],
@@ -377,6 +377,8 @@ def classify_demo(args):
             end_str += '_l1beta{:.0E}'.format(args.l1_beta)
         if args.weighted_cross_entropy:
             end_str += '_weighted_loss'
+        if args.use_batch_proportion:
+            end_str += '_batchprop'
         model_folder += end_str
 
     if args.append_experiment_num is not None:

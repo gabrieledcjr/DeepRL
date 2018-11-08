@@ -331,9 +331,7 @@ class ReplayMemory(object):
             self.create_index_array_per_action()
 
         # Allocate the response.
-        states = np.zeros(
-            (batch_size, self.height, self.width, self.phi_length),
-            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
+        states = np.zeros((batch_size, self.height, self.width, self.phi_length), dtype=np.uint8)
         if onevsall:
             actions = np.zeros((batch_size, 2), dtype=np.float32)
         else:
@@ -368,9 +366,7 @@ class ReplayMemory(object):
         """
         assert not self.wrap_memory
         # Allocate the response.
-        states = np.zeros(
-            (batch_size, self.height, self.width, self.phi_length),
-            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
+        states = np.zeros((batch_size, self.height, self.width, self.phi_length), dtype=np.uint8)
         if onevsall:
             actions = np.zeros((batch_size, 2), dtype=np.float32)
         else:
@@ -394,8 +390,6 @@ class ReplayMemory(object):
                 continue
             # Add the state transition to the response.
             states[count] = np.copy(s0)
-            if normalize and not self.imgs_normalized:
-                states[count] /= 255.0
             if onevsall:
                 if a0 == n_class:
                     actions[count][0] = 1
@@ -409,19 +403,15 @@ class ReplayMemory(object):
 
         return states, actions, rewards, terminals
 
-    def sample(self, batch_size, normalize=False, onevsall=False, n_class=None, reward_type=''):
+    def sample(self, batch_size, onevsall=False, n_class=None, reward_type=''):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
         reward_type = CLIP | LOG
         """
         assert self.wrap_memory
         # Allocate the response.
-        states = np.zeros(
-            (batch_size, self.height, self.width, self.phi_length),
-            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
-        next_states = np.zeros(
-            (batch_size, self.height, self.width, self.phi_length),
-            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
+        states = np.zeros((batch_size, self.height, self.width, self.phi_length), dtype=np.uint8)
+        next_states = np.zeros((batch_size, self.height, self.width, self.phi_length), dtype=np.uint8)
         if onevsall:
             actions = np.zeros((batch_size, 2), dtype=np.float32)
         else:
@@ -448,9 +438,6 @@ class ReplayMemory(object):
             # Add the state transition to the response.
             states[count] = np.copy(s0)
             next_states[count] = np.copy(s1)
-            if normalize and not self.imgs_normalized:
-                states[count] /= 255.0
-                next_states[count] /= 255.0
             if onevsall:
                 if a0 == n_class:
                     actions[count][0] = 1
