@@ -12,7 +12,9 @@ construct randomly selected batches of phi's from the stored history.
 import numpy as np
 import time
 import coloredlogs, logging
+import random
 
+from collections import defaultdict
 from common.util import save_compressed_images, get_compressed_images
 
 try:
@@ -63,6 +65,15 @@ class ReplayMemory(object):
         self.wrap_memory = wrap_memory
         self.bottom = 0
         self.top = 0
+        self.array_per_action = None
+
+    def close(self):
+        del self.imgs
+        del self.actions
+        del self.terminal
+        del self.lives
+        del self.full_state
+        del self.array_per_action
 
     def normalize_images(self):
         if not self.imgs_normalized:
@@ -300,7 +311,58 @@ class ReplayMemory(object):
 
         return states, actions, rewards, terminals
 
-    def sample2(self, batch_size, normalize=False, k_bad_states=0, onevsall=False, n_class=None):
+    def create_index_array_per_action(self):
+        assert not self.wrap_memory
+        self.array_per_action = defaultdict(list)
+        for index in range(len(self)):
+            s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
+            if s0 is None or s1 is None:
+                continue
+            self.array_per_action[a0].append(index)
+
+    def sample_proportional(self, batch_size, batch_proportion, onevsall=False, n_class=None):
+        """Return corresponding states, actions, rewards, terminal status, and
+        next_states for batch_size randomly chosen state transitions.
+        """
+        assert not self.wrap_memory
+        assert batch_size == sum(batch_proportion)
+
+        if self.array_per_action is None:
+            self.create_index_array_per_action()
+
+        # Allocate the response.
+        states = np.zeros(
+            (batch_size, self.height, self.width, self.phi_length),
+            dtype=np.float32 if (normalize or self.imgs_normalized) else np.uint8)
+        if onevsall:
+            actions = np.zeros((batch_size, 2), dtype=np.float32)
+        else:
+            actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
+        rewards = np.zeros(batch_size, dtype=np.float32)
+        terminals = np.zeros(batch_size, dtype=np.int)
+
+        count = 0
+        for action, proportion in enumerate(batch_proportion):
+            for _ in range(proportion):
+                index = random.choice(self.array_per_action[action])
+                s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
+
+                # Add the state transition to the response.
+                states[count] = np.copy(s0)
+                if onevsall:
+                    if a0 == n_class:
+                        actions[count][0] = 1
+                    else:
+                        actions[count][1] = 1
+                else:
+                    actions[count][a0] = 1 # convert to one-hot vector
+                rewards[count] = r1
+                terminals[count] = t1
+                count += 1
+
+        return states, actions, rewards, terminals
+
+    def sample2(self, batch_size, onevsall=False, n_class=None):
         """Return corresponding states, actions, rewards, terminal status, and
         next_states for batch_size randomly chosen state transitions.
         """
@@ -326,13 +388,6 @@ class ReplayMemory(object):
         count = 0
         while count < batch_size:
             index = self.rng.randint(0, high)
-            # if k_bad_states:
-            #     # do not train k steps to a bad state (negative reward or loss life)
-            #     st_idx = index + (self.phi_length-1)
-            #     en_idx = index + (self.phi_length-1) + k_bad_states
-            #     if (np.any(self.rewards[st_idx:en_idx] < 0) or \
-            #         np.any(self.loss_life[st_idx:en_idx] == 1)):
-            #         continue
 
             s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
             if s0 is None or s1 is None:

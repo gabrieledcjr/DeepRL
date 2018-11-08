@@ -20,6 +20,18 @@ try:
 except ImportError:
     import pickle
 
+def compute_proportions(batch_size, action_distribution):
+    num_nonzeros = np.count_nonzero(action_distribution)
+    max_action_index = np.argmax(action_distribution)
+    each_action, remainder = divmod(batch_size, num_nonzeros)
+    proportions = [each_action] * len(action_distribution)
+    for index, n_actions in enumerate(action_distribution):
+        if n_actions == 0:
+            proportions[index] = 0
+    if remainder > 0:
+        proportions[max_action_index] += remainder
+    return proportions
+
 def solve_weight(numbers):
     # https://stackoverflow.com/questions/38363764/
     # class-weight-for-imbalance-data-in-python-scikit-learns-logistic-regression
@@ -53,6 +65,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
     total_memory = 0
     action_distribution = defaultdict(int)
     total_rewards = defaultdict(float)
+    total_steps = 0
 
     for demo in db.execute("SELECT * FROM demo_samples WHERE id IN {}".format(demo_ids)):
         # logger.info(demo)
@@ -69,6 +82,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
         replay_memory.load(name=name, folder=folder)
         if imgs_normalized:
             replay_memory.normalize_images()
+        total_steps += replay_memory.max_steps
 
         actions_count = np.unique(replay_memory.actions, return_counts=True)
         for index, action in enumerate(actions_count[0]):
@@ -85,10 +99,11 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
     logger.info("replay_buffers size: {}".format(len(replay_buffers)))
     logger.info("total_rewards: {}".format(dict.__repr__(total_rewards)))
     logger.info("total_memory: {}".format(total_memory))
+    logger.info("total_steps: {}".format(total_steps))
     logger.info("action_distribution: {}".format(dict.__repr__(action_distribution)))
     logger.info("Data loaded!")
     conn.close()
-    return replay_buffers, action_distribution, total_rewards
+    return replay_buffers, action_distribution, total_rewards, total_steps
 
 def egreedy(readout_t, n_actions=-1):
     assert n_actions > 1

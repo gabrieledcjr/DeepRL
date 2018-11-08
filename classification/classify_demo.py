@@ -7,7 +7,8 @@ import logging
 import random
 
 from termcolor import colored
-from common.util import load_memory, solve_weight
+from common.replay_memory import ReplayMemory
+from common.util import load_memory, solve_weight, compute_proportions
 from common.game_state import GameState, get_wrapper_by_name
 
 logger = logging.getLogger("classify_demo")
@@ -17,7 +18,8 @@ class ClassifyDemo(object):
 
     def __init__(self, tf, net, name, train_max_steps, batch_size, grad_applier,
         eval_freq=5000, demo_memory_folder='', demo_ids=None, folder='', exclude_num_demo_ep=0,
-        use_onevsall=False, weighted_cross_entropy=False, device='/cpu:0', clip_norm=None, game_state=None):
+        use_onevsall=False, weighted_cross_entropy=False, device='/cpu:0', clip_norm=None,
+        game_state=None, use_batch_proportion=False):
         """ Initialize Classifying Human Demo Training """
         assert demo_ids is not None
         assert game_state is not None
@@ -35,19 +37,25 @@ class ClassifyDemo(object):
         self.stop_requested = False
         self.game_state = game_state
         self.best_model_reward = -(sys.maxsize)
+        self.use_batch_proportion = use_batch_proportion
 
         logger.info("train_max_steps: {}".format(self.train_max_steps))
         logger.info("batch_size: {}".format(self.batch_size))
         logger.info("eval_freq: {}".format(self.eval_freq))
         logger.info("use_onevsall: {}".format(self.use_onevsall))
+        logger.info("use_batch_proportion: {}".format(self.use_batch_proportion))
 
-        self.demo_memory, actions_ctr, total_rewards = load_memory(
+        self.demo_memory, actions_ctr, total_rewards, total_steps = load_memory(
             name=None,
             demo_memory_folder=self.demo_memory_folder,
             demo_ids=demo_ids,
             imgs_normalized=False)
 
         action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
+        if self.use_batch_proportion:
+            self.batch_proportion = compute_proportions(self.batch_size, action_freq)
+            logger.info("batch_proportion: {}".format(self.batch_proportion))
+
         if weighted_cross_entropy:
             loss_weight = solve_weight(action_freq)
             logger.debug("loss_weight: {}".format(loss_weight))
@@ -89,6 +97,25 @@ class ClassifyDemo(object):
                         self.test_batch_a[n_class][i][1] = 1
             else:
                 self.test_batch_a[i][a0] = 1
+
+        self.combined_memory = ReplayMemory(
+            width=self.demo_memory[0].width,
+            height=self.demo_memory[0].height,
+            max_steps=total_steps,
+            phi_length=self.demo_memory[0].phi_length,
+            num_actions=self.demo_memory[0].num_actions,
+            wrap_memory=False,
+            full_state_size=self.demo_memory[0].full_state_size)
+
+        while len(self.demo_memory) > 0:
+            demo = self.demo_memory.pop()
+            for i in range(demo.max_steps):
+                self.combined_memory.add(
+                    demo.imgs[i], demo.actions[i],
+                    demo.rewards[i], demo.terminal[i],
+                    demo.lives[i], demo.full_state[i])
+            demo.close()
+            del demo
 
     def prepare_compute_gradients(self, grad_applier, device, clip_norm=None):
         with self.net.graph.as_default():
@@ -195,14 +222,13 @@ class ClassifyDemo(object):
         for i in range(self.train_max_steps + 1):
             if self.stop_requested:
                 break
-            batch_si = []
-            batch_a = []
 
-            for _ in range(self.batch_size):
-                idx = random.choice([*self.demo_memory.keys()])
-                s, a, _, _ = self.demo_memory[idx].sample2(1, normalize=False, k_bad_states=exclude_bad_state_k)
-                batch_si.append(s[0])
-                batch_a.append(a[0])
+            if self.use_batch_proportion:
+                batch_si, batch_a, _, _ = self.combined_memory.sample_proportional(
+                    self.batch_size, self.batch_proportion)
+            else:
+                batch_si, batch_a, _, _ = self.combined_memory.sample2(
+                    self.batch_size, k_bad_states=exclude_bad_state_k)
 
             train_loss, acc, max_value, _ = sess.run(
                 [self.net.total_loss, self.net.accuracy, self.net.max_value, self.apply_gradients],
@@ -253,8 +279,6 @@ class ClassifyDemo(object):
         for i in range(self.train_max_steps + 1):
             if self.stop_requested:
                 break
-            batch_si = []
-            batch_a = []
 
             # alternating randomly between classes and reward
             if exclude_noop:
@@ -264,14 +288,10 @@ class ClassifyDemo(object):
             train_class_ctr[n_class] += 1
 
             # train action network branches with logistic regression
-            for _ in range(self.batch_size):
-                idx = random.choice([*self.demo_memory.keys()])
-                s, a, _, _ = self.demo_memory[idx].sample2(
-                    1, normalize=False,
-                    k_bad_states=exclude_bad_state_k,
-                    n_class=n_class, onevsall=True)
-                batch_si.append(s[0])
-                batch_a.append(a[0])
+            batch_si, batch_a, _, _ = self.combined_memory.sample2(
+                self.batch_size, normalize=False,
+                k_bad_states=exclude_bad_state_k,
+                n_class=n_class, onevsall=True)
 
             train_loss, max_value, _ = sess.run(
                 [self.net.total_loss[n_class], self.net.max_value[n_class], self.apply_gradients[n_class]],
@@ -437,7 +457,8 @@ def classify_demo(args):
         use_onevsall=args.onevsall_mtl,
         weighted_cross_entropy=args.weighted_cross_entropy,
         device=device, clip_norm=args.grad_norm_clip,
-        game_state=game_state)
+        game_state=game_state,
+        use_batch_proportion=args.use_batch_proportion)
 
     # prepare session
     sess = tf.Session(config=config, graph=network.graph)

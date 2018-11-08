@@ -51,6 +51,9 @@ def main():
     parser.add_argument('--weighted-cross-entropy', action='store_true')
     parser.set_defaults(weighted_cross_entropy=False)
 
+    parser.add_argument('--use-batch-proportion', action='store_true')
+    parser.set_defaults(use_batch_proportion=False)
+
     parser.add_argument('--onevsall-mtl', action='store_true')
     parser.set_defaults(onevsall_mtl=False)
     parser.add_argument('--exclude-noop', action='store_true')
