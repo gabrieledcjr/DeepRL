@@ -48,7 +48,7 @@ class ClassifyDemo(object):
             imgs_normalized=False)
 
         if weighted_cross_entropy:
-            action_freq = [ (actions_ctr[a] + 1) for a in range(self.net.action_size) ]
+            action_freq = [ actions_ctr[a] for a in range(self.net.action_size) ]
             loss_weight = solve_weight(action_freq)
             logger.debug("loss_weight: {}".format(loss_weight))
 

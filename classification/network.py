@@ -159,15 +159,16 @@ class MultiClassNetwork(Network):
                 # taken action (input for policy)
                 self.a = tf.placeholder(tf.float32, shape=[None, self.action_size])
 
+                unweighted_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                    labels=self.a,
+                    logits=self._pi)
+
                 if class_weights is not None:
                     class_weights = tf.constant(class_weights, name='class_weights')
-                    logits = tf.multiply(self._pi, class_weights, name='scaled_logits')
+                    weights = tf.reduce_sum(tf.multiply(class_weights, self.a), axis=1)
+                    loss = tf.multiply(unweighted_loss, weights, name='weighted_loss')
                 else:
-                    logits = self._pi
-
-                loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-                    labels=self.a,
-                    logits=logits)
+                    loss = unweighted_loss
 
                 total_loss = tf.reduce_mean(loss)
 

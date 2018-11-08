@@ -27,7 +27,9 @@ def solve_weight(numbers):
     # (total # of sample) / ((# of classes) * (# of sample in class i))
     sum_number = sum(numbers)
     len_number = len(numbers)
-    solved = [sum_number / (len_number * (n+1e-20)) for n in numbers]
+    #solved = [sum_number / (len_number * (n+1e-20)) for n in numbers]
+    solved = [sum_number / (len_number * (n+1)) for n in numbers]
+
     return solved
 
 def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normalized=False, rewards_propagated=False):
