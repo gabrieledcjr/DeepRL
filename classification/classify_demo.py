@@ -47,8 +47,8 @@ class ClassifyDemo(object):
             demo_ids=demo_ids,
             imgs_normalized=False)
 
+        action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
         if weighted_cross_entropy:
-            action_freq = [ actions_ctr[a] for a in range(self.net.action_size) ]
             loss_weight = solve_weight(action_freq)
             logger.debug("loss_weight: {}".format(loss_weight))
 
@@ -225,7 +225,7 @@ class ClassifyDemo(object):
                         self.net.a: self.test_batch_a} )
                 summary.value.add(tag='Accuracy', simple_value=float(acc))
 
-                if i % (self.eval_freq * 4) == 0:
+                if i % (self.eval_freq * 10) == 0:
                     total_reward, total_steps, n_episodes = self.test_game(sess)
                     summary.value.add(tag='Reward', simple_value=total_reward)
                     summary.value.add(tag='Steps', simple_value=total_steps)
@@ -429,7 +429,7 @@ def classify_demo(args):
 
     classify_demo = ClassifyDemo(
         tf, network, args.gym_env, int(args.train_max_steps),
-        args.batch_size, opt, eval_freq=5000,
+        args.batch_size, opt, eval_freq=args.eval_freq,
         demo_memory_folder=demo_memory_folder,
         demo_ids=demo_ids,
         folder=model_folder,

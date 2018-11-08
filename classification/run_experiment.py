@@ -31,6 +31,8 @@ def main():
     parser.add_argument('--l2-beta', type=float, default=1e-4, help='L2 regularization beta')
     parser.add_argument('--grad-norm-clip', type=float, default=0.5, help='gradient norm clipping')
 
+    parser.add_argument('--eval_freq', type=int, default=5000, help='evaluation frequency')
+
     parser.add_argument('--cpu-only', action='store_true', help='use CPU only')
     parser.set_defaults(cpu_only=False)
     parser.add_argument('--gpu-fraction', type=float, default=0.4)
