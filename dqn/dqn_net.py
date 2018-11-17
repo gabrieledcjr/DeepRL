@@ -38,6 +38,7 @@ class DqnNet(Network):
         self._device = device
         self.transformed_bellman = transformed_bellman
         self.target_consistency_loss = target_consistency_loss
+        self.verbose = verbose
 
         self.slow_learnrate_vars = []
         self.fast_learnrate_vars = []
@@ -102,7 +103,7 @@ class DqnNet(Network):
                self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
             ])
 
-        if verbose:
+        if self.verbose:
             self.init_verbosity()
 
         self.next_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='t_next_observation')
@@ -278,7 +279,6 @@ class DqnNet(Network):
             tf.summary.scalar("acted_Q_min", tf.reduce_min(predictions))
             tf.summary.scalar("acted_Q_max", tf.reduce_max(predictions))
             tf.summary.scalar("reward_max", tf.reduce_max(self.rewards))
-            # tf.summary.scalar("reward_max", tf.reduce_max(clipped_rewards))
             return loss
 
     def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal, global_t):
@@ -302,7 +302,9 @@ class DqnNet(Network):
                     self.next_observation: s_j1_batch,
                     self.rewards: r_batch,
                     self.terminals: terminal})
-        self.add_summary(summary, global_t)
+
+        if self.verbose:
+            self.add_summary(summary, global_t)
 
     def record_summary(self, score=0, steps=0, episodes=None, global_t=0, mode='Test'):
         summary = tf.Summary()
