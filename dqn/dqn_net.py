@@ -150,7 +150,7 @@ class DqnNet(Network):
                     self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
                 elif optimizer == "RMS":
                     # Tensorflow RMSOptimizer
-                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon, centered=True)
+                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
                 else:
                     logger.error("Unknown Optimizer!")
                     sys.exit()
@@ -264,7 +264,7 @@ class DqnNet(Network):
                 self.q_values_tc = tf.placeholder(tf.float32, shape=[None, n_actions], name="q_values_tc")
                 t_actions_one_hot = tf.one_hot(tf.argmax(self.t_q_value, axis=1), self.q_values_tc.shape[1])
                 max_action_values_q = tf.stop_gradient(tf.reduce_sum(self.q_values_tc * t_actions_one_hot, axis=1))
-                tc_loss = tf.reduce_mean(tf.squared_difference(max_action_values, max_action_values_q))
+                tc_loss = tf.reduce_mean(tf.squared_difference(max_action_values_q, max_action_values))
                 total_loss = td_loss + tc_loss
             else:
                 total_loss = td_loss

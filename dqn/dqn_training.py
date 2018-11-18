@@ -358,7 +358,6 @@ class DQNTraining(object):
                         "{0:}: global_t={1:} epsilon={2:.4f} action={3:} "
                         "q_max={4:.4f}".format(*log_data))
 
-NUM_THREADS = 16
 def playGame():
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.333)
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True, log_device_placement=False)) as sess:
