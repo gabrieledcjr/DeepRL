@@ -43,10 +43,7 @@ def run_dqn(args):
     else:
         folder = 'results/dqn/{}_{}'.format(args.gym_env.replace('-', '_'), args.optimizer.lower())
         end_str = ''
-        if args.use_transfer:
-            end_str += '_transfer'
-        if args.use_human_model_as_advice:
-            end_str += '_wadvice'
+
         if args.unclipped_reward:
             end_str += '_rawreward'
         elif args.log_scale_reward:
@@ -55,6 +52,21 @@ def run_dqn(args):
             end_str += '_transformedbell'
         if args.target_consistency:
             end_str += '_tcloss'
+
+        if args.use_transfer:
+            end_str += '_transfer'
+            if args.not_transfer_conv2:
+                end_str += '_noconv2'
+            elif args.not_transfer_conv3 and args.use_mnih_2015:
+                end_str += '_noconv3'
+            elif args.not_transfer_fc1:
+                end_str += '_nofc1'
+            elif args.not_transfer_fc2:
+                end_str += '_nofc2'
+
+        if args.use_human_model_as_advice:
+            end_str += '_modelasadvice'
+
         folder += end_str
 
     if args.append_experiment_num is not None:
