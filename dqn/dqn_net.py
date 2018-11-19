@@ -3,6 +3,7 @@ import tensorflow as tf
 import random
 import numpy as np
 import logging
+import os
 
 from time import sleep
 from net import Network
@@ -70,7 +71,7 @@ class DqnNet(Network):
 
         if transfer:
             self.load_transfer_model(
-                folder=transfer_folder,
+                self.sess, folder=transfer_folder,
                 not_transfer_fc2=not_transfer_fc2, not_transfer_fc1=not_transfer_fc1,
                 not_transfer_conv3=not_transfer_conv3, not_transfer_conv2=not_transfer_conv2)
 
@@ -329,7 +330,7 @@ class DqnNet(Network):
             self.variable_summaries(self.b_fc2, 'biases')
             tf.summary.histogram('activations', self.action_output)
 
-    def load_transfer_model(self, folder='',
+    def load_transfer_model(self, sess, folder='',
         not_transfer_fc2=False, not_transfer_fc1=False,
         not_transfer_conv3=False, not_transfer_conv2=False):
         assert folder != ''
@@ -377,7 +378,7 @@ class DqnNet(Network):
 
         if checkpoint_transfer_from and checkpoint_transfer_from.model_checkpoint_path:
             saver_transfer_from.restore(self.sess, checkpoint_transfer_from.model_checkpoint_path)
-            logger.logger("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path))
+            logger.info("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path))
 
             global_vars = tf.global_variables()
             is_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
