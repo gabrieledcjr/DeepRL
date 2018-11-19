@@ -120,8 +120,12 @@ def run_dqn(args):
         if args.transfer_folder is not None:
             transfer_folder = args.transfer_folder
         else:
-            # Always load adam model
-            transfer_folder = "{}_networks_classifier_{}/transfer_model".format(args.gym_env.replace('-', '_'), "adam")
+            transfer_folder = 'results/pretrain_models/{}'.format(args.gym_env.replace('-', '_'))
+            end_str = ''
+            end_str += '_mnih2015'
+            end_str += '_l2beta1E-04_batchprop'  #TODO: make this an argument
+            transfer_folder += end_str
+            transfer_folder += '/transfer_model'
 
         DqnNet.use_gpu = not args.cpu_only
         net = DqnNet(
@@ -132,10 +136,10 @@ def run_dqn(args):
             verbose=args.verbose, folder=folder,
             slow=args.use_slow, tau=args.tau,
             transfer=True, transfer_folder=transfer_folder,
-            transfer_conv2=not args.not_transfer_conv2,
-            transfer_conv3=not args.not_transfer_conv3,
-            transfer_fc1=not args.not_transfer_fc1,
-            transfer_fc2=not args.not_transfer_fc2, device=device,
+            not_transfer_conv2=args.not_transfer_conv2,
+            not_transfer_conv3=args.not_transfer_conv3,
+            not_transfer_fc1=args.not_transfer_fc1,
+            not_transfer_fc2=args.not_transfer_fc2, device=device,
             transformed_bellman=args.transformed_bellman,
             target_consistency_loss=args.target_consistency)
 

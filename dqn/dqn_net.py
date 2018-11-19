@@ -24,8 +24,8 @@ class DqnNet(Network):
         momentum=0., l2_decay=0.0001, slow=False, tau=0.01, verbose=False,
         folder='_networks',
         transfer=False, transfer_folder='',
-        transfer_conv2=False, transfer_conv3=False,
-        transfer_fc1=False, transfer_fc2=False, device="/cpu:0",
+        not_transfer_conv2=False, not_transfer_conv3=False,
+        not_transfer_fc1=False, not_transfer_fc2=False, device="/cpu:0",
         transformed_bellman=False, target_consistency_loss=False):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
@@ -40,9 +40,6 @@ class DqnNet(Network):
         self.target_consistency_loss = target_consistency_loss
         self.verbose = verbose
 
-        self.slow_learnrate_vars = []
-        self.fast_learnrate_vars = []
-
         self.observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation')
         self.observation_n = tf.div(self.observation, 255.)
 
@@ -52,56 +49,30 @@ class DqnNet(Network):
             self.h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.observation_n, self.W_conv1, 4), self.b_conv1), name=self.name + '_conv1_activations')
             tf.add_to_collection('conv_weights', self.W_conv1)
             tf.add_to_collection('conv_output', self.h_conv1)
-            if transfer:
-                self.slow_learnrate_vars.append(self.W_conv1)
-                self.slow_learnrate_vars.append(self.b_conv1)
 
             self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
             self.h_conv2 = tf.nn.relu(tf.add(self.conv2d(self.h_conv1, self.W_conv2, 2), self.b_conv2), name=self.name + '_conv2_activations')
             tf.add_to_collection('conv_weights', self.W_conv2)
             tf.add_to_collection('conv_output', self.h_conv2)
-            if transfer:
-                self.slow_learnrate_vars.append(self.W_conv2)
-                self.slow_learnrate_vars.append(self.b_conv2)
 
             self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
             self.h_conv3 = tf.nn.relu(tf.add(self.conv2d(self.h_conv2, self.W_conv3, 1), self.b_conv3), name=self.name + '_conv3_activations')
             tf.add_to_collection('conv_weights', self.W_conv3)
             tf.add_to_collection('conv_output', self.h_conv3)
-            if transfer:
-                self.slow_learnrate_vars.append(self.W_conv3)
-                self.slow_learnrate_vars.append(self.b_conv3)
 
             self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
 
             self.W_fc1, self.b_fc1 = self.fc_variable([3136, 512], layer_name='fc1', gain=np.sqrt(2))
             self.h_fc1 = tf.nn.relu(tf.add(tf.matmul(self.h_conv3_flat, self.W_fc1), self.b_fc1), name=self.name + '_fc1_activations')
-            if transfer:
-                self.fast_learnrate_vars.append(self.W_fc1)
-                self.fast_learnrate_vars.append(self.b_fc1)
 
             self.W_fc2, self.b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
-            if transfer:
-                self.fast_learnrate_vars.append(self.W_fc2)
-                self.fast_learnrate_vars.append(self.b_fc2)
 
         if transfer:
             self.load_transfer_model(
                 folder=transfer_folder,
-                transfer_conv2=transfer_conv2, transfer_conv3=transfer_conv3,
-                transfer_fc1=transfer_fc1, transfer_fc2=transfer_fc2)
-
-        if transfer_fc2:
-            # Scale down the last layer if it's transferred
-            logger.debug("Normalizing output layer with max value {}...".format(self.transfer_max_output_val))
-            W_fc2_norm = tf.div(self.W_fc2, self.transfer_max_output_val)
-            b_fc2_norm = tf.div(self.b_fc2, self.transfer_max_output_val)
-            logger.debug("Output layer normalized")
-            sleep(3)
-            self.sess.run([
-               self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
-            ])
+                not_transfer_fc2=not_transfer_fc2, not_transfer_fc1=not_transfer_fc1,
+                not_transfer_conv3=not_transfer_conv3, not_transfer_conv2=not_transfer_conv2)
 
         if self.verbose:
             self.init_verbosity()
@@ -133,19 +104,11 @@ class DqnNet(Network):
             self.t_W_fc2, self.t_b_fc2 = self.fc_variable(kernel_shape, layer_name='t_fc2')
             self.t_q_value = tf.add(tf.matmul(self.t_h_fc1, self.t_W_fc2), self.t_b_fc2, name=self.name + '_t_fc1_outputs')
 
-            if transfer:
-                # only intialize tensor variables that are not loaded from the transfer model
-                self._global_vars_temp = set(tf.global_variables())
-
         with tf.device(self._device):
             # cost of q network
             self.cost = self.build_loss(n_actions) #+ self.l2_regularizer_loss
 
             with tf.name_scope("Train") as scope:
-                #if optimizer == "Graves":
-                #    # Nature RMSOptimizer
-                #    self.train_step, self.grads_vars = graves_rmsprop_optimizer(self.cost, learning_rate, decay, epsilon, 1)
-                #else:
                 if optimizer == "Adam":
                     self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
                 elif optimizer == "RMS":
@@ -155,17 +118,6 @@ class DqnNet(Network):
                     logger.error("Unknown Optimizer!")
                     sys.exit()
 
-                #self.grads_vars = self.opt.compute_gradients(self.cost)
-                #grads = []
-                #params = []
-                #for p in self.grads_vars:
-                #    if p[0] == None:
-                #        continue
-                #    grads.append(p[0])
-                #    params.append(p[1])
-                ##grads = tf.clip_by_global_norm(grads, 40.)[0]
-                #self.grads_vars_updates = zip(grads, params)
-                #self.train_step = self.opt.apply_gradients(self.grads_vars_updates)
                 self.train_step = self.opt.minimize(self.cost)
 
         def initialize_uninitialized(sess):
@@ -347,33 +299,6 @@ class DqnNet(Network):
 
         logger.info('Successfully saved checkpoint!')
 
-        logger.info('Saving parameters as csv files...')
-        W1_val = self.W_conv1.eval(session=self.sess)
-        np.savetxt(self.folder + '/conv1_weights.csv', W1_val.flatten())
-        b1_val = self.b_conv1.eval(session=self.sess)
-        np.savetxt(self.folder + '/conv1_biases.csv', b1_val.flatten())
-
-        W2_val = self.W_conv2.eval(session=self.sess)
-        np.savetxt(self.folder + '/conv2_weights.csv', W2_val.flatten())
-        b2_val = self.b_conv2.eval(session=self.sess)
-        np.savetxt(self.folder + '/conv2_biases.csv', b2_val.flatten())
-
-        W3_val = self.W_conv3.eval(session=self.sess)
-        np.savetxt(self.folder + '/conv3_weights.csv', W3_val.flatten())
-        b3_val = self.b_conv3.eval(session=self.sess)
-        np.savetxt(self.folder + '/conv3_biases.csv', b3_val.flatten())
-
-        Wfc1_val = self.W_fc1.eval(session=self.sess)
-        np.savetxt(self.folder + '/fc1_weights.csv', Wfc1_val.flatten())
-        bfc1_val = self.b_fc1.eval(session=self.sess)
-        np.savetxt(self.folder + '/fc1_biases.csv', bfc1_val.flatten())
-
-        Wfc2_val = self.W_fc2.eval(session=self.sess)
-        np.savetxt(self.folder + '/fc2_weights.csv', Wfc2_val.flatten())
-        bfc2_val = self.b_fc2.eval(session=self.sess)
-        np.savetxt(self.folder + '/fc2_biases.csv', bfc2_val.flatten())
-        logger.info('Successfully saved parameters!')
-
         # logger.info('Saving convolutional weights as images...')
         # conv_weights = self.sess.run([tf.get_collection('conv_weights')])
         # for i, c in enumerate(conv_weights[0]):
@@ -405,39 +330,68 @@ class DqnNet(Network):
             tf.summary.histogram('activations', self.action_output)
 
     def load_transfer_model(self, folder='',
-        transfer_conv2=True, transfer_conv3=True,
-        transfer_fc1=True, transfer_fc2=True):
+        not_transfer_fc2=False, not_transfer_fc1=False,
+        not_transfer_conv3=False, not_transfer_conv2=False):
         assert folder != ''
-        saver_transfer_from = tf.train.Saver()
+        assert os.path.isdir(folder)
+
+        logger.info('Initialize network from a pretrain model in {}'.format(folder))
+
+        transfer_all = False
+        if not_transfer_conv2:
+            folder += '/noconv2'
+            var_list = [
+                self.W_conv1, self.b_conv1]
+        elif not_transfer_conv3:
+            folder += '/noconv3'
+            var_list = [
+                self.W_conv1, self.b_conv1,
+                self.W_conv2, self.b_conv2]
+        elif not_transfer_fc1:
+            folder += '/nofc1'
+            var_list = [
+                self.W_conv1, self.b_conv1,
+                self.W_conv2, self.b_conv2,
+                self.W_conv3, self.b_conv3]
+        elif not_transfer_fc2:
+            folder += '/nofc2'
+            var_list = [
+                self.W_conv1, self.b_conv1,
+                self.W_conv2, self.b_conv2,
+                self.W_conv3, self.b_conv3,
+                self.W_fc1, self.b_fc1]
+        else:
+            transfer_all = True
+            with open(folder + "/max_output_value", 'r') as f_max_value:
+                transfer_max_output_val = float(f_max_value.readline().split()[0])
+            folder += '/all'
+            var_list = [
+                self.W_conv1, self.b_conv1,
+                self.W_conv2, self.b_conv2,
+                self.W_conv3, self.b_conv3,
+                self.W_fc1, self.b_fc1,
+                self.W_fc2, self.b_fc2]
+
+        saver_transfer_from = tf.train.Saver(var_list=var_list)
         checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
+
         if checkpoint_transfer_from and checkpoint_transfer_from.model_checkpoint_path:
             saver_transfer_from.restore(self.sess, checkpoint_transfer_from.model_checkpoint_path)
-            logger.logger("transfer checkpoint loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path), "green")
+            logger.logger("Successfully loaded: {}".format(checkpoint_transfer_from.model_checkpoint_path))
 
-        if transfer_fc2:
-            with open(folder + "/max_output_value", 'r') as f_max_value:
-                self.transfer_max_output_val = float(f_max_value.readline().split()[0])
-            return
+            global_vars = tf.global_variables()
+            is_initialized = sess.run([tf.is_variable_initialized(var) for var in global_vars])
+            initialized_vars = [v for (v, f) in zip(global_vars, is_initialized) if f]
+            for var in initialized_vars:
+                logger.info("    {} loaded".format(var.op.name))
+                sleep(1)
 
-        # Overwrite layers that shouldn't be from transfer model
-        # Assumption here is if a layer is not transferred,
-        # then all layers above it are not transferred
-        vars_init = []
-        if not transfer_fc2 or not transfer_fc1 or not transfer_conv3 or not transfer_conv2:
-            vars_init.append(self.W_fc2)
-            vars_init.append(self.b_fc2)
-        if not transfer_fc1 or not transfer_conv3 or not transfer_conv2:
-            vars_init.append(self.W_fc1)
-            vars_init.append(self.b_fc1)
-        if not transfer_conv3 or not transfer_conv2:
-            vars_init.append(self.W_conv3)
-            vars_init.append(self.b_conv3)
-        if not transfer_conv2:
-            vars_init.append(self.W_conv2)
-            vars_init.append(self.b_conv2)
-        temp_str = ''
-        for tf_vars in vars_init:
-            temp_str += '\n' + tf_vars.op.name
-        logger.warning("overwriting following vars:" + temp_str)
-        sleep(2)
-        self.sess.run(tf.variables_initializer(vars_init))
+            if transfer_all:
+                # scale down last layer if it's transferred
+                logger.info("Normalizing output layer with max value {}...".format(transfer_max_output_val))
+                W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
+                b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
+                logger.info("Output layer normalized")
+                sess.run([
+                    self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
+                ])
