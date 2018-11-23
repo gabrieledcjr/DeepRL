@@ -27,7 +27,8 @@ class DqnNet(Network):
         transfer=False, transfer_folder='',
         not_transfer_conv2=False, not_transfer_conv3=False,
         not_transfer_fc1=False, not_transfer_fc2=False, device="/cpu:0",
-        transformed_bellman=False, target_consistency_loss=False):
+        transformed_bellman=False, target_consistency_loss=False,
+        clip_norm=None):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
         self.gamma = gamma
@@ -119,7 +120,12 @@ class DqnNet(Network):
                     logger.error("Unknown Optimizer!")
                     sys.exit()
 
-                self.train_step = self.opt.minimize(self.cost)
+                var_refs = [v._ref() for v in self.get_vars()]
+                gradients = tf.gradients(self.cost, var_refs)
+                if clip_norm is not None:
+                    gradients, grad_norm = tf.clip_by_global_norm(gradients, clip_norm)
+                gradients = list(zip(gradients, self.get_vars()))
+                self.train_step = self.opt.apply_gradients(gradients)
 
         def initialize_uninitialized(sess):
             global_vars = tf.global_variables()
@@ -148,19 +154,25 @@ class DqnNet(Network):
         logger.info('update target network')
         self.sess.run(self.update_target_op(name=name, slow=slow))
 
-    def update_target_op(self, name=None, slow=False):
-        src_vars = [
+    def get_vars(self):
+        return [
             self.W_conv1, self.b_conv1,
             self.W_conv2, self.b_conv2,
             self.W_conv3, self.b_conv3,
             self.W_fc1, self.b_fc1,
             self.W_fc2, self.b_fc2]
-        dst_vars = [
+
+    def get_target_vars(self):
+        return [
             self.t_W_conv1, self.t_b_conv1,
             self.t_W_conv2, self.t_b_conv2,
             self.t_W_conv3, self.t_b_conv3,
             self.t_W_fc1, self.t_b_fc1,
             self.t_W_fc2, self.t_b_fc2]
+
+    def update_target_op(self, name=None, slow=False):
+        src_vars = self.get_vars()
+        dst_vars = self.get_target_vars()
 
         sync_ops = []
         with tf.device(self._device):

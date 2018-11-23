@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--eval-freq', type=int, default=1000000)
     parser.add_argument('--eval-max-steps', type=int, default=125000)
     parser.add_argument('--train-max-steps', type=int, default=41 * 10**6)
+    parser.add_argument('--grad-norm-clip', type=float, default=40.0, help='gradient norm clipping')
 
     parser.add_argument('--c-freq', type=int, default=10000)
     parser.add_argument('--use-slow', action='store_true')

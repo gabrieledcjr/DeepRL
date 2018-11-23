@@ -125,7 +125,8 @@ def run_dqn(args):
             verbose=args.verbose, folder=folder,
             slow=args.use_slow, tau=args.tau, device=device,
             transformed_bellman=args.transformed_bellman,
-            target_consistency_loss=args.target_consistency)
+            target_consistency_loss=args.target_consistency,
+            clip_norm=args.grad_norm_clip)
 
     # transfer using existing model
     else:
@@ -153,7 +154,8 @@ def run_dqn(args):
             not_transfer_fc1=args.not_transfer_fc1,
             not_transfer_fc2=args.not_transfer_fc2, device=device,
             transformed_bellman=args.transformed_bellman,
-            target_consistency_loss=args.target_consistency)
+            target_consistency_loss=args.target_consistency,
+            clip_norm=args.grad_norm_clip)
 
     demo_memory_folder = None
     if args.load_memory:
