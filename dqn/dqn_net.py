@@ -217,18 +217,24 @@ class DqnNet(Network):
                 return tf.sign(z) * (tf.math.exp(tf.abs(z) / eps) - 1)
 
             if self.transformed_bellman:
-                transformed = h(self.rewards + self.gamma * h_inv(tf.stop_gradient(max_action_values)) * (1 - self.terminals))
+                transformed = h(self.rewards + self.gamma * h_inv(max_action_values) * (1 - self.terminals))
                 targets = transformed
             else:
-                targets = self.rewards + (self.gamma * tf.stop_gradient(max_action_values) * (1 - self.terminals))
+                targets = self.rewards + (self.gamma * max_action_values * (1 - self.terminals))
 
-            td_loss = tf.losses.huber_loss(targets, predictions, reduction=tf.losses.Reduction.NONE)
+            td_loss = tf.losses.huber_loss(
+                tf.stop_gradient(targets),
+                predictions,
+                reduction=tf.losses.Reduction.NONE)
 
             if self.target_consistency_loss:
                 self.q_values_tc = tf.placeholder(tf.float32, shape=[None, n_actions], name="q_values_tc")
                 t_actions_one_hot = tf.one_hot(tf.argmax(self.t_q_value, axis=1), n_actions, 1.0, 0.0)
                 max_action_values_q = tf.reduce_sum(self.q_values_tc * t_actions_one_hot, axis=1)
-                tc_loss = tf.stop_gradient(max_action_values) - tf.stop_gradient(max_action_values_q)
+                tc_loss = tf.losses.huber_loss(
+                    tf.stop_gradient(max_action_values),
+                    tf.stop_gradient(max_action_values_q),
+                    reduction=tf.losses.Reduction.NONE)
                 total_loss = tf.reduce_mean(td_loss + tc_loss)
             else:
                 total_loss = tf.reduce_mean(td_loss)
