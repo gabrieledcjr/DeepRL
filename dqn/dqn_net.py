@@ -70,6 +70,28 @@ class DqnNet(Network):
             self.W_fc2, self.b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
 
+        self.tc_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation_tc')
+        self.tc_observation_n = tf.div(self.tc_observation, 255.)
+
+        with tf.device(self._device), tf.variable_scope('net_-1', reuse=True) as scope:
+            # q network model:
+            tc_W_conv1, tc_b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1', gain=np.sqrt(2))
+            tc_h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.tc_observation_n, tc_W_conv1, 4), tc_b_conv1), name=self.name + '_conv1_activations')
+
+            tc_W_conv2, tc_b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
+            tc_h_conv2 = tf.nn.relu(tf.add(self.conv2d(tc_h_conv1, tc_W_conv2, 2), tc_b_conv2), name=self.name + '_conv2_activations')
+
+            tc_W_conv3, tc_b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
+            tc_h_conv3 = tf.nn.relu(tf.add(self.conv2d(tc_h_conv2, tc_W_conv3, 1), tc_b_conv3), name=self.name + '_conv3_activations')
+
+            tc_h_conv3_flat = tf.reshape(tc_h_conv3, [-1, 3136])
+
+            tc_W_fc1, tc_b_fc1 = self.fc_variable([3136, 512], layer_name='fc1', gain=np.sqrt(2))
+            tc_h_fc1 = tf.nn.relu(tf.add(tf.matmul(tc_h_conv3_flat, tc_W_fc1), tc_b_fc1), name=self.name + '_fc1_activations')
+
+            tc_W_fc2, tc_b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
+            self.tc_q_value = tf.add(tf.matmul(tc_h_fc1, tc_W_fc2), tc_b_fc2, name=self.name + '_fc1_outputs')
+
         if transfer:
             self.load_transfer_model(
                 self.sess, folder=transfer_folder,
@@ -223,17 +245,16 @@ class DqnNet(Network):
                 targets = self.rewards + (self.gamma * max_action_values * (1 - self.terminals))
 
             td_loss = tf.losses.huber_loss(
-                predictions,
                 tf.stop_gradient(targets),
+                predictions,
                 reduction=tf.losses.Reduction.NONE)
 
             if self.target_consistency_loss:
-                self.q_values_tc = tf.placeholder(tf.float32, shape=[None, n_actions], name="q_values_tc")
                 t_actions_one_hot = tf.one_hot(tf.argmax(self.t_q_value, axis=1), n_actions, 1.0, 0.0)
-                max_action_values_q = tf.reduce_sum(self.q_values_tc * t_actions_one_hot, axis=1)
+                max_action_values_q = tf.reduce_sum(tf.multiply(self.tc_q_value, t_actions_one_hot), axis=1)
                 tc_loss = tf.losses.huber_loss(
-                    max_action_values_q,
                     tf.stop_gradient(max_action_values),
+                    max_action_values_q,
                     reduction=tf.losses.Reduction.NONE)
                 total_loss = tf.reduce_mean(td_loss + tc_loss)
             else:
@@ -253,13 +274,12 @@ class DqnNet(Network):
 
     def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal, global_t):
         if self.target_consistency_loss:
-            q_values_tc = self.evaluate_tc(s_j1_batch)
             summary, _, _ = self.sess.run(
                 [self.summary_op, self.train_step, self.cost],
                 feed_dict={
                     self.observation: s_j_batch,
+                    self.tc_observation: s_j1_batch,
                     self.actions: a_batch,
-                    self.q_values_tc: q_values_tc,
                     self.next_observation: s_j1_batch,
                     self.rewards: r_batch,
                     self.terminals: terminal})
