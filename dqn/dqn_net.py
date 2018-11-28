@@ -223,8 +223,8 @@ class DqnNet(Network):
                 targets = self.rewards + (self.gamma * max_action_values * (1 - self.terminals))
 
             td_loss = tf.losses.huber_loss(
-                tf.stop_gradient(targets),
                 predictions,
+                tf.stop_gradient(targets),
                 reduction=tf.losses.Reduction.NONE)
 
             if self.target_consistency_loss:
