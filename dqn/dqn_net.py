@@ -70,27 +70,28 @@ class DqnNet(Network):
             self.W_fc2, self.b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
             self.q_value = tf.add(tf.matmul(self.h_fc1, self.W_fc2), self.b_fc2, name=self.name + '_fc1_outputs')
 
-        self.tc_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation_tc')
-        self.tc_observation_n = tf.div(self.tc_observation, 255.)
+        if self.target_consistency_loss:
+            self.tc_observation = tf.placeholder(tf.float32, [None, height, width, phi_length], name='observation_tc')
+            self.tc_observation_n = tf.div(self.tc_observation, 255.)
 
-        with tf.device(self._device), tf.variable_scope('net_-1', reuse=True) as scope:
-            # q network model:
-            tc_W_conv1, tc_b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1', gain=np.sqrt(2))
-            tc_h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.tc_observation_n, tc_W_conv1, 4), tc_b_conv1), name=self.name + '_conv1_activations')
+            with tf.device(self._device), tf.variable_scope('net_-1', reuse=True) as scope:
+                # q network model:
+                tc_W_conv1, tc_b_conv1 = self.conv_variable([8, 8, phi_length, 32], layer_name='conv1', gain=np.sqrt(2))
+                tc_h_conv1 = tf.nn.relu(tf.add(self.conv2d(self.tc_observation_n, tc_W_conv1, 4), tc_b_conv1), name=self.name + '_conv1_activations')
 
-            tc_W_conv2, tc_b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
-            tc_h_conv2 = tf.nn.relu(tf.add(self.conv2d(tc_h_conv1, tc_W_conv2, 2), tc_b_conv2), name=self.name + '_conv2_activations')
+                tc_W_conv2, tc_b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
+                tc_h_conv2 = tf.nn.relu(tf.add(self.conv2d(tc_h_conv1, tc_W_conv2, 2), tc_b_conv2), name=self.name + '_conv2_activations')
 
-            tc_W_conv3, tc_b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
-            tc_h_conv3 = tf.nn.relu(tf.add(self.conv2d(tc_h_conv2, tc_W_conv3, 1), tc_b_conv3), name=self.name + '_conv3_activations')
+                tc_W_conv3, tc_b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
+                tc_h_conv3 = tf.nn.relu(tf.add(self.conv2d(tc_h_conv2, tc_W_conv3, 1), tc_b_conv3), name=self.name + '_conv3_activations')
 
-            tc_h_conv3_flat = tf.reshape(tc_h_conv3, [-1, 3136])
+                tc_h_conv3_flat = tf.reshape(tc_h_conv3, [-1, 3136])
 
-            tc_W_fc1, tc_b_fc1 = self.fc_variable([3136, 512], layer_name='fc1', gain=np.sqrt(2))
-            tc_h_fc1 = tf.nn.relu(tf.add(tf.matmul(tc_h_conv3_flat, tc_W_fc1), tc_b_fc1), name=self.name + '_fc1_activations')
+                tc_W_fc1, tc_b_fc1 = self.fc_variable([3136, 512], layer_name='fc1', gain=np.sqrt(2))
+                tc_h_fc1 = tf.nn.relu(tf.add(tf.matmul(tc_h_conv3_flat, tc_W_fc1), tc_b_fc1), name=self.name + '_fc1_activations')
 
-            tc_W_fc2, tc_b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
-            self.tc_q_value = tf.add(tf.matmul(tc_h_fc1, tc_W_fc2), tc_b_fc2, name=self.name + '_fc1_outputs')
+                tc_W_fc2, tc_b_fc2 = self.fc_variable([512, n_actions], layer_name='fc2')
+                self.tc_q_value = tf.add(tf.matmul(tc_h_fc1, tc_W_fc2), tc_b_fc2, name=self.name + '_fc1_outputs')
 
         if transfer:
             self.load_transfer_model(
