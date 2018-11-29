@@ -64,6 +64,10 @@ def run_dqn(args):
             elif args.not_transfer_fc2:
                 end_str += '_nofc2'
 
+        if args.observe == 0:
+            end_str += '_obs0'
+        if args.init_epsilon < 1.0:
+            end_str += '_lowinitexp'
         if args.use_human_model_as_advice:
             end_str += '_modelasadvice'
 
@@ -158,11 +162,14 @@ def run_dqn(args):
             clip_norm=args.grad_norm_clip)
 
     demo_memory_folder = None
+    demo_ids = None
     if args.load_memory:
         if args.demo_memory_folder is not None:
             demo_memory_folder = args.demo_memory_folder
         else:
-            demo_memory_folder = "{}_demo_samples".format(args.gym_env.replace('-', '_'))
+            demo_memory_folder = 'collected_demo/{}'.format(args.gym_env.replace('-', '_'))
+
+        demo_ids = tuple(map(int, args.demo_ids.split(",")))
 
     if args.unclipped_reward:
         reward_type = ''
@@ -180,6 +187,7 @@ def run_dqn(args):
         args.eval_max_steps, args.c_freq,
         folder, load_demo_memory=args.load_memory,
         demo_memory_folder=demo_memory_folder,
+        demo_ids=demo_ids,
         train_max_steps=args.train_max_steps,
         human_net=human_net, confidence=args.advice_confidence, psi=args.psi,
         train_with_demo_steps=args.train_with_demo_steps,

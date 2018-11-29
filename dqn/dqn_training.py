@@ -24,7 +24,7 @@ class DQNTraining(object):
         self, sess, network, game_state, resized_height, resized_width, phi_length, batch,
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
-        folder, load_demo_memory=False, demo_memory_folder=None,
+        folder, load_demo_memory=False, demo_memory_folder=None, demo_ids=None,
         train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995,
         train_with_demo_steps=0, use_transfer=False, reward_type='CLIP'):
         """ Initialize experiment """
@@ -48,6 +48,7 @@ class DQNTraining(object):
         self.folder = folder
         self.load_demo_memory = load_demo_memory
         self.demo_memory_folder = demo_memory_folder
+        self.demo_ids = demo_ids
         self.train_max_steps = train_max_steps
         self.train_with_demo_steps = train_with_demo_steps
         self.use_transfer = use_transfer
@@ -77,24 +78,24 @@ class DQNTraining(object):
                 fullstate=self.game_state.full_state)
 
     def _add_demo_experiences(self):
-        if self.demo_memory_folder is not None:
-            demo_memory_folder = 'demo_samples/{}'.format(self.demo_memory_folder)
-        else:
-            demo_memory_folder = 'demo_samples/{}'.format(self.name.replace('-', '_'))
-        demo_memory, actions_ctr, max_reward = load_memory(self.name, demo_memory_folder, imgs_normalized=False)
-        # terminals = data['D.terminal']
-        # actions = data['D.actions']
-        # rewards = data['D.rewards']
-        # imgs = get_compressed_images(self.demo_memory_folder + '/' + self.name + '-dqn-images-all.h5' + '.gz')
+        assert self.demo_memory_folder is not None:
+        demo_memory, actions_ctr, total_rewards, total_steps = load_memory(
+            name=None,
+            demo_memory_folder=self.demo_memory_folder,
+            demo_ids=self.demo_ids,
+            imgs_normalized=False)
+
         logger.info("Memory size={}".format(self.replay_memory.size))
         logger.info("Adding {} human experiences...".format(data['D.size']))
-        for demo in demo_memory:
-            for i in range(data['D.size']):
-                s = imgs[i]
-                a = actions[i]
-                r = rewards[i]
-                t = terminals[i]
-                self.replay_memory.add_sample(s, a, r, t)
+        for idx in list(demo_memory.keys()):
+            demo = demo_memory[idx]
+            for i in range(demo.max_steps):
+                self.replay_memory.add(
+                    demo.imgs[i], demo.actions[i],
+                    demo.rewards[i], demo.terminal[i],
+                    demo.lives[i], demo.full_state[i])
+            demo.close()
+            del demo
         logger.info("Memory size={}".format(self.replay_memory.size))
         time.sleep(2)
 

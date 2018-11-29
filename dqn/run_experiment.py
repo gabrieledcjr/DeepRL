@@ -74,6 +74,7 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
+    parser.add_argument('--demo-ids', type=str, default=None, help='demo ids separated by comma')
 
     parser.add_argument('--train-with-demo-steps', type=int, default=0)
 
