@@ -78,7 +78,7 @@ class DQNTraining(object):
                 fullstate=self.game_state.full_state)
 
     def _add_demo_experiences(self):
-        assert self.demo_memory_folder is not None:
+        assert self.demo_memory_folder is not None
         demo_memory, actions_ctr, total_rewards, total_steps = load_memory(
             name=None,
             demo_memory_folder=self.demo_memory_folder,
@@ -86,7 +86,7 @@ class DQNTraining(object):
             imgs_normalized=False)
 
         logger.info("Memory size={}".format(self.replay_memory.size))
-        logger.info("Adding {} human experiences...".format(data['D.size']))
+        logger.info("Adding human experiences...")
         for idx in list(demo_memory.keys()):
             demo = demo_memory[idx]
             for i in range(demo.max_steps):
