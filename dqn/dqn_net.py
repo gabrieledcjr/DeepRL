@@ -273,6 +273,28 @@ class DqnNet(Network):
             tf.summary.scalar("reward_max", tf.reduce_max(self.rewards))
             return loss
 
+    def grad_cam(self, s_batch, a_batch):
+        g = tf.get_default_graph()
+        with g.gradient_override_map({'Relu': 'GuidedRelu'}):
+            prob = tf.nn.softmax(self.q_value)
+            cost = tf.reduce_sum(tf.multiply(self.actions, prob), axis=1)
+            # gradient for partial linearization.
+            # We only care about target visualization class.
+            y_c = tf.reduce_sum(tf.multiply(self.q_value, self.actions), axis=1)
+
+            # Get last convolutional layer gradient for generating gradCAM visualization
+            last_conv = self.h_conv3
+            last_conv_grad = tf.gradients(y_c, last_conv)[0]
+            # Guided backpropagtion back to input layer
+            gb_grad = tf.gradients(cost, self.observation)[0]
+
+            conv_value, convgrad_value, gbgrad_value = self.sess.run([last_conv,
+                                                last_conv_grad,
+                                                gb_grad],
+                                                feed_dict={self.observation: s_batch,
+                                                           self.actions: a_batch})
+            return conv_value, convgrad_value, gbgrad_value
+
     def train(self, s_j_batch, a_batch, r_batch, s_j1_batch, terminal, global_t):
         if self.target_consistency_loss:
             summary, _, _ = self.sess.run(
