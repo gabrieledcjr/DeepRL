@@ -7,12 +7,36 @@ import random
 import numpy as np
 import time
 import logging
+import matplotlib.pyplot as plt
+from skimage.transform import resize
+import matplotlib.image as mpimg
 
 from termcolor import colored
 from common.util import egreedy, get_action_index, make_movie, load_memory
 from common.game_state import get_wrapper_by_name
 
 logger = logging.getLogger("dqn")
+
+ACTION_MEANING = {
+    0 : "NOOP",
+    1 : "FIRE",
+    2 : "UP",
+    3 : "RIGHT",
+    4 : "LEFT",
+    5 : "DOWN",
+    6 : "UPRIGHT",
+    7 : "UPLEFT",
+    8 : "DOWNRIGHT",
+    9 : "DOWNLEFT",
+    10 : "UPFIRE",
+    11 : "RIGHTFIRE",
+    12 : "LEFTFIRE",
+    13 : "DOWNFIRE",
+    14 : "UPRIGHTFIRE",
+    15 : "UPLEFTFIRE",
+    16 : "DOWNRIGHTFIRE",
+    17 : "DOWNLEFTFIRE",
+}
 
 try:
     import cPickle as pickle
@@ -25,6 +49,7 @@ class DQNTraining(object):
         name, gamma, observe, explore, final_epsilon, init_epsilon, replay_memory,
         update_freq, save_freq, eval_freq, eval_max_steps, copy_freq,
         folder, load_demo_memory=False, demo_memory_folder=None, demo_ids=None,
+        load_demo_cam=False, demo_cam_id=None,
         train_max_steps=sys.maxsize, human_net=None, confidence=0., psi=0.999995,
         train_with_demo_steps=0, use_transfer=False, reward_type='CLIP'):
         """ Initialize experiment """
@@ -49,6 +74,8 @@ class DQNTraining(object):
         self.load_demo_memory = load_demo_memory
         self.demo_memory_folder = demo_memory_folder
         self.demo_ids = demo_ids
+        self.load_demo_cam = load_demo_cam
+        self.demo_cam_id = demo_cam_id
         self.train_max_steps = train_max_steps
         self.train_with_demo_steps = train_with_demo_steps
         self.use_transfer = use_transfer
@@ -124,6 +151,57 @@ class DQNTraining(object):
             wall_t = 0.0
         return wall_t
 
+    def visualize(self, conv_output, conv_grad):  # image, gb_viz):
+        output = conv_output
+        grads_val = conv_grad
+
+        # global average pooling
+        weights = np.mean(grads_val, axis=(0, 1))
+        cam = np.zeros(output.shape[0:2], dtype=np.float32)
+        # cam = np.ones(output.shape[0:2], dtype=np.float32)
+        for i, w in enumerate(weights):
+            cam += w * output[:,:,i]
+        # passing through Relu
+        cam = np.maximum(cam, 0) # only care about positive
+        cam = cam / np.max(cam) # scale to [0,1]
+        cam = resize(cam, (84, 84), preserve_range=True)
+        cam_heatmap = cv2.applyColorMap(np.uint8(225*cam), cv2.COLORMAP_JET)
+        cam_heatmap = cv2.cvtColor(cam_heatmap, cv2.COLOR_BGR2RGB)
+
+        return cam_heatmap
+
+    def calculate_cam(self, test_cam_si):
+        state = []
+        action_onehot = []
+        action_array = []
+
+        for i in range(len(test_cam_si)):
+            readout_t = self.net.evaluate(test_cam_si[i])[0]
+            action = get_action_index(readout_t,
+                is_random=(random.random() <= 0.05),
+                n_actions=self.game_state.env.action_space.n)
+            action_array.append(action)
+            a_onehot = np.zeros(self.game_state.env.action_space.n)
+            a_onehot[action] = 1
+            action_onehot.append(a_onehot)
+
+            state.append(np.mean(test_cam_si[i], axis=-1))
+
+        conv_value, conv_grad, gbgrad = self.net.grad_cam(test_cam_si,
+                                                          action_onehot)
+        cam = []
+        img = []
+
+        for i in range(len(conv_value)):
+            cam_tmp = self.visualize(conv_value[i], conv_grad[i])
+            cam.append(cam_tmp)
+
+            # fake RGB channels for demo images
+            state_tmp = cv2.merge((state[i], state[i], state[i]))
+            img.append(state_tmp)
+
+        return np.array(cam), np.array(img), action_array
+
     def test(self, render=False):
         logger.info("Evaluate policy at global_t={}...".format(self.global_t))
 
@@ -137,6 +215,55 @@ class DQNTraining(object):
         episode_reward = 0
         episode_steps = 0
         n_episodes = 0
+
+        # use one demonstration data to record cam
+        # only need to make movie for demo data once
+        # if self.global_t == 0:
+        cam, state, action = self.calculate_cam(self.test_cam_si)
+        cam_plus_img = []
+        cam_side_img = []
+
+        for i in range(len(cam)):
+            # overlay cam-state
+            overlay = np.uint8(cam[i]).copy()
+            output = np.uint8(state[i]).copy()
+            alpha = 0.3
+            cv2.addWeighted(overlay, alpha, output, 1 - alpha,
+                0, output)
+            # create a title space for action
+            title_space = np.zeros((20, 84, 3), np.uint8)
+            title_space[:] = (255,255,255)
+            cv2.putText(title_space, "{}".format(ACTION_MEANING[action[i]]),
+                (20, 14), cv2.FONT_HERSHEY_DUPLEX, .4, (0, 0, 0), 1)
+            # concate title and state
+            vcat_output = cv2.vconcat((title_space, output))
+            cam_plus_img.append(vcat_output)
+
+            # side-by-side cam-state
+            hcat_cam_state =  cv2.hconcat((np.uint8(cam[i]).copy(),
+                                           np.uint8(state[i]).copy()))
+            title_space = np.zeros((20, 84*2, 3), np.uint8)
+            title_space[:] = (255,255,255)
+            vcat_title_camstate = cv2.vconcat((title_space, hcat_cam_state))
+            cv2.putText(vcat_title_camstate, "{}".format(ACTION_MEANING[action[i]]),
+                (20, 14), cv2.FONT_HERSHEY_DUPLEX, .4, (0, 0, 0), 1)
+            cam_side_img.append(vcat_title_camstate)
+
+        time_per_step = 0.0167
+        make_movie(
+            cam_plus_img,
+            self.folder + '/frames/demo-cam_plus_img{ep:010d}'.format(ep=(self.global_t)),
+            duration=len(cam)*time_per_step,
+            true_image=True,
+            salience=False)
+        make_movie(
+            cam_side_img,
+            self.folder + '/frames/demo-cam_side_img{ep:010d}'.format(ep=(self.global_t)),
+            duration=len(state)*time_per_step,
+            true_image=True,
+            salience=False)
+        del cam, state, action, cam_plus_img, cam_side_img
+
         while max_steps > 0:
             readout_t = self.net.evaluate(self.game_state.s_t)[0]
             action = get_action_index(readout_t, is_random=(random.random() <= 0.05), n_actions=self.game_state.env.action_space.n)
@@ -222,6 +349,31 @@ class DQNTraining(object):
         # only executed at the very beginning of training and never again
         if self.global_t == 0 and self.train_with_demo_steps > 0:
             self.train_with_demo_memory_only()
+
+        # load one demo for cam
+        if self.load_demo_cam:
+            # note, tuple length has to be >=2. pad 0 if len==1
+            demo_cam_id = tuple(map(int, self.demo_cam_id.split(",")))
+            if len(demo_cam_id) == 1:
+                demo_cam_id = (*demo_cam_id, '0')
+            demo_cam, _, total_rewards_cam, _ = load_memory(
+                name=None,
+                demo_memory_folder=self.demo_memory_folder,
+                demo_ids=demo_cam_id,
+                imgs_normalized=False)
+
+            max_idx, _ = max(total_rewards_cam.items(), key=lambda a: a[1])
+            size_max_idx_mem = len(demo_cam[max_idx])
+            self.test_cam_si = np.zeros(
+                (size_max_idx_mem,
+                 demo_cam[max_idx].height,
+                 demo_cam[max_idx].width,
+                 demo_cam[max_idx].phi_length),
+                dtype=np.float32)
+            for i in range(size_max_idx_mem):
+                s0, _, _, _, _, _, _, _ = demo_cam[max_idx][i]
+                self.test_cam_si[i] = np.copy(s0)
+            logger.info("loaded demo {} for testing CAM".format(demo_cam_id))
 
         # set start time
         start_time = time.time() - wall_t
