@@ -42,6 +42,7 @@ def main():
     parser.add_argument('--decay', type=float, default=0.95)
     parser.add_argument('--momentum', type=float, default=0.)
     parser.add_argument('--epsilon', type=float, default=0.00001)
+    parser.add_argument('--weight-decay', type=float, default=None)
 
     parser.add_argument('--folder', type=str, default=None)
     parser.add_argument('--append-experiment-num', type=str, default=None)

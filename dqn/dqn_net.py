@@ -28,7 +28,7 @@ class DqnNet(Network):
         not_transfer_conv2=False, not_transfer_conv3=False,
         not_transfer_fc1=False, not_transfer_fc2=False, device="/cpu:0",
         transformed_bellman=False, target_consistency_loss=False,
-        clip_norm=None):
+        clip_norm=None, weight_decay=None):
         """ Initialize network """
         Network.__init__(self, sess, name=name)
         self.gamma = gamma
@@ -136,9 +136,16 @@ class DqnNet(Network):
             with tf.name_scope("Train") as scope:
                 if optimizer == "Adam":
                     self.opt = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon)
+                elif optimizer == "AdamW":
+                    assert weight_decay is not None
+                    self.opt = tf.contrib.opt.AdamWOptimizer(weight_decay=weight_decay, learning_rate=learning_rate, epsilon=epsilon)
                 elif optimizer == "RMS":
                     # Tensorflow RMSOptimizer
-                    self.opt = tf.train.RMSPropOptimizer(learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
+                    if weight_decay is None:
+                        self.opt = tf.train.RMSPropOptimizer(learning_rate=learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
+                    else:
+                        RMSPropW = tf.contrib.opt.extend_with_decoupled_weight_decay(tf.train.RMSPropOptimizer)
+                        self.opt = RMSPropW(weight_decay=weight_decay, learning_rate=learning_rate, decay=decay, momentum=momentum, epsilon=epsilon)
                 else:
                     logger.error("Unknown Optimizer!")
                     sys.exit()

@@ -71,6 +71,9 @@ def run_dqn(args):
         if args.use_human_model_as_advice:
             end_str += '_modelasadvice'
 
+        if args.weight_decay is not None:
+            end_str += '_wdecay'
+
         folder += end_str
 
     if args.append_experiment_num is not None:
@@ -130,7 +133,8 @@ def run_dqn(args):
             slow=args.use_slow, tau=args.tau, device=device,
             transformed_bellman=args.transformed_bellman,
             target_consistency_loss=args.target_consistency,
-            clip_norm=args.grad_norm_clip)
+            clip_norm=args.grad_norm_clip,
+            weight_decay=args.weight_decay)
 
     # transfer using existing model
     else:
@@ -142,7 +146,8 @@ def run_dqn(args):
             end_str += '_mnih2015'
             end_str += '_l2beta1E-04_batchprop'  #TODO: make this an argument
             transfer_folder += end_str
-            transfer_folder += '/transfer_model'
+
+        transfer_folder += '/transfer_model'
 
         DqnNet.use_gpu = not args.cpu_only
         net = DqnNet(
@@ -159,7 +164,8 @@ def run_dqn(args):
             not_transfer_fc2=args.not_transfer_fc2, device=device,
             transformed_bellman=args.transformed_bellman,
             target_consistency_loss=args.target_consistency,
-            clip_norm=args.grad_norm_clip)
+            clip_norm=args.grad_norm_clip,
+            weight_decay=args.weight_decay)
 
     ##added load human demonstration for testing cam
     demo_memory_folder = None
