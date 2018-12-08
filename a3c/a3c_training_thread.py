@@ -7,7 +7,7 @@ import logging
 from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
-from common.util import get_action_index, make_movie
+from common.util import make_movie
 
 logger = logging.getLogger("a3c_training_thread")
 
@@ -25,7 +25,6 @@ class A3CTrainingThread(object):
     use_mnih_2015 = False
     env_id = None
     reward_type = 'CLIP'  # CLIP | LOG | RAW
-    egreedy_testing = False
     finetune_upper_layers_oinly = False
     shaping_reward = 0.001
     shaping_factor = 1.
@@ -62,8 +61,6 @@ class A3CTrainingThread(object):
         logger.info("entropy_beta: {}".format(self.entropy_beta))
         logger.info("gamma: {}".format(self.gamma))
         logger.info("reward_type: {}".format(self.reward_type))
-        logger.info("egreedy_testing: {}".format(
-            colored(self.egreedy_testing, "green" if self.egreedy_testing else "red")))
         logger.info("finetune_upper_layers_only: {}".format(
             colored(self.finetune_upper_layers_only, "green" if self.finetune_upper_layers_only else "red")))
         logger.info("use_pretrained_model_as_advice: {}".format(
@@ -122,7 +119,6 @@ class A3CTrainingThread(object):
         self.prev_local_t = 0
 
         self.is_demo_thread = False
-        self.is_egreedy = False
 
         self.pretrained_model = pretrained_model
         self.pretrained_model_sess = pretrained_model_sess
@@ -140,21 +136,10 @@ class A3CTrainingThread(object):
             learning_rate = 0.0
         return learning_rate
 
-    def choose_action(self, pi_values):
-        return np.random.choice(range(self.action_size), p=pi_values)
-
-    def choose_action2(self, logits):
+    def choose_action(self, logits):
         """sample() in https://github.com/ppyht2/tf-a2c/blob/master/src/policy.py"""
         noise = np.random.uniform(0, 1, np.shape(logits))
         return np.argmax(logits - np.log(-np.log(noise)))
-
-    def choose_action_egreedy(self, pi_values, global_time_step):
-        if global_time_step < 1000000:
-            epsilon = 0.2 * (global_time_step//200000)
-            epsilon = 0.1 if epsilon == 0.0 else epsilon+0.1
-            if np.random.random() > epsilon:
-                return get_action_index(pi_values, is_random=False, n_actions=self.action_size)
-        return self.choose_action(pi_values)
 
     def choose_action_with_high_confidence(self, pi_values, exclude_noop=True):
         actions_confidence = []
@@ -197,11 +182,10 @@ class A3CTrainingThread(object):
         while max_steps > 0:
             #pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
             pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
-            if self.egreedy_testing:
-                action = get_action_index(pi_, is_random=(np.random.random() <= 0.05), n_actions=self.action_size)
+            if False:
+                action = np.random.choice(range(self.action_size), p=pi_)
             else:
-                #action = self.choose_action(pi_)
-                action = self.choose_action2(logits_)
+                action = self.choose_action(logits_)
 
             if self.use_pretrained_model_as_advice:
                 psi = self.psi if self.psi > 0.001 else 0.0
@@ -479,11 +463,7 @@ class A3CTrainingThread(object):
         # t_max times loop
         for i in range(self.local_t_max):
             pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
-            if self.is_egreedy:
-                action = self.choose_action_egreedy(pi_, global_t)
-            else:
-                #action = self.choose_action(pi_)
-                action = self.choose_action2(logits_)
+            action = self.choose_action(logits_)
 
             model_pi = None
             confidence = 0.

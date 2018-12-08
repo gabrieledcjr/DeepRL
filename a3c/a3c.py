@@ -60,8 +60,6 @@ def run_a3c(args):
             end_str += '_logreward'
         if args.transformed_bellman:
             end_str += '_transformedbell'
-        if args.use_egreedy_threads:
-            end_str += '_egreedy'
 
         if args.use_transfer:
             end_str += '_transfer'
@@ -179,8 +177,8 @@ def run_a3c(args):
     learning_rate_input = tf.placeholder(tf.float32, shape=(), name="opt_lr")
 
     grad_applier = tf.train.RMSPropOptimizer(
-        learning_rate=learning_rate_input, 
-        decay=args.rmsp_alpha, 
+        learning_rate=learning_rate_input,
+        decay=args.rmsp_alpha,
         epsilon=args.rmsp_epsilon)
     #grad_applier = RMSPropApplier(
     #    learning_rate=learning_rate_input,
@@ -201,7 +199,6 @@ def run_a3c(args):
     A3CTrainingThread.gamma = args.gamma
     A3CTrainingThread.use_mnih_2015 = args.use_mnih_2015
     A3CTrainingThread.env_id = args.gym_env
-    A3CTrainingThread.egreedy_testing = args.egreedy_testing
     A3CTrainingThread.finetune_upper_layers_only = args.finetune_upper_layers_only
     A3CTrainingThread.transformed_bellman = args.transformed_bellman
     A3CTrainingThread.clip_norm = args.grad_norm_clip
@@ -363,10 +360,6 @@ def run_a3c(args):
         training_thread.is_demo_thread = args.load_memory and args.use_demo_threads
         if training_thread.is_demo_thread or args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs:
             training_thread.pretrain_init(demo_memory)
-
-        if args.use_egreedy_threads and parallel_index >= args.parallel_size - args.parallel_size/2:
-            logger.info("t_idx={} set as egreedy thread".format(parallel_index))
-            training_thread.is_egreedy = True
 
         if global_t == 0 and (args.train_with_demo_num_steps > 0 or args.train_with_demo_num_epochs > 0) and parallel_index < 2:
             ispretrain_markers[parallel_index] = True

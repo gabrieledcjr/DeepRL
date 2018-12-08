@@ -51,9 +51,6 @@ def main():
     parser.add_argument('--log-interval', type=int, default=500)
     parser.add_argument('--performance-log-interval', type=int, default=1000)
 
-    parser.add_argument('--use-egreedy-threads', action='store_true', help='a quarter of threads are uses egreedy actions during training')
-    parser.set_defaults(use_egreedy_threads=False)
-
     parser.add_argument('--use-transfer', action='store_true')
     parser.set_defaults(use_transfer=False)
     parser.add_argument('--transfer-folder', type=str, default=None)
@@ -95,9 +92,6 @@ def main():
     # Ape-X Pohlen, et. al 2018
     parser.add_argument('--transformed-bellman', action='store_true', help='use transofrmed bellman equation')
     parser.set_defaults(transformed_bellman=False)
-
-    parser.add_argument('--egreedy-testing', action='store_true', help='testing/evaluation uses egreedy')
-    parser.set_defaults(egreedy_testing=False)
 
     parser.add_argument('--load-pretrained-model', action='store_true')
     parser.set_defaults(load_pretrained_model=False)
