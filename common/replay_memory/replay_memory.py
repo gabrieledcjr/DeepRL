@@ -344,6 +344,7 @@ class ReplayMemory(object):
             for _ in range(proportion):
                 index = random.choice(self.array_per_action[action])
                 s0, a0, l0, fs0, s1, r1, t1, l1 = self[index]
+                assert action == a0
 
                 # Add the state transition to the response.
                 states[count] = np.copy(s0)
