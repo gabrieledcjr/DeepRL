@@ -20,6 +20,60 @@ try:
 except ImportError:
     import pickle
 
+def visualize_cam(conv_output, conv_grad):
+    output = conv_output
+    grads_val = conv_grad
+
+    # global average pooling
+    weights = np.mean(grads_val, axis=(0, 1)) # 64
+    cam = np.zeros(output.shape[0:2], dtype=np.float32) # 7, 7
+    # cam = np.ones(output.shape[0:2], dtype=np.float32)
+    for i, w in enumerate(weights):
+        cam += w * output[:,:,i]
+    # passing through Relu
+    cam = np.maximum(cam, 0) # only care about positive
+    max_val = np.max(cam)
+    if max_val > 0:
+        cam = cam / max_val # scale to [0,1]
+    cam = cv2.resize(cam, (84, 84))
+    cam_heatmap = cv2.applyColorMap(np.uint8(255*cam), cv2.COLORMAP_JET)
+    cam_heatmap = cv2.cvtColor(cam_heatmap, cv2.COLOR_BGR2RGB)
+
+    return cam_heatmap
+
+def generate_image_for_cam_video(state_img, cam_img, global_t, img_index, action):
+    cam_img = np.uint8(cam_img)
+    # create one state
+    mean_state = np.mean(state_img[:,:,0:3], axis=-1)
+    state = np.maximum(state_img[:,:,3], mean_state)
+
+    # change brightness of image to view it better in the overlayed video
+    brt = 40  # value could be + or - for brightness or darkness
+    state[state < 120] -= 40
+    state[state < 255-brt] += brt
+    state_rgb = cv2.cvtColor(state, cv2.COLOR_GRAY2RGB)
+    state_rgb = np.uint8(state_rgb)
+
+    # add information text to output video
+    info = np.zeros((84, 105, 3), dtype=np.uint8)
+    cv2.putText(info, "Step #{}".format(global_t),
+        (3, 15), cv2.FONT_HERSHEY_DUPLEX, .4, (255, 255, 255), 1)
+    cv2.putText(info, "Frame #{}".format(img_index),
+        (3, 30), cv2.FONT_HERSHEY_DUPLEX, .4, (255, 255, 255), 1)
+    cv2.putText(info, "{}".format(action),
+        (3, 45), cv2.FONT_HERSHEY_DUPLEX, .4, (255, 255, 255), 1)
+
+    # overlay cam-state
+    alpha = 0.5
+    output = cv2.addWeighted(cam_img, alpha, state_rgb, 1 - alpha, 0)
+    overlay_output = cv2.hconcat((output, info))
+
+    # side-by-side cam-state
+    hcat_cam_state =  cv2.hconcat((cam_img, state_rgb))
+    vcat_title_camstate = cv2.hconcat((hcat_cam_state, info))
+
+    return overlay_output, vcat_title_camstate
+
 def compute_proportions(batch_size, action_distribution):
     num_nonzeros = np.count_nonzero(action_distribution)
     max_action_index = np.argmax(action_distribution)
@@ -67,7 +121,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
     total_rewards = defaultdict(float)
     total_steps = 0
 
-    for demo in db.execute("SELECT * FROM demo_samples WHERE id IN {}".format(demo_ids)):
+    for demo in db.execute("SELECT * FROM demo_samples WHERE id IN ({})".format(demo_ids)):
         # logger.info(demo)
         if name is None:
             name = demo[2]

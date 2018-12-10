@@ -77,6 +77,10 @@ def main():
     parser.set_defaults(use_demo_threads=False)
     parser.add_argument('--max-steps-threads-as-demo', type=int, default=1000000)
 
+    parser.add_argument('--load-demo-cam', action='store_true')
+    parser.set_defaults(load_demo_cam=False)
+    parser.add_argument('--demo-cam-id', type=str, default=None, help='demo id for cam')
+
     parser.add_argument('--l2-beta', type=float, default=0., help='L2 regularization beta')
     parser.add_argument('--model-folder', type=str, default=None)
 

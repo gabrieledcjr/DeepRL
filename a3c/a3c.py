@@ -99,14 +99,37 @@ def run_a3c(args):
     demo_memory = None
     num_demos = 0
     max_reward = 0.
-    if args.load_memory:
+    if args.load_memory or args.load_demo_cam:
         if args.demo_memory_folder is not None:
-            demo_memory_folder = 'demo_samples/{}'.format(args.demo_memory_folder)
+            demo_memory_folder = args.demo_memory_folder
         else:
-            demo_memory_folder = 'demo_samples/{}'.format(args.gym_env.replace('-', '_'))
+            demo_memory_folder = 'collected_demo/{}'.format(args.gym_env.replace('-', '_'))
+
+    if args.load_memory:
+        # FIXME: use new load_memory function
         demo_memory, actions_ctr, max_reward = load_memory(args.gym_env, demo_memory_folder, imgs_normalized=True) #, create_symmetry=True)
         action_freq = [ actions_ctr[a] for a in range(demo_memory[0].num_actions) ]
         num_demos = len(demo_memory)
+
+    if args.load_demo_cam:
+        demo_cam, _, total_rewards_cam, _ = load_memory(
+            name=None,
+            demo_memory_folder=demo_memory_folder,
+            demo_ids=args.demo_cam_id,
+            imgs_normalized=False)
+
+        demo_cam = demo_cam[int(args.demo_cam_id)]
+        demo_memory_cam = np.zeros(
+            (len(demo_cam),
+             demo_cam.height,
+             demo_cam.width,
+             demo_cam.phi_length),
+            dtype=np.float32)
+        for i in range(len(demo_cam)):
+            s0 = (demo_cam[i])[0]
+            demo_memory_cam[i] = np.copy(s0)
+        del demo_cam
+        logger.info("loaded demo {} for testing CAM".format(args.demo_cam_id))
 
     device = "/cpu:0"
     gpu_options = None
@@ -202,6 +225,7 @@ def run_a3c(args):
     A3CTrainingThread.finetune_upper_layers_only = args.finetune_upper_layers_only
     A3CTrainingThread.transformed_bellman = args.transformed_bellman
     A3CTrainingThread.clip_norm = args.grad_norm_clip
+    A3CTrainingThread.load_demo_cam = args.load_demo_cam
 
     if args.unclipped_reward:
         A3CTrainingThread.reward_type = "RAW"
@@ -242,7 +266,8 @@ def run_a3c(args):
                 end_str += '_mnih2015'
             end_str += '_l2beta1E-04_batchprop'  #TODO: make this an argument
             transfer_folder += end_str
-            transfer_folder += '/transfer_model'
+
+        transfer_folder += '/transfer_model'
 
         if args.not_transfer_conv2:
             transfer_var_list = [global_network.W_conv1, global_network.b_conv1]
@@ -401,7 +426,7 @@ def run_a3c(args):
             with lock:
                 if parallel_index == 0:
                     test_reward, test_steps, test_episodes = training_threads[0].testing(
-                        sess, args.eval_max_steps, global_t, folder)
+                        sess, args.eval_max_steps, global_t, folder, demo_memory_cam=demo_memory_cam)
                     rewards['eval'][global_t] = (test_reward, test_steps, test_episodes)
                     saver.save(sess, folder + '/model_checkpoints/' + '{}_checkpoint'.format(args.gym_env.replace('-', '_')), global_step=global_t)
                     save_best_model(test_reward)
@@ -457,7 +482,7 @@ def run_a3c(args):
                             continue
                         test_lock = True
                         test_reward, test_steps, n_episodes = training_thread.testing(
-                            sess, args.eval_max_steps, temp_global_t, folder)
+                            sess, args.eval_max_steps, temp_global_t, folder, demo_memory_cam=demo_memory_cam)
                         rewards['eval'][temp_global_t] = (test_reward, test_steps, n_episodes)
                         if temp_global_t % ((args.max_time_step * args.max_time_step_fraction) // 5) == 0:
                             saver.save(

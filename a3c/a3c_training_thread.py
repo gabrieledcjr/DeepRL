@@ -7,7 +7,7 @@ import logging
 from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
-from common.util import make_movie
+from common.util import make_movie, visualize_cam, generate_image_for_cam_video
 
 logger = logging.getLogger("a3c_training_thread")
 
@@ -33,6 +33,7 @@ class A3CTrainingThread(object):
     shaping_actions = -1  # -1 all actions, 0 exclude noop
     transformed_bellman = False
     clip_norm = 0.5
+    load_demo_cam = False
 
     def __init__(self,
                  thread_index,
@@ -70,6 +71,9 @@ class A3CTrainingThread(object):
                     "green" if self.use_pretrained_model_as_reward_shaping else "red")))
         logger.info("transformed_bellman: {}".format(
             colored(self.transformed_bellman, "green" if self.transformed_bellman else "red")))
+        logger.info("clip_norm: {}".format(self.clip_norm))
+        logger.info("load_demo_cam: {}".format(
+            colored(self.load_demo_cam, "green" if self.load_demo_cam else "red")))
 
         if self.use_lstm:
             GameACLSTMNetwork.use_mnih_2015 = self.use_mnih_2015
@@ -120,6 +124,11 @@ class A3CTrainingThread(object):
 
         self.is_demo_thread = False
 
+        with tf.device(device):
+            if self.load_demo_cam:
+                self.action_meaning = self.game_state.env.unwrapped.get_action_meanings()
+                self.local_network.build_grad_cam_grads()
+
         self.pretrained_model = pretrained_model
         self.pretrained_model_sess = pretrained_model_sess
         self.psi = 0.9 if self.use_pretrained_model_as_advice else 0.0
@@ -165,10 +174,64 @@ class A3CTrainingThread(object):
     def set_start_time(self, start_time):
         self.start_time = start_time
 
-    def testing(self, sess, max_steps, global_t, folder):
+    def generate_cam(self, sess, test_cam_si, global_t):
+        action_array = []
+        cam = []
+        img = []
+
+        cam_plus_img = []
+        cam_side_img = []
+        for i in range(len(test_cam_si)):
+            # get max action per demo state
+            readout_t = self.local_network.run_policy(sess, test_cam_si[i])
+            action = np.argmax(readout_t)
+            action_array.append(action)
+
+            # convert action to one-hot vector
+            action_onehot = [0.] * self.game_state.env.action_space.n
+            action_onehot[action] = 1
+
+            # compute grad cam for conv layer 3
+            conv_value, conv_grad = self.local_network.evaluate_grad_cam(
+                sess, test_cam_si[i], action_onehot)
+            cam_img = visualize_cam(conv_value, conv_grad)
+
+            overlay, side_by_side = generate_image_for_cam_video(
+                test_cam_si[i],
+                cam_img, global_t, i,
+                self.action_meaning[action])
+
+            cam_plus_img.append(overlay)
+            cam_side_img.append(side_by_side)
+
+        return cam_plus_img, cam_side_img
+
+    def generate_cam_video(self, sess, time_per_step, global_t, folder, demo_memory_cam):
+        # use one demonstration data to record cam
+        # only need to make movie for demo data once
+        cam_plus_img, cam_side_img = self.generate_cam(sess, demo_memory_cam, global_t)
+
+        make_movie(
+            cam_plus_img,
+            folder + '/frames/demo-cam_plus_img{ep:010d}'.format(ep=(global_t)),
+            duration=len(cam_plus_img)*time_per_step,
+            true_image=True,
+            salience=False)
+        make_movie(
+            cam_side_img,
+            folder + '/frames/demo-cam_side_img{ep:010d}'.format(ep=(global_t)),
+            duration=len(cam_side_img)*time_per_step,
+            true_image=True,
+            salience=False)
+        del cam_plus_img, cam_side_img
+
+    def testing(self, sess, max_steps, global_t, folder, demo_memory_cam=None):
         logger.info("Evaluate policy at global_t={}...".format(global_t))
         # copy weights from shared to local
         sess.run(self.sync)
+
+        if self.load_demo_cam:
+            self.generate_cam_video(sess, 0.03, global_t, folder, demo_memory_cam)
 
         episode_buffer = []
         self.game_state.reset(hard_reset=True)

@@ -54,6 +54,23 @@ class GameACNetwork(ABC):
             entropy = tf.reduce_mean(cat_entropy(self.logits))
             self.total_loss = pg_loss - entropy * entropy_beta + vf_loss * critic_lr
 
+    def build_grad_cam_grads(self):
+        '''
+        https://github.com/hiveml/tensorflow-grad-cam/blob/master/main.py
+        '''
+        with tf.name_scope("GradCAM_Loss") as scope:
+            # We only care about target visualization class.
+            signal = tf.multiply(self.logits, self.a)
+            loss = tf.reduce_mean(signal)
+
+            if self.use_mnih_2015:
+                self.conv_layer = self.h_conv3
+            else:
+                self.conv_layer = self.h_conv2
+            grads = tf.gradients(loss, self.conv_layer)[0]
+            # Normalizing the gradients
+            self.grad_cam_grads = tf.divide(grads, tf.sqrt(tf.reduce_mean(tf.square(grads))) + tf.constant(1e-5))
+
     @abstractmethod
     def run_policy_and_value(self, sess, s_t):
         raise NotImplementedError()
@@ -217,6 +234,12 @@ class GameACFFNetwork(GameACNetwork):
     def run_value(self, sess, s_t):
         v_out = sess.run( self.v0, feed_dict = {self.s : [s_t]} )
         return v_out[0]
+
+    def evaluate_grad_cam(self, sess, state, action):
+        conv_value, convgrad_value = sess.run([self.conv_layer, self.grad_cam_grads],
+            feed_dict={self.s: [state], self.a: [action]})
+
+        return conv_value[0], convgrad_value[0]
 
     def get_vars(self):
         if self.use_mnih_2015:
