@@ -8,6 +8,7 @@ from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
 from common.util import make_movie, visualize_cam, generate_image_for_cam_video
+from common.replay_memory import ReplayMemory
 
 logger = logging.getLogger("a3c_training_thread")
 
@@ -33,7 +34,7 @@ class A3CTrainingThread(object):
     shaping_actions = -1  # -1 all actions, 0 exclude noop
     transformed_bellman = False
     clip_norm = 0.5
-    load_demo_cam = False
+    use_grad_cam = False
 
     def __init__(self,
                  thread_index,
@@ -72,8 +73,8 @@ class A3CTrainingThread(object):
         logger.info("transformed_bellman: {}".format(
             colored(self.transformed_bellman, "green" if self.transformed_bellman else "red")))
         logger.info("clip_norm: {}".format(self.clip_norm))
-        logger.info("load_demo_cam: {}".format(
-            colored(self.load_demo_cam, "green" if self.load_demo_cam else "red")))
+        logger.info("use_grad_cam: {}".format(
+            colored(self.use_grad_cam, "green" if self.use_grad_cam else "red")))
 
         if self.use_lstm:
             GameACLSTMNetwork.use_mnih_2015 = self.use_mnih_2015
@@ -125,7 +126,7 @@ class A3CTrainingThread(object):
         self.is_demo_thread = False
 
         with tf.device(device):
-            if self.load_demo_cam:
+            if self.use_grad_cam:
                 self.action_meaning = self.game_state.env.unwrapped.get_action_meanings()
                 self.local_network.build_grad_cam_grads()
 
@@ -175,62 +176,145 @@ class A3CTrainingThread(object):
         self.start_time = start_time
 
     def generate_cam(self, sess, test_cam_si, global_t):
-        action_array = []
-        cam = []
-        img = []
-
-        cam_plus_img = []
         cam_side_img = []
         for i in range(len(test_cam_si)):
             # get max action per demo state
             readout_t = self.local_network.run_policy(sess, test_cam_si[i])
             action = np.argmax(readout_t)
-            action_array.append(action)
 
             # convert action to one-hot vector
             action_onehot = [0.] * self.game_state.env.action_space.n
-            action_onehot[action] = 1
+            action_onehot[action] = 1.
 
             # compute grad cam for conv layer 3
-            conv_value, conv_grad = self.local_network.evaluate_grad_cam(
+            activations, gradients = self.local_network.evaluate_grad_cam(
                 sess, test_cam_si[i], action_onehot)
-            cam_img = visualize_cam(conv_value, conv_grad)
+            cam_img = visualize_cam(activations, gradients)
 
-            overlay, side_by_side = generate_image_for_cam_video(
+            side_by_side = generate_image_for_cam_video(
                 test_cam_si[i],
                 cam_img, global_t, i,
                 self.action_meaning[action])
 
-            cam_plus_img.append(overlay)
             cam_side_img.append(side_by_side)
 
-        return cam_plus_img, cam_side_img
+        return cam_side_img
 
-    def generate_cam_video(self, sess, time_per_step, global_t, folder, demo_memory_cam):
+    def generate_cam_video(self, sess, time_per_step, global_t, folder, demo_memory_cam, demo_cam_human=False):
         # use one demonstration data to record cam
         # only need to make movie for demo data once
-        cam_plus_img, cam_side_img = self.generate_cam(sess, demo_memory_cam, global_t)
+        cam_side_img = self.generate_cam(sess, demo_memory_cam, global_t)
+
+        path = '/frames/demo-cam_side_img'
+        if demo_cam_human:
+            path += '_human'
 
         make_movie(
-            cam_plus_img,
-            folder + '/frames/demo-cam_plus_img{ep:010d}'.format(ep=(global_t)),
-            duration=len(cam_plus_img)*time_per_step,
-            true_image=True,
-            salience=False)
-        make_movie(
             cam_side_img,
-            folder + '/frames/demo-cam_side_img{ep:010d}'.format(ep=(global_t)),
+            folder + '{}{ep:010d}'.format(path, ep=(global_t)),
             duration=len(cam_side_img)*time_per_step,
             true_image=True,
             salience=False)
-        del cam_plus_img, cam_side_img
+        del cam_side_img
+
+    def testing_model(self, sess, max_steps, global_t, folder, demo_memory_cam=None, demo_cam_human=False):
+        logger.info("Testing model at global_t={}...".format(global_t))
+        # copy weights from shared to local
+        sess.run(self.sync)
+
+        if demo_memory_cam is not None:
+            self.generate_cam_video(sess, 0.03, global_t, folder, demo_memory_cam, demo_cam_human)
+            return
+        else:
+            self.game_state.reset(hard_reset=True)
+            max_steps += 4
+            test_memory = ReplayMemory(
+                84, 84,
+                np.random.RandomState(),
+                max_steps=max_steps,
+                phi_length=4,
+                num_actions=self.game_state.env.action_space.n,
+                wrap_memory=False,
+                full_state_size=self.game_state.clone_full_state().shape[0])
+            for _ in range(4):
+                test_memory.add(
+                    self.game_state.x_t,
+                    0,
+                    self.game_state.reward,
+                    self.game_state.terminal,
+                    self.game_state.lives,
+                    fullstate=self.game_state.full_state)
+
+        episode_buffer = []
+        test_memory_cam = []
+
+        total_reward = 0
+        total_steps = 0
+        episode_reward = 0
+        episode_steps = 0
+        n_episodes = 0
+        terminal = False
+        while True:
+            #pi_ = self.local_network.run_policy(sess, self.game_state.s_t)
+            test_memory_cam.append(self.game_state.s_t)
+            episode_buffer.append(self.game_state.get_screen_rgb())
+            pi_, value_, logits_ = self.local_network.run_policy_and_value(sess, self.game_state.s_t)
+            #action = self.choose_action(logits_)
+            action = np.argmax(pi_)
+
+            # take action
+            self.game_state.step(action)
+            terminal = self.game_state.terminal
+            memory_full = episode_steps == max_steps-5
+            terminal_ = terminal or memory_full
+
+            # store the transition to replay memory
+            test_memory.add(
+                self.game_state.x_t1, action,
+                self.game_state.reward, terminal_,
+                self.game_state.lives,
+                fullstate=self.game_state.full_state1)
+
+            # update the old values
+            episode_reward += self.game_state.reward
+            episode_steps += 1
+
+            # s_t = s_t1
+            self.game_state.update()
+
+            if terminal_:
+                if get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done or memory_full:
+                    time_per_step = 0.03
+                    images = np.array(episode_buffer)
+                    make_movie(
+                        images, folder + '/frames/image{ep:010d}'.format(ep=global_t),
+                        duration=len(images)*time_per_step,
+                        true_image=True, salience=False)
+                    break
+
+                self.game_state.reset(hard_reset=False)
+                if self.use_lstm:
+                    self.local_network.reset_state()
+
+        total_reward = episode_reward
+        total_steps = episode_steps
+        log_data = (global_t, self.thread_index, total_reward, total_steps)
+        logger.info("test: global_t={} worker={} final score={} final steps={}".format(*log_data))
+
+        self.generate_cam_video(sess, 0.03, global_t, folder, np.array(test_memory_cam))
+        test_memory.save(name='test_cam', folder=folder, resize=True)
+
+        if self.use_lstm:
+            self.local_network.reset_state()
+
+        return
 
     def testing(self, sess, max_steps, global_t, folder, demo_memory_cam=None):
         logger.info("Evaluate policy at global_t={}...".format(global_t))
         # copy weights from shared to local
         sess.run(self.sync)
 
-        if self.load_demo_cam:
+        if demo_memory_cam is not None and global_t % 5000000 == 0:
             self.generate_cam_video(sess, 0.03, global_t, folder, demo_memory_cam)
 
         episode_buffer = []

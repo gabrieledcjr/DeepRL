@@ -54,6 +54,19 @@ class GameACNetwork(ABC):
             entropy = tf.reduce_mean(cat_entropy(self.logits))
             self.total_loss = pg_loss - entropy * entropy_beta + vf_loss * critic_lr
 
+    def prepare_sil_loss(self, critic_lr=0.5):
+        """Based from A2C-SIL"""
+        with tf.name_scope("SIL_Loss") as scope:
+            # taken action (input for policy)
+            self.a_sil = tf.placeholder(tf.float32, shape=[None, self._action_size], name="action_sil")
+            self.cumulative_reward_sil = tf.placeholder(tf.float32, shape=[None], name="cumulative_reward_sil")
+
+            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.a_sil)
+            advantage_sil = self.cumulative_reward_sil - tf.squeeze(self.v)
+            pg_loss = tf.reduce_mean(neglogpac * tf.maximum(advantage_sil, tf.zeros(tf.shape(self.cumulative_reward))))
+            vf_loss = tf.reduce_mean(tf.squared_difference(tf.squeeze(self.v), self.cumulative_reward) / 2.0)
+            self.total_loss_sil = pg_loss + vf_loss * critic_lr
+
     def build_grad_cam_grads(self):
         '''
         https://github.com/hiveml/tensorflow-grad-cam/blob/master/main.py
@@ -61,15 +74,16 @@ class GameACNetwork(ABC):
         with tf.name_scope("GradCAM_Loss") as scope:
             # We only care about target visualization class.
             signal = tf.multiply(self.logits, self.a)
-            loss = tf.reduce_mean(signal)
+            y_c = tf.reduce_sum(signal, axis=1)
 
             if self.use_mnih_2015:
                 self.conv_layer = self.h_conv3
             else:
                 self.conv_layer = self.h_conv2
-            grads = tf.gradients(loss, self.conv_layer)[0]
+
+            grads = tf.gradients(y_c, self.conv_layer)[0]
             # Normalizing the gradients
-            self.grad_cam_grads = tf.divide(grads, tf.sqrt(tf.reduce_mean(tf.square(grads))) + tf.constant(1e-5))
+            self.grad_cam_grads = tf.div(grads, tf.sqrt(tf.reduce_mean(tf.square(grads))) + tf.constant(1e-5))
 
     @abstractmethod
     def run_policy_and_value(self, sess, s_t):
@@ -236,10 +250,9 @@ class GameACFFNetwork(GameACNetwork):
         return v_out[0]
 
     def evaluate_grad_cam(self, sess, state, action):
-        conv_value, convgrad_value = sess.run([self.conv_layer, self.grad_cam_grads],
+        activations, gradients = sess.run([self.conv_layer, self.grad_cam_grads],
             feed_dict={self.s: [state], self.a: [action]})
-
-        return conv_value[0], convgrad_value[0]
+        return activations[0], gradients[0]
 
     def get_vars(self):
         if self.use_mnih_2015:

@@ -10,7 +10,6 @@ import logging
 
 from common.util import load_memory, prepare_dir
 from common.game_state import GameState
-from rmsprop_applier import RMSPropApplier
 
 logger = logging.getLogger("a3c")
 
@@ -111,6 +110,7 @@ def run_a3c(args):
         action_freq = [ actions_ctr[a] for a in range(demo_memory[0].num_actions) ]
         num_demos = len(demo_memory)
 
+    demo_memory_cam = None
     if args.load_demo_cam:
         demo_cam, _, total_rewards_cam, _ = load_memory(
             name=None,
@@ -137,13 +137,7 @@ def run_a3c(args):
         device = "/gpu:"+os.environ["CUDA_VISIBLE_DEVICES"]
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_fraction)
 
-    if args.initial_learn_rate == 0:
-        initial_learning_rate = log_uniform(
-            args.initial_alpha_low,
-            args.initial_alpha_high,
-            args.initial_alpha_log_rate)
-    else:
-        initial_learning_rate = args.initial_learn_rate
+    initial_learning_rate = args.initial_learn_rate
     logger.info('Initial Learning Rate={}'.format(initial_learning_rate))
     time.sleep(2)
 
@@ -203,14 +197,7 @@ def run_a3c(args):
         learning_rate=learning_rate_input,
         decay=args.rmsp_alpha,
         epsilon=args.rmsp_epsilon)
-    #grad_applier = RMSPropApplier(
-    #    learning_rate=learning_rate_input,
-    #    decay=args.rmsp_alpha,
-    #    momentum=0.0,
-    #    epsilon=args.rmsp_epsilon,
-    #    clip_norm=args.grad_norm_clip,
-    #    device=device,
-    #    centered=False)
+
     A3CTrainingThread.log_interval = args.log_interval
     A3CTrainingThread.performance_log_interval = args.performance_log_interval
     A3CTrainingThread.local_t_max = args.local_t_max
@@ -225,7 +212,7 @@ def run_a3c(args):
     A3CTrainingThread.finetune_upper_layers_only = args.finetune_upper_layers_only
     A3CTrainingThread.transformed_bellman = args.transformed_bellman
     A3CTrainingThread.clip_norm = args.grad_norm_clip
-    A3CTrainingThread.load_demo_cam = args.load_demo_cam
+    A3CTrainingThread.use_grad_cam = args.use_grad_cam
 
     if args.unclipped_reward:
         A3CTrainingThread.reward_type = "RAW"

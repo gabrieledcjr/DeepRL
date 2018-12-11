@@ -5,6 +5,7 @@ import coloredlogs, logging
 
 from time import sleep
 from a3c import run_a3c
+from a3c_test import run_a3c_test
 
 logger = logging.getLogger()
 
@@ -24,10 +25,6 @@ def main():
     parser.add_argument('--append-experiment-num', type=str, default=None)
 
     parser.add_argument('--initial-learn-rate', type=float, default=7e-4, help='initial learning rate for RMSProp')
-    parser.add_argument('--initial-alpha-low', type=float, default=1e-4, help='log_uniform low limit for learning rate')
-    parser.add_argument('--initial-alpha-high', type=float, default=1e-2, help='log_uniform high limit for learning rate')
-    parser.add_argument('--initial-alpha-log-rate', type=float, default=0.4226, help='log_uniform interpolate rate for learning rate (around 7 * 10^-4)')
-
     parser.add_argument('--gamma', type=float, default=0.99, help='discount factor for rewards')
     parser.add_argument('--entropy-beta', type=float, default=0.01, help='entropy regularization constant')
     parser.add_argument('--max-time-step', type=float, default=10 * 10**7, help='maximum time step, also use to anneal learning rate')
@@ -77,9 +74,12 @@ def main():
     parser.set_defaults(use_demo_threads=False)
     parser.add_argument('--max-steps-threads-as-demo', type=int, default=1000000)
 
+    parser.add_argument('--use-grad-cam', action='store_true')
+    parser.set_defaults(use_grad_cam=False)
     parser.add_argument('--load-demo-cam', action='store_true')
     parser.set_defaults(load_demo_cam=False)
     parser.add_argument('--demo-cam-id', type=str, default=None, help='demo id for cam')
+    parser.add_argument('--demo-cam-folder', type=str, default=None, help='demo folder')
 
     parser.add_argument('--l2-beta', type=float, default=0., help='L2 regularization beta')
     parser.add_argument('--model-folder', type=str, default=None)
@@ -105,11 +105,19 @@ def main():
     parser.add_argument('--use-pretrained-model-as-reward-shaping', action='store_true', help='use human model for reward shaping (Brys et. al)')
     parser.set_defaults(use_pretrained_model_as_reward_shaping=False)
 
+    parser.add_argument('--test-model', action='store_true')
+    parser.set_defaults(test_model=False)
+
     args = parser.parse_args()
 
-    logger.info('Running A3C...')
-    sleep(2)
-    run_a3c(args)
+    if args.test_model:
+        logger.info('Testing A3C model...')
+        run_a3c_test(args)
+        sleep(2)
+    else:
+        logger.info('Running A3C...')
+        sleep(2)
+        run_a3c(args)
 
 
 if __name__ == "__main__":
