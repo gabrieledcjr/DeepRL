@@ -17,7 +17,7 @@ pip3 install gym atari_py coloredlogs
 ## Human Demonstration
 
 #### Using the Collected Human Demonstration
-To use the existing human demonstration data, clone the `atari_human_demo` repo using the code below. This will create the `collected_demo` folder in this repo.
+To use the existing human demonstration data, clone the [`atari_human_demo`](https://github.com/gabrieledcjr/atari_human_demo) repo using the code below. This will create the `collected_demo` folder in this repo.
 ```
 git clone https://github.com/gabrieledcjr/atari_human_demo.git collected_demo
 ```
