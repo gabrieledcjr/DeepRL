@@ -7,7 +7,7 @@ import logging
 from termcolor import colored
 from game_ac_network import GameACFFNetwork, GameACLSTMNetwork
 from common.game_state import GameState, get_wrapper_by_name
-from common.util import make_movie, visualize_cam, generate_image_for_cam_video
+from common.util import make_movie, grad_cam, visualize_cam, generate_image_for_cam_video
 from common.replay_memory import ReplayMemory
 
 logger = logging.getLogger("a3c_training_thread")
@@ -189,7 +189,8 @@ class A3CTrainingThread(object):
             # compute grad cam for conv layer 3
             activations, gradients = self.local_network.evaluate_grad_cam(
                 sess, test_cam_si[i], action_onehot)
-            cam_img = visualize_cam(activations, gradients)
+            cam = grad_cam(activations, gradients)
+            cam_img = visualize_cam(cam)
 
             side_by_side = generate_image_for_cam_video(
                 test_cam_si[i],

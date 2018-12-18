@@ -20,18 +20,21 @@ try:
 except ImportError:
     import pickle
 
-def visualize_cam(activations, gradients):
+def grad_cam(activations, gradients):
     # global average pooling
     weights = np.mean(gradients, axis=(0, 1)) # 64
     cam = np.zeros(activations.shape[0 : 2], dtype=np.float32) # 7, 7
 
+    # Modified Grad-CAM
     # Summing and rectifying weighted activations across depth
     for i, w in enumerate(weights):
-        if w > 0:
-            cam += w * activations[:, :, i]
+        # only care about positive w (ReLU)
+        cam += np.maximum(w, 0.) * activations[:, :, i]
 
-    # passing through Relu
-    cam = np.maximum(cam, 0) # only care about positive
+    return cam
+
+def visualize_cam(cam):
+    # create heatmap image for cam
     if np.max(cam) > 0:
         cam = cam / np.max(cam) # scale to 0 to 1.0
     cam = cv2.resize(cam, (84, 84))
