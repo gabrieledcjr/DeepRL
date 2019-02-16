@@ -32,7 +32,7 @@ python3 tools/get_demo.py --gym-env=MsPacmanNoFrameskip-v4 --num-episodes=5 --de
 ## Supervised Pre-Training (Demo Classification)
 Current setting will pre-train a network `MsPacman` using cuda device 0 that uses only 80% of the GPU resources. This will train a model for 750,000 training iterations with a mini-batch size of 32. This also uses the proportional batch sampling and loads the demos whose IDs are specified in `--demo-ids`.
 ```
-python3 classification/run_experiment.py --gym-env=MsPacmanNoFrameskip-v4 \
+python3 pretrain/run_experiment.py --gym-env=MsPacmanNoFrameskip-v4 \
     --cuda-devices=0 --gpu-fraction=.8 \
     --classify-demo --use-mnih-2015 --train-max-steps=750000 --batch_size=32 \
     --grad-norm-clip=0.5 \
