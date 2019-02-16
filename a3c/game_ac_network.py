@@ -1,37 +1,43 @@
 #!/usr/bin/env python3
-import tensorflow as tf
+import logging
 import numpy as np
 import os
-import logging
+import tensorflow as tf
 
-from abc import ABC, abstractmethod
-from time import sleep
+from abc import ABC
+from abc import abstractmethod
 from termcolor import colored
+from time import sleep
 
 logger = logging.getLogger("game_ac_network")
 
 
 class GameACNetwork(ABC):
-    """Actor-Critic Network Base Class
-    (Policy network and Value network)
-    """
+    """Actor-Critic Network Base Class."""
+
     use_mnih_2015 = False
     use_gpu = False
 
-    def __init__(self,
-                 action_size,
-                 thread_index, # -1 for global
+    def __init__(self, action_size,
+                 thread_index,  # -1 for global
                  device="/cpu:0"):
+        """Initialize GameACNetwork class."""
         self._action_size = action_size
         self._thread_index = thread_index
         self._device = device
 
     def prepare_loss(self, entropy_beta=0.01, critic_lr=0.5):
-        """Based from A2C OpenAI Baselines
-        A2C (aka PAAC), we use the loss function explained in the PAAC paper
-        Clemente et al 2017. Efficient Parallel Methods for Deep Reinforcement Learning
-        """
+        """Prepare loss function of actor-critic.
 
+        Keyword arguments:
+        entropy_beta -- value multiplied to entropy
+        critic_lr -- value multiplied to critic loss
+
+        Reference:
+        Based from A2C OpenAI Baselines. We use the loss function explained in
+        the PAAC paper Clemente et al 2017.
+        Efficient Parallel Methods for Deep Reinforcement Learning
+        """
         def cat_entropy(logits):
             a0 = logits - tf.reduce_max(logits, 1, keepdims=True)
             ea0 = tf.exp(a0)
@@ -39,39 +45,76 @@ class GameACNetwork(ABC):
             p0 = ea0 / z0
             return tf.reduce_sum(p0 * (tf.log(z0) - a0), 1)
 
-        with tf.name_scope("Loss") as scope:
+        with tf.name_scope("Loss"):
             # taken action (input for policy)
-            self.a = tf.placeholder(tf.float32, shape=[None, self._action_size], name="action")
+            self.a = tf.placeholder(
+                tf.float32, shape=[None, self._action_size], name="action")
 
             # temporal difference (R-V) (input for policy)
-            self.advantage = tf.placeholder(tf.float32, shape=[None], name="advantage")
-            self.cumulative_reward = tf.placeholder(tf.float32, shape=[None], name="cumulative_reward")
+            self.advantage = tf.placeholder(
+                tf.float32, shape=[None], name="advantage")
+            self.cumulative_reward = tf.placeholder(
+                tf.float32, shape=[None], name="cumulative_reward")
 
             assert self.a.shape.as_list() == self.logits.shape.as_list()
-            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.a)
+            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
+                logits=self.logits, labels=self.a)
             pg_loss = tf.reduce_mean(self.advantage * neglogpac)
-            vf_loss = tf.reduce_mean(tf.squared_difference(tf.squeeze(self.v), self.cumulative_reward) / 2.0)
+            vf_loss = tf.reduce_mean(tf.squared_difference(
+                tf.squeeze(self.v), self.cumulative_reward) / 2.0)
             entropy = tf.reduce_mean(cat_entropy(self.logits))
-            self.total_loss = pg_loss - entropy * entropy_beta + vf_loss * critic_lr
+            self.total_loss = pg_loss - entropy * entropy_beta \
+                + vf_loss * critic_lr
 
-    def prepare_sil_loss(self, critic_lr=0.5):
-        """Based from A2C-SIL"""
-        with tf.name_scope("SIL_Loss") as scope:
+    def prepare_sil_loss(self, critic_lr=0.01):
+        """Prepare self-imitation loss.
+
+        Keyword arguments:
+        critic_lr -- value multiplied to critic loss
+
+        Reference:
+        Based from A2C-SIL
+        """
+        with tf.name_scope("SIL_Loss"):
             # taken action (input for policy)
-            self.a_sil = tf.placeholder(tf.float32, shape=[None, self._action_size], name="action_sil")
-            self.cumulative_reward_sil = tf.placeholder(tf.float32, shape=[None], name="cumulative_reward_sil")
+            self.a_sil = tf.placeholder(
+                tf.float32, shape=[None, self._action_size], name="action_sil")
 
-            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.a_sil)
-            advantage_sil = self.cumulative_reward_sil - tf.squeeze(self.v)
-            pg_loss = tf.reduce_mean(neglogpac * tf.maximum(advantage_sil, tf.zeros(tf.shape(self.cumulative_reward))))
-            vf_loss = tf.reduce_mean(tf.squared_difference(tf.squeeze(self.v), self.cumulative_reward) / 2.0)
-            self.total_loss_sil = pg_loss + vf_loss * critic_lr
+            # temporal difference (R-V)+ (input for policy)
+            # (.)+ = max(-, 0)
+            self.returns = tf.placeholder(
+                tf.float32, shape=[None], name="returns")
+
+            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
+                logits=self.logits, labels=self.a_sil)
+
+            v_estimate = tf.squeeze(self.v)
+            advs = self.returns - v_estimate
+            clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
+
+            sil_pg_loss = tf.reduce_mean(
+                neglogpac * tf.stop_gradient(clipped_advs))
+
+            val_error = v_estimate - self.returns
+            clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
+
+            sil_val_loss = tf.reduce_mean(
+                tf.square(clipped_val) * 0.5)
+
+            # pg_loss = tf.reduce_mean(neglogpac * self.advantage_sil)
+            # vf_loss = self.cum_reward_sil - tf.squeeze(self.v)
+            # vf_loss = tf.maximum(vf_loss, tf.zeros_like(vf_loss))
+            # vf_loss = tf.reduce_mean(tf.square(vf_loss) / 2.0)
+            # self.total_loss_sil = pg_loss + vf_loss * critic_lr
+            self.total_loss_sil = sil_pg_loss + sil_val_loss * critic_lr
 
     def build_grad_cam_grads(self):
-        '''
+        """Compute gradients for Grad-CAM.
+
+        Reference:
         https://github.com/hiveml/tensorflow-grad-cam/blob/master/main.py
-        '''
-        with tf.name_scope("GradCAM_Loss") as scope:
+        """
+        with tf.name_scope("GradCAM_Loss"):
             # We only care about target visualization class.
             signal = tf.multiply(self.logits, self.a)
             y_c = tf.reduce_sum(signal, axis=1)
@@ -83,7 +126,9 @@ class GameACNetwork(ABC):
 
             grads = tf.gradients(y_c, self.conv_layer)[0]
             # Normalizing the gradients
-            self.grad_cam_grads = tf.div(grads, tf.sqrt(tf.reduce_mean(tf.square(grads))) + tf.constant(1e-5))
+            self.grad_cam_grads = tf.div(
+                grads,
+                tf.sqrt(tf.reduce_mean(tf.square(grads))) + tf.constant(1e-5))
 
     @abstractmethod
     def run_policy_and_value(self, sess, s_t):
@@ -119,49 +164,83 @@ class GameACNetwork(ABC):
                 return tf.group(*sync_ops, name=name)
 
     def conv_variable(self, shape, layer_name='conv', gain=1.0):
+        """Return weights and biases for convolutional 2D layer.
+
+        Keyword arguments:
+        shape -- [kernel_height, kernel_width, in_channel, out_channel]
+        layer_name -- name of variables in the layer
+        gain -- argument for orthogonal initializer (default 1.0)
+        """
         with tf.variable_scope(layer_name):
-            weight = tf.get_variable('weights', shape, initializer=tf.orthogonal_initializer(gain=gain))
-            bias = tf.get_variable('biases', [shape[3]], initializer=tf.zeros_initializer())
+            weight = tf.get_variable(
+                'weights', shape,
+                initializer=tf.orthogonal_initializer(gain=gain))
+            bias = tf.get_variable(
+                'biases', [shape[3]],
+                initializer=tf.zeros_initializer())
         return weight, bias
 
     def fc_variable(self, shape, layer_name='fc', gain=1.0):
+        """Return weights and biases for dense layer.
+
+        Keyword arguments:
+        shape -- [# of units in, # of units out]
+        layer_name -- name of variables in the layer
+        gain -- argument for orthogonal initializer (default 1.0)
+        """
         with tf.variable_scope(layer_name):
-            weight = tf.get_variable('weights', shape, initializer=tf.orthogonal_initializer(gain=gain))
-            bias = tf.get_variable('biases', [shape[1]], initializer=tf.zeros_initializer())
+            weight = tf.get_variable(
+                'weights', shape,
+                initializer=tf.orthogonal_initializer(gain=gain))
+            bias = tf.get_variable(
+                'biases', [shape[1]], initializer=tf.zeros_initializer())
         return weight, bias
 
-    def conv2d(self, x, W, stride, data_format='NHWC'):
-        return tf.nn.conv2d(x, W, strides=[1,stride,stride,1], padding = "VALID",
-            use_cudnn_on_gpu=self.use_gpu, data_format=data_format)
+    def conv2d(self, x, W, stride, data_format='NHWC', padding="VALID",
+               name=None):
+        """Return convolutional 2d layer.
 
-    def load_transfer_model(
-        self, sess, folder='',
-        not_transfer_fc2=False, not_transfer_fc1=False,
-        not_transfer_conv3=False, not_transfer_conv2=False,
-        var_list=None):
-        assert folder != ''
-        assert os.path.isdir(folder)
-        assert self._thread_index == -1 # only load model to global network
+        Keyword arguments:
+        x -- input
+        W -- weights of layer with the shape
+            [kernel_height, kernel_width, in_channel, out_channel]
+        stride -- stride
+        data_format -- NHWC or NCHW (default NHWC)
+        padding -- SAME or VALID (default VALID)
+        """
+        return tf.nn.conv2d(
+            x, W, strides=[1, stride, stride, 1], padding=padding,
+            use_cudnn_on_gpu=self.use_gpu, data_format=data_format, name=name)
 
-        logger.info('Initialize network from a pretrain model in {}'.format(folder))
+    def load_transfer_model(self, sess, folder=None, not_transfer_fc2=False,
+                            not_transfer_fc1=False, not_transfer_conv3=False,
+                            not_transfer_conv2=False, var_list=None):
+        """Load model from pre-trained network."""
+        assert folder is not None
+        assert folder.is_dir()
+        assert self._thread_index == -1  # only load model to global network
+
+        logger.info("Initialize network from a pretrain"
+                    " model in {}".format(folder))
 
         transfer_all = False
         if not_transfer_conv2:
-            folder += '/noconv2'
+            folder /= 'noconv2'
         elif not_transfer_conv3:
-            folder += '/noconv3'
+            folder /= 'noconv3'
         elif not_transfer_fc1:
-            folder += '/nofc1'
+            folder /= 'nofc1'
         elif not_transfer_fc2:
-            folder += '/nofc2'
+            folder /= 'nofc2'
         else:
             transfer_all = True
-            with open(folder + "/max_output_value", 'r') as f_max_value:
+            max_value_file = folder / "max_output_value"
+            with max_value_file.open('r') as f_max_value:
                 transfer_max_output_val = float(f_max_value.readline().split()[0])
-            folder += '/all'
+            folder /= 'all'
 
         saver_transfer_from = tf.train.Saver(var_list=var_list)
-        checkpoint_transfer_from = tf.train.get_checkpoint_state(folder)
+        checkpoint_transfer_from = tf.train.get_checkpoint_state(str(folder))
 
         if checkpoint_transfer_from and checkpoint_transfer_from.model_checkpoint_path:
             saver_transfer_from.restore(sess, checkpoint_transfer_from.model_checkpoint_path)
@@ -174,61 +253,130 @@ class GameACNetwork(ABC):
                 logger.info("    {} loaded".format(var.op.name))
                 sleep(1)
 
-            if transfer_all:
+            if transfer_all and '_sil' not in str(folder):
                 # scale down last layer if it's transferred
-                logger.info("Normalizing output layer with max value {}...".format(transfer_max_output_val))
-                W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
-                b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
-                logger.info("Output layer normalized")
-                sess.run([
-                    self.W_fc2.assign(W_fc2_norm), self.b_fc2.assign(b_fc2_norm)
-                ])
+                # logger.info("Normalizing output layer with max value {}...".format(transfer_max_output_val))
+                # W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
+                # b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
 
-# Actor-Critic FF Network
+                logger.info("Normalizing fc2 output layer...")
+                maxW = tf.abs(tf.reduce_max(self.W_fc2))
+                minW = tf.abs(tf.reduce_min(self.W_fc2))
+                maxAbsW = tf.maximum(maxW, minW)
+                W_fc2_norm = tf.div(self.W_fc2, maxAbsW)
+
+                maxb = tf.abs(tf.reduce_max(self.b_fc2))
+                minb = tf.abs(tf.reduce_min(self.b_fc2))
+                maxAbsb = tf.maximum(maxb, minb)
+                b_fc2_norm = tf.div(self.b_fc2, maxAbsb)
+                sess.run([
+                    self.W_fc2.assign(W_fc2_norm),
+                    self.b_fc2.assign(b_fc2_norm),
+                    ])
+
+                if '_sil' in str(folder):
+                    logger.info("Normalizing fc3 output layer...")
+                    maxW = tf.abs(tf.reduce_max(self.W_fc3))
+                    minW = tf.abs(tf.reduce_min(self.W_fc3))
+                    maxAbsW = tf.maximum(maxW, minW)
+                    W_fc3_norm = tf.div(self.W_fc3, maxAbsW)
+
+                    maxb = tf.abs(tf.reduce_max(self.b_fc3))
+                    minb = tf.abs(tf.reduce_min(self.b_fc3))
+                    maxAbsb = tf.maximum(maxb, minb)
+                    b_fc3_norm = tf.div(self.b_fc3, maxAbsb)
+
+                    sess.run([
+                        self.W_fc3.assign(W_fc3_norm),
+                        self.b_fc3.assign(b_fc3_norm),
+                        ])
+
+                logger.info("Output layer(s) normalized")
+
+
+
+
 class GameACFFNetwork(GameACNetwork):
-    def __init__(self,
-                 action_size,
-                 thread_index, # -1 for global
-                 device="/cpu:0"):
+    """Actor-Critic Feedforward Network class."""
+
+    def __init__(self, action_size, thread_index,  # -1 for global
+                 device="/cpu:0", padding="VALID", in_shape=(84, 84, 4)):
+        """Initialize GameACFFNetwork class."""
         GameACNetwork.__init__(self, action_size, thread_index, device)
-        logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
+        logger.info("use_mnih_2015: {}".format(
+            colored(self.use_mnih_2015,
+                    "green" if self.use_mnih_2015 else "red")))
+        logger.info("padding: {}".format(padding))
+        logger.info("in_shape: {}".format(in_shape))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
+        self.in_shape = in_shape
 
         # state (input)
-        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4], name="state")
+        self.s = tf.placeholder(
+            tf.float32, [None] + list(in_shape), name="state")
         self.s_n = tf.div(self.s, 255.)
 
-        with tf.device(self._device), tf.variable_scope(scope_name) as scope:
+        with tf.device(self._device), tf.variable_scope(scope_name):
             if self.use_mnih_2015:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
-                self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
-                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
+                self.W_conv1, self.b_conv1 = self.conv_variable(
+                    [8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
+                self.W_conv2, self.b_conv2 = self.conv_variable(
+                    [4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
+                self.W_conv3, self.b_conv3 = self.conv_variable(
+                    [3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
+
+                # 3136 for VALID padding and 7744 for SAME padding
+                fc1_size = 3136 if padding == 'VALID' else 7744
+                self.W_fc1, self.b_fc1 = self.fc_variable(
+                    [fc1_size, self.last_hidden_fc_output_size],
+                    layer_name='fc1', gain=np.sqrt(2))
             else:
-                self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))  # stride=4
-                self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2)) # stride=2
-                self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
+                logger.warn("Does not support SAME padding")
+                assert padding == 'VALID'
+                self.W_conv1, self.b_conv1 = self.conv_variable(
+                    [8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))
+                self.W_conv2, self.b_conv2 = self.conv_variable(
+                    [4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2))
+                fc1_size = 2592
+                self.W_fc1, self.b_fc1 = self.fc_variable(
+                    [fc1_size, self.last_hidden_fc_output_size],
+                    layer_name='fc1', gain=np.sqrt(2))
 
             # weight for policy output layer
-            self.W_fc2, self.b_fc2 = self.fc_variable([self.last_hidden_fc_output_size, action_size], layer_name='fc2')
+            self.W_fc2, self.b_fc2 = self.fc_variable(
+                [self.last_hidden_fc_output_size, action_size],
+                layer_name='fc2')
 
             # weight for value output layer
-            self.W_fc3, self.b_fc3 = self.fc_variable([self.last_hidden_fc_output_size, 1], layer_name='fc3')
+            self.W_fc3, self.b_fc3 = self.fc_variable(
+                [self.last_hidden_fc_output_size, 1], layer_name='fc3')
 
             if self.use_mnih_2015:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
-                self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
+                self.h_conv1 = tf.nn.relu(
+                    self.conv2d(self.s_n,  self.W_conv1, 4, padding=padding)
+                    + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(
+                    self.conv2d(self.h_conv1, self.W_conv2, 2, padding=padding)
+                    + self.b_conv2)
+                self.h_conv3 = tf.nn.relu(
+                    self.conv2d(self.h_conv2, self.W_conv3, 1, padding=padding)
+                    + self.b_conv3)
 
-                self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
-                self.h_fc1 = tf.nn.relu(tf.matmul(self.h_conv3_flat, self.W_fc1) + self.b_fc1)
+                self.h_conv3_flat = tf.reshape(self.h_conv3, [-1, fc1_size])
+                self.h_fc1 = tf.nn.relu(
+                    tf.matmul(self.h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
+                self.h_conv1 = tf.nn.relu(
+                    self.conv2d(self.s_n,  self.W_conv1, 4, padding=padding)
+                    + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(
+                    self.conv2d(self.h_conv1, self.W_conv2, 2, padding=padding)
+                    + self.b_conv2)
 
-                h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
-                self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
+                h_conv2_flat = tf.reshape(self.h_conv2, [-1, fc1_size])
+                self.h_fc1 = tf.nn.relu(
+                    tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
             # policy (output)
             self.logits = tf.matmul(self.h_fc1, self.W_fc2) + self.b_fc2
@@ -238,55 +386,68 @@ class GameACFFNetwork(GameACNetwork):
             self.v0 = self.v[:, 0]
 
     def run_policy_and_value(self, sess, s_t):
-        pi_out, v_out, logits = sess.run( [self.pi, self.v0, self.logits], feed_dict = {self.s : [s_t]} )
+        pi_out, v_out, logits = sess.run(
+            [self.pi, self.v0, self.logits], feed_dict={self.s: [s_t]})
         return (pi_out[0], v_out[0], logits[0])
 
     def run_policy(self, sess, s_t):
-        pi_out = sess.run( self.pi, feed_dict = {self.s : [s_t]} )
+        pi_out = sess.run(self.pi, feed_dict={self.s: [s_t]})
         return pi_out[0]
 
     def run_value(self, sess, s_t):
-        v_out = sess.run( self.v0, feed_dict = {self.s : [s_t]} )
+        v_out = sess.run(self.v0, feed_dict={self.s: [s_t]})
         return v_out[0]
 
     def evaluate_grad_cam(self, sess, state, action):
-        activations, gradients = sess.run([self.conv_layer, self.grad_cam_grads],
+        activations, gradients = sess.run(
+            [self.conv_layer, self.grad_cam_grads],
             feed_dict={self.s: [state], self.a: [action]})
         return activations[0], gradients[0]
 
     def get_vars(self):
         if self.use_mnih_2015:
-            return [self.W_conv1, self.b_conv1,
+            return [
+                self.W_conv1, self.b_conv1,
                 self.W_conv2, self.b_conv2,
                 self.W_conv3, self.b_conv3,
                 self.W_fc1, self.b_fc1,
                 self.W_fc2, self.b_fc2,
-                self.W_fc3, self.b_fc3]
+                self.W_fc3, self.b_fc3,
+                ]
         else:
-            return [self.W_conv1, self.b_conv1,
+            return [
+                self.W_conv1, self.b_conv1,
                 self.W_conv2, self.b_conv2,
                 self.W_fc1, self.b_fc1,
                 self.W_fc2, self.b_fc2,
-                self.W_fc3, self.b_fc3]
+                self.W_fc3, self.b_fc3,
+                ]
 
     def get_vars_upper(self):
-        return [self.W_fc1, self.b_fc1,
+        return [
+            self.W_fc1, self.b_fc1,
             self.W_fc2, self.b_fc2,
-            self.W_fc3, self.b_fc3]
+            self.W_fc3, self.b_fc3,
+            ]
 
-# Actor-Critic LSTM Network
+
 class GameACLSTMNetwork(GameACNetwork):
+    """Actor-Critic LSTM Network class."""
+
     def __init__(self,
                  action_size,
                  thread_index, # -1 for global
-                 device="/cpu:0"):
+                 device="/cpu:0", padding="VALID", in_shape=(84, 84, 4)):
+        assert padding == 'VALID'  # does not support SAME for now
         GameACNetwork.__init__(self, action_size, thread_index, device)
         logger.info("use_mnih_2015: {}".format(colored(self.use_mnih_2015, "green" if self.use_mnih_2015 else "red")))
+        logger.info("in_shape: {}".format(in_shape))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
+        self.in_shape = in_shape
 
         # state (input)
-        self.s = tf.placeholder(tf.float32, [None, 84, 84, 4], name="state")
+        self.s = tf.placeholder(tf.float32, [None] + list(self.in_shape), name="state")
         self.s_n = tf.div(self.s, 255.)
 
         # place holder for LSTM unrolling time step size.
@@ -297,10 +458,16 @@ class GameACLSTMNetwork(GameACNetwork):
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 32], layer_name='conv1', gain=np.sqrt(2))
                 self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 32, 64], layer_name='conv2', gain=np.sqrt(2))
                 self.W_conv3, self.b_conv3 = self.conv_variable([3, 3, 64, 64], layer_name='conv3', gain=np.sqrt(2))
-                self.W_fc1, self.b_fc1 = self.fc_variable([3136, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
+
+                # 3136 for VALID padding and 7744 for SAME padding
+                fc1_size = 3136 if padding == 'VALID' else 7744
+                self.W_fc1, self.b_fc1 = self.fc_variable([fc1_size, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
             else:
+                logger.warn("Does not support SAME padding")
+                assert padding == 'VALID'
                 self.W_conv1, self.b_conv1 = self.conv_variable([8, 8, 4, 16], layer_name='conv1', gain=np.sqrt(2))
                 self.W_conv2, self.b_conv2 = self.conv_variable([4, 4, 16, 32], layer_name='conv2', gain=np.sqrt(2))
+                fc1_size = 2592
                 self.W_fc1, self.b_fc1 = self.fc_variable([2592, self.last_hidden_fc_output_size], layer_name='fc1', gain=np.sqrt(2))
 
             # lstm
@@ -313,17 +480,17 @@ class GameACLSTMNetwork(GameACNetwork):
             self.W_fc3, self.b_fc3 = self.fc_variable([self.last_hidden_fc_output_size, 1], layer_name='fc3')
 
             if self.use_mnih_2015:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4) + self.b_conv1)
-                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2)
-                self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1) + self.b_conv3)
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n,  self.W_conv1, 4, padding=padding) + self.b_conv1)
+                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2, padding=padding) + self.b_conv2)
+                self.h_conv3 = tf.nn.relu(self.conv2d(self.h_conv2, self.W_conv3, 1, padding=padding) + self.b_conv3)
 
-                h_conv3_flat = tf.reshape(self.h_conv3, [-1, 3136])
+                h_conv3_flat = tf.reshape(self.h_conv3, [-1, fc1_size])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv3_flat, self.W_fc1) + self.b_fc1)
             else:
-                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n, self.W_conv1, 4) + self.b_conv1) # stride=4
-                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2) + self.b_conv2) # stride=2
+                self.h_conv1 = tf.nn.relu(self.conv2d(self.s_n, self.W_conv1, 4, padding=padding) + self.b_conv1) # stride=4
+                self.h_conv2 = tf.nn.relu(self.conv2d(self.h_conv1, self.W_conv2, 2, padding=padding) + self.b_conv2) # stride=2
 
-                h_conv2_flat = tf.reshape(self.h_conv2, [-1, 2592])
+                h_conv2_flat = tf.reshape(self.h_conv2, [-1, fc1_size])
                 self.h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1)
 
             h_fc1_reshaped = tf.reshape(self.h_fc1, [1, -1, self.last_hidden_fc_output_size])

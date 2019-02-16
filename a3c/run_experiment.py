@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-import os
 import argparse
-import coloredlogs, logging
+import coloredlogs
+import logging
 
-from time import sleep
 from a3c import run_a3c
 from a3c_test import run_a3c_test
+from time import sleep
 
 logger = logging.getLogger()
+
 
 def main():
     coloredlogs.install(level='DEBUG', fmt='%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s')
@@ -45,6 +46,10 @@ def main():
     parser.add_argument('--use-mnih-2015', action='store_true', help='use Mnih et al [2015] network architecture (3 conv layers)')
     parser.set_defaults(use_mnih_2015=False)
 
+    parser.add_argument('--input-shape', type=int, default=84, help='84x84 as default')
+    parser.add_argument('--padding', type=str, default='VALID',
+                        help='VALID or SAME')
+
     parser.add_argument('--log-interval', type=int, default=500)
     parser.add_argument('--performance-log-interval', type=int, default=1000)
 
@@ -65,14 +70,8 @@ def main():
     parser.add_argument('--load-memory', action='store_true')
     parser.set_defaults(load_memory=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
-    parser.add_argument('--train-with-demo-num-steps', type=int, default=0, help='pretraining number of steps/frames')
-    parser.add_argument('--train-with-demo-num-epochs', type=int, default=0, help='pretraining number of epochs')
-    parser.add_argument('--demo-t-max', type=int, default=20, help='demo repeat step size')
-    parser.add_argument('--demo-entropy-beta', type=float, default=0.01, help='demo entropy regularization constant')
-
-    parser.add_argument('--use-demo-threads', action='store_true')
-    parser.set_defaults(use_demo_threads=False)
-    parser.add_argument('--max-steps-threads-as-demo', type=int, default=1000000)
+    parser.add_argument('--demo-ids', type=str, default=None,
+                        help='demo ids separated by comma')
 
     parser.add_argument('--use-grad-cam', action='store_true')
     parser.set_defaults(use_grad_cam=False)
@@ -107,6 +106,10 @@ def main():
 
     parser.add_argument('--test-model', action='store_true')
     parser.set_defaults(test_model=False)
+
+    parser.add_argument('--use-sil', action='store_true',
+                        help='self imitation learning loss')
+    parser.set_defaults(use_sil=False)
 
     args = parser.parse_args()
 
