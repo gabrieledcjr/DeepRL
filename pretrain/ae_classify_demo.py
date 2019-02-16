@@ -450,6 +450,8 @@ class AutoencoderClassifyDemo(object):
 
 def ae_classify_demo(args):
     """Use Autoencoder to learn features and classify demo."""
+    GYM_ENV_NAME = args.gym_env.replace('-', '_')
+
     if args.cpu_only:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
     else:
@@ -473,18 +475,15 @@ def ae_classify_demo(args):
     if args.demo_memory_folder is not None:
         demo_memory_folder = args.demo_memory_folder
     else:
-        demo_memory_folder = 'collected_demo/{}'.format(
-            args.gym_env.replace('-', '_'))
+        demo_memory_folder = 'collected_demo/{}'.format(GYM_ENV_NAME)
 
     demo_memory_folder = pathlib.Path(demo_memory_folder)
 
     args.use_mnih_2015 = True  # ONLY supports this network
     if args.model_folder is not None:
-        model_folder = '{}_{}'.format(args.gym_env.replace('-', '_'),
-                                      args.model_folder)
+        model_folder = '{}_{}'.format(GYM_ENV_NAME, args.model_folder)
     else:
-        model_folder = 'results/pretrain_models/{}'.format(
-            args.gym_env.replace('-', '_'))
+        model_folder = 'results/pretrain_models/{}'.format(GYM_ENV_NAME)
         end_str = ''
         if args.use_mnih_2015:
             end_str += '_mnih2015'
@@ -651,14 +650,14 @@ def ae_classify_demo(args):
 
     logger.info('Now saving data. Please wait')
     saver.save(sess, str(model_folder
-               / '{}_checkpoint'.format(args.gym_env.replace('-', '_'))))
+               / '{}_checkpoint'.format(GYM_ENV_NAME)))
 
     with network.graph.as_default():
         transfer_params = tf.get_collection("transfer_params")
         transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(
         sess, str(model_folder / 'transfer_model/all'
-        / '{}_transfer_params'.format(args.gym_env.replace('-', '_'))))
+                  / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
     # Remove fc2 weights
     for param in transfer_params[:]:
@@ -673,7 +672,7 @@ def ae_classify_demo(args):
         transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(
         sess, str(model_folder / 'transfer_model/nofc2'
-        / '{}_transfer_params'.format(args.gym_env.replace('-', '_'))))
+                  / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
     # Remove fc1 weights
     for param in transfer_params[:]:
@@ -685,7 +684,7 @@ def ae_classify_demo(args):
         transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(
         sess, str(model_folder / 'transfer_model/nofc1'
-        / '{}_transfer_params'.format(args.gym_env.replace('-', '_'))))
+                  / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
     # Remove conv3 weights
     if args.use_mnih_2015:
@@ -698,7 +697,7 @@ def ae_classify_demo(args):
             transfer_saver = tf.train.Saver(transfer_params)
         transfer_saver.save(
             sess, str(model_folder / 'transfer_model/noconv3'
-            / '{}_transfer_params'.format(args.gym_env.replace('-', '_'))))
+                      / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
     # Remove conv2 weights
     for param in transfer_params[:]:
@@ -710,7 +709,7 @@ def ae_classify_demo(args):
         transfer_saver = tf.train.Saver(transfer_params)
     transfer_saver.save(
         sess, str(model_folder / 'transfer_model/noconv2'
-        / '{}_transfer_params'.format(args.gym_env.replace('-', '_'))))
+                  / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
     # if args.sae_classify_demo:
     max_output_value_file = model_folder / 'transfer_model/max_output_value'
