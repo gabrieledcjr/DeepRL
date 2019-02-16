@@ -4,6 +4,7 @@ import tables
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import pathlib
 import cv2
 import gzip
 import shutil
@@ -19,6 +20,19 @@ try:
     import cPickle as pickle
 except ImportError:
     import pickle
+
+
+def transform_h(z, eps=10**-2):
+    return (np.sign(z) * (np.sqrt(np.abs(z) + 1.) - 1.)) + (eps * z)
+
+def transform_h_inv(z, eps=10**-2):
+    return np.sign(z) * (np.square((np.sqrt(1 + 4 * eps * (np.abs(z) + 1 + eps)) - 1) / (2 * eps)) - 1)
+
+def transform_h_log(z, eps=.6):
+    return (np.sign(z) * np.log(1. + np.abs(z)) * eps)
+
+def transform_h_inv_log(z, eps=.6):
+    return np.sign(z) * (np.exp(np.abs(z) / eps) - 1)
 
 def grad_cam(activations, gradients):
     # global average pooling
@@ -46,6 +60,7 @@ def visualize_cam(cam):
 
 def generate_image_for_cam_video(state_img, cam_img, global_t, img_index, action):
     cam_img = np.uint8(cam_img)
+
     # create one state
     mean_state = np.mean(state_img[:,:,0:3], axis=-1)
     state = np.maximum(state_img[:,:,3], mean_state)
@@ -102,7 +117,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
     assert demo_memory_folder is not None
 
     from common.replay_memory import ReplayMemory
-    assert os.path.isfile(demo_memory_folder + '/demo.db')
+    assert os.path.isfile(str(demo_memory_folder / 'demo.db'))
 
     logger.info("Loading data from memory")
     logger.info("memory_folder: {}".format(demo_memory_folder))
@@ -111,7 +126,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
     logger.info("rewards_propagated: {}".format(rewards_propagated))
 
     conn = sqlite3.connect(
-        demo_memory_folder + '/demo.db',
+        str(demo_memory_folder / 'demo.db'),
         detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     db = conn.cursor()
     replay_buffers = {}
@@ -130,7 +145,7 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
         total_memory += demo[6]
         hostname = demo[13]
 
-        folder = '{}/data/{}/{}'.format(demo_memory_folder, hostname, datetime_collected)
+        folder = demo_memory_folder / 'data' / hostname / str(datetime_collected)
         replay_memory = ReplayMemory()
         replay_memory.load(name=name, folder=folder)
         if imgs_normalized:
@@ -393,6 +408,9 @@ def prepare_dir(path, empty=False):
     :return: nothing
     :src: https://github.com/grishasergei/conviz/blob/master/utils.py
     """
+    if path is not str:
+        path = str(path)
+
     if not os.path.exists(path):
         create_dir(path)
 
@@ -471,22 +489,22 @@ def process_frame(frame, h, w):
     return frame
 
 def compress_h5file(file_h5, gz_compress_level=1):
-    with open(file_h5, 'rb') as f_in, gzip.open(file_h5 + '.gz', 'wb', gz_compress_level) as f_out:
+    with file_h5.open('rb') as f_in, gzip.open(str(file_h5.with_suffix('.h5.gz')), 'wb', gz_compress_level) as f_out:
         shutil.copyfileobj(f_in, f_out)
-    return file_h5 + '.gz'
+    return file_h5.with_suffix('.h5.gz')
 
 def uncompress_h5file(file_h5):
     import uuid
-    temp_file = str(uuid.uuid4()) + '.h5'
-    with gzip.open(file_h5, 'rb') as f_in:
-        f_out = open(temp_file, 'wb')
+    temp_file = pathlib.Path(str(uuid.uuid4()) + '.h5')
+    with gzip.open(str(file_h5), 'rb') as f_in:
+        f_out = temp_file.open('wb')
         shutil.copyfileobj(f_in, f_out)
         f_out.close()
-        h5file = tables.open_file(temp_file, mode='r')
+        h5file = tables.open_file(str(temp_file), mode='r')
     return h5file, temp_file
 
 def save_compressed_images(file_h5, imgs):
-    h5file = tables.open_file(file_h5, mode='w', title='Images Array')
+    h5file = tables.open_file(str(file_h5), mode='w', title='Images Array')
     root = h5file.root
     h5file.create_array(root, "images", imgs)
     h5file.close()
@@ -502,7 +520,7 @@ def get_compressed_images(h5file_gz):
     return imgs
 
 def remove_h5file(file_h5):
-    os.remove(file_h5)
+    file_h5.unlink()
 
 def get_activations(sess, layer, s_t, s, keep_prob):
   units = sess.run(layer, feed_dict={s: [s_t], keep_prob:1.0})
