@@ -1,1 +1,1 @@
-from .replay_memory import ReplayMemory
+from .replay_memory import ReplayMemory, ReplayMemoryReturns
