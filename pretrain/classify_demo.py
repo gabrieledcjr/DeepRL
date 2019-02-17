@@ -49,9 +49,8 @@ class ClassifyDemo(object):
     def __init__(self, tf, net, name, train_max_steps, batch_size,
                  grad_applier, eval_freq=5000, demo_memory_folder='',
                  demo_ids=None, folder='', exclude_num_demo_ep=0,
-                 use_onevsall=False, weighted_cross_entropy=False,
-                 device='/cpu:0', clip_norm=None, game_state=None,
-                 use_batch_proportion=False):
+                 use_onevsall=False, device='/cpu:0', clip_norm=None,
+                 game_state=None, use_batch_proportion=False):
         """Initialize ClassifyDemo class."""
         assert demo_ids is not None
         assert game_state is not None
@@ -89,33 +88,7 @@ class ClassifyDemo(object):
                 self.batch_size, action_freq)
             logger.info("batch_proportion: {}".format(self.batch_proportion))
 
-        if weighted_cross_entropy:
-            loss_weight = solve_weight(action_freq)
-            logger.debug("loss_weight: {}".format(loss_weight))
-
-            if self.use_onevsall:
-                action_freq_onevsall = []
-                loss_weight_onevsall = []
-
-                def sumfreq(index, freq, size):
-                    return sum([freq[j] for j in range(size) if index != j])
-
-                for i in range(self.net._action_size):
-                    other_class = sumfreq(i, action_freq, self.net.action_size)
-                    action_freq_onevsall.append([action_freq[i], other_class])
-                    loss_weight_onevsall.append(
-                        solve_weight(action_freq_onevsall[i]))
-
-                logger.debug("action_freq (one-vs-all): {}".format(
-                    action_freq_onevsall))
-                logger.debug("loss_weight (one-vs-all): {}".format(
-                    loss_weight_onevsall))
-
-            self.net.prepare_loss(
-                class_weights=loss_weight_onevsall
-                if self.use_onevsall else loss_weight)
-        else:
-            self.net.prepare_loss(class_weights=None)
+        self.net.prepare_loss(sl_loss_weight=1.0, critic_weight=0.01)
 
         self.net.prepare_evaluate()
         self.apply_gradients = self.prepare_compute_gradients(
@@ -499,8 +472,6 @@ def classify_demo(args):
             end_str += '_l1beta{:.0E}'.format(args.l1_beta)
         if args.grad_norm_clip is not None:
             end_str += '_clipnorm{:.0E}'.format(args.grad_norm_clip)
-        if args.weighted_cross_entropy:
-            end_str += '_weighted_loss'
         if args.use_batch_proportion:
             end_str += '_batchprop'
         if args.use_sil:
@@ -599,7 +570,6 @@ def classify_demo(args):
         folder=model_folder,
         exclude_num_demo_ep=args.exclude_num_demo_ep,
         use_onevsall=args.onevsall_mtl,
-        weighted_cross_entropy=args.weighted_cross_entropy,
         device=device, clip_norm=args.grad_norm_clip,
         game_state=game_state,
         use_batch_proportion=args.use_batch_proportion)

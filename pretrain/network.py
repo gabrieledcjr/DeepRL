@@ -283,8 +283,7 @@ class MultiClassNetwork(Network):
 
                 self.saver = tf.train.Saver()
 
-    def prepare_loss(self, class_weights=None, sl_loss_weight=1.0,
-                     critic_weight=0.01):
+    def prepare_loss(self, sl_loss_weight=1.0, critic_weight=0.01):
         """Prepare tf operations training loss."""
         with self.graph.as_default():
             with tf.device(self._device), tf.name_scope("Loss"):
@@ -294,14 +293,6 @@ class MultiClassNetwork(Network):
 
                 sl_xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
                     labels=self.a, logits=self.logits)
-
-                if class_weights is not None:
-                    class_weights = tf.constant(
-                        class_weights, name='class_weights')
-                    weights = tf.reduce_sum(
-                        tf.multiply(class_weights, self.a), axis=1)
-                    sl_xentropy = tf.multiply(
-                        sl_xentropy, weights, name='weighted_loss')
 
                 if self.use_sil:
                     self.returns = tf.placeholder(
@@ -896,7 +887,7 @@ class MTLBinaryClassNetwork(Network):
 
                 self.saver = tf.train.Saver()
 
-    def prepare_loss(self, class_weights=None):
+    def prepare_loss(self):
         """Prepare tf operations training loss."""
         with self.graph.as_default():
             with tf.device(self._device), tf.name_scope("Loss"):
@@ -919,15 +910,7 @@ class MTLBinaryClassNetwork(Network):
 
                 self.total_loss = []
                 for n_class in range(self.action_size):
-                    if class_weights is not None:
-                        class_w = tf.constant(
-                            class_weights[n_class],
-                            name='class_weights_{}'.format(n_class))
-                        logits = tf.multiply(
-                            self.logits[n_class], class_w,
-                            name='scaled_logits_{}'.format(n_class))
-                    else:
-                        logits = self.logits[n_class]
+                    logits = self.logits[n_class]
 
                     loss = tf.nn.softmax_cross_entropy_with_logits_v2(
                         labels=self.a,
