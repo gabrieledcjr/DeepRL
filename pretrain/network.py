@@ -627,18 +627,18 @@ class AutoEncoderNetwork(Network):
 
                 # L1/L2 regularization
                 net_vars = self.get_vars_no_bias()
-                # ae_net_vars = self.get_vars_no_bias_ae_only()
+                ae_net_vars = self.get_vars_no_bias_ae_only()
                 if self.l1_beta > 0:
                     l1_loss = tf.add_n(
                         [tf.reduce_sum(tf.abs(net_vars[i]))
                          for i in range(len(net_vars))]) * self.l1_beta
                     self.total_loss += l1_loss
 
-                    # if not self.sae:
-                    #     ae_l1_loss = tf.add_n(
-                    #         [tf.reduce_sum(tf.abs(ae_net_vars[i]))
-                    #          for i in range(len(ae_net_vars))]) * self.l1_beta
-                    #     self.ae_loss += ae_l1_loss
+                    if not self.sae:
+                        ae_l1_loss = tf.add_n(
+                            [tf.reduce_sum(tf.abs(ae_net_vars[i]))
+                             for i in range(len(ae_net_vars))]) * self.l1_beta
+                        self.ae_loss += ae_l1_loss
 
                 if self.l2_beta > 0:
                     l2_loss = tf.add_n(
@@ -646,11 +646,11 @@ class AutoEncoderNetwork(Network):
                          for i in range(len(net_vars))]) * self.l2_beta
                     self.total_loss += l2_loss
 
-                    # if not self.sae:
-                    #     ae_l2_loss = tf.add_n(
-                    #         [tf.nn.l2_loss(ae_net_vars[i])
-                    #          for i in range(len(ae_net_vars))]) * self.l2_beta
-                    #     self.ae_loss += ae_l2_loss
+                    if not self.sae:
+                        ae_l2_loss = tf.add_n(
+                            [tf.nn.l2_loss(ae_net_vars[i])
+                             for i in range(len(ae_net_vars))]) * self.l2_beta
+                        self.ae_loss += ae_l2_loss
 
     def run_policy(self, sess, s_t):
         """Infer network output based on input s_t."""
