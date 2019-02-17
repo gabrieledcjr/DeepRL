@@ -710,6 +710,10 @@ class AutoEncoderNetwork(Network):
         else:
             # train only output layer for classifier when using AE
             vars = [self.W_fc2]
+
+        if self.use_sil:
+            vars.extend([self.W_fc3])
+
         return vars
 
     def load(self, sess=None, checkpoint=''):
