@@ -74,13 +74,20 @@ class SILReplayMemory(object):
         assert len(self) == len(self.returns) <= self.maxlen
 
     @staticmethod
-    def compute_returns(rewards, terminal, gamma, clip=False):
+    def compute_returns(rewards, terminal, gamma, clip=False, c=1.89):
         """Compute expected return."""
         length = np.shape(rewards)[0]
         returns = np.empty_like(rewards, dtype=np.float32)
 
         if clip:
             rewards = np.clip(rewards, -1., 1.)
+        else:
+            # when reward is 1, t(r=1) = 0.412 which is less than half of
+            # reward which slows down the training with Atari games with
+            # raw rewards at range (-1, 1). To address this down scaled reward,
+            # we add the constant c=sign(r) * 1.89 to ensure that
+            # t(r=1 + sign(r) * 1.89) ~ 1
+            rewards = np.clip(rewards, -1., 1.) * c + rewards
 
         for i in reversed(range(length)):
             if terminal[i]:
