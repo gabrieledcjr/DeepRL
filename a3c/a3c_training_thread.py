@@ -769,7 +769,7 @@ class A3CTrainingThread(object):
         return diff_local_t, terminal_end, terminal_pseudo
 
     def sil_train(self, sess, global_t, sil_memory, lock, sil_ctr,
-                  batch_size=32):
+                  batch_size=512, m=4):
         """Self-imitation learning process."""
         assert not self.use_lstm
 
@@ -779,7 +779,7 @@ class A3CTrainingThread(object):
         cur_learning_rate = self._anneal_learning_rate(global_t)
 
         if len(sil_memory) >= batch_size:
-            for _ in range(4):
+            for _ in range(m):
                 with lock:
                     batch_state, batch_action, batch_returns = \
                         sil_memory.sample(batch_size)
