@@ -219,7 +219,7 @@ def run_a3c(args):
         epsilon=args.rmsp_epsilon)
 
     A3CTrainingThread.log_interval = args.log_interval
-    A3CTrainingThread.performance_log_interval = args.performance_log_interval
+    A3CTrainingThread.perf_log_interval = args.performance_log_interval
     A3CTrainingThread.local_t_max = args.local_t_max
     A3CTrainingThread.use_lstm = args.use_lstm
     A3CTrainingThread.action_size = action_size
@@ -233,6 +233,7 @@ def run_a3c(args):
     A3CTrainingThread.clip_norm = args.grad_norm_clip
     A3CTrainingThread.use_grad_cam = args.use_grad_cam
     A3CTrainingThread.use_sil = args.use_sil
+    A3CTrainingThread.log_idx = 1 if args.use_sil else 0
 
     if args.unclipped_reward:
         A3CTrainingThread.reward_type = "RAW"
@@ -478,19 +479,19 @@ def run_a3c(args):
     ispretrain_markers = [False] * args.parallel_size
     threads_ctr = args.parallel_size
 
-    def train_function(parallel_index):
+    def train_function(parallel_idx):
         nonlocal global_t, pretrain_global_t, pretrain_epoch, \
             rewards, test_lock, lock, sil_lock, next_global_t, next_save_t, \
             threads_ctr, last_temp_global_t, ispretrain_markers, \
             shared_memory_sil
 
-        a3c_worker = all_workers[parallel_index]
+        a3c_worker = all_workers[parallel_idx]
         a3c_worker.set_summary_writer(summary_writer)
 
         # Evaluate model before training
         if not stop_requested and global_t == 0:
             with lock:
-                if parallel_index == 0:
+                if parallel_idx == 0:
                     rewards['eval'][global_t] = all_workers[0].testing(
                         sess, args.eval_max_steps, global_t, folder,
                         demo_memory_cam=demo_memory_cam)
@@ -517,7 +518,7 @@ def run_a3c(args):
             if global_t >= (args.max_time_step * args.max_time_step_fraction):
                 return
 
-            if parallel_index == 0:
+            if parallel_idx == 0:
                 # SIL
                 with ctr_lock:
                     threads_ctr -= 1
