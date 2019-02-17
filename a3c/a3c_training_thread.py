@@ -195,6 +195,7 @@ class A3CTrainingThread(object):
         return np.argmax(logits - np.log(-np.log(noise)))
 
     def pick_action_w_confidence(self, pi_values, exclude_noop=True):
+        """Pick action with confidence."""
         actions_confidence = []
         # exclude NOOP action
         for action in range(1 if exclude_noop else 0, self.action_size):
@@ -204,10 +205,12 @@ class A3CTrainingThread(object):
         return (max_confidence_action+(1 if exclude_noop else 0)), confidence
 
     def set_summary_writer(self, writer):
+        """Set summary writer."""
         self.writer = writer
 
     def record_summary(self, score=0, steps=0, episodes=None, global_t=0,
                        mode='Test'):
+        """Record summary."""
         summary = tf.Summary()
         summary.value.add(tag='{}/score'.format(mode),
                           simple_value=float(score))
@@ -220,6 +223,7 @@ class A3CTrainingThread(object):
         self.writer.flush()
 
     def set_start_time(self, start_time):
+        """Set start time."""
         self.start_time = start_time
 
     def generate_cam(self, sess, test_cam_si, global_t):

@@ -14,13 +14,17 @@ import logging
 from math import sqrt
 from collections import defaultdict
 
-logger = logging.getLogger("deep_rl")
+logger = logging.getLogger("util")
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
 
+def percent_decrease(v1, v2):
+    """Compute percent difference.
+
+    old_value (v1) - new_value (v2)
+    -------------------------------  * 100%
+          | old_value (v1) |
+    """
+    return (v2 - v1) / (abs(v1) + 1e-10) * 100
 
 def transform_h(z, eps=10**-2):
     return (np.sign(z) * (np.sqrt(np.abs(z) + 1.) - 1.)) + (eps * z)

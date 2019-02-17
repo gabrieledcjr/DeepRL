@@ -92,7 +92,7 @@ def main():
                         help='L1 regularization beta')
     parser.add_argument('--l2-beta', type=float, default=1e-4,
                         help='L2 regularization beta')
-    parser.add_argument('--grad-norm-clip', type=float, default=0.5,
+    parser.add_argument('--grad-norm-clip', type=float, default=None,
                         help='gradient norm clipping')
 
     parser.add_argument('--eval-freq', type=int, default=5000,
@@ -117,10 +117,6 @@ def main():
     parser.add_argument(
         '--exclude-num-demo-ep', type=int, default=0,
         help='exclude number of demo episodes from classification training')
-    parser.add_argument(
-        '--exclude-k-steps-bad-state', type=int, default=0,
-        help='exclude k number of steps from a bad state (negative reward or'
-        ' life loss)')
 
     parser.add_argument('--use-batch-proportion', action='store_true')
     parser.set_defaults(use_batch_proportion=False)

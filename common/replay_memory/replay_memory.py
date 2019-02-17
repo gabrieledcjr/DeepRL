@@ -670,6 +670,7 @@ class ReplayMemoryReturns(ReplayMemory):
 
 
 def test_1(env_id):
+    """Test 1."""
     folder = "demo_samples/{}".format(env_id.replace('-', '_'))
     rm = ReplayMemory()
     rm.load(name=env_id, folder=(folder + '/001'))
@@ -700,7 +701,9 @@ def test_1(env_id):
     print("total transitions:", len(rm))
     print("size:", rm.size)
 
+
 def test_2(env_id):
+    """Test 2."""
     folder = "demo_samples/{}".format(env_id.replace('-', '_'))
     rm = ReplayMemory()
     rm.load(name=env_id, folder=(folder + '/001'))
@@ -721,6 +724,7 @@ def test_2(env_id):
         _, a0, l0, _, _, r1, terminal, l1 = rm[count]
         if terminal or r1:
             print("index: ", count, a0, l0, r1, terminal, l1)
+
 
 if __name__ == "__main__":
     fmt = "%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s"
