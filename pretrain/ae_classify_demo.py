@@ -12,7 +12,6 @@ Example:
         --gym-env=PongNoFrameskip-v4
         --ae-classify-demo --use-mnih-2015
         --train-max-steps=150000 --batch_size=32
-
 """
 import cv2
 import logging
@@ -28,20 +27,11 @@ from common.replay_memory import ReplayMemoryReturns
 from common.util import compute_proportions
 from common.util import load_memory
 from common.util import LogFormatter
+from common.util import percent_decrease
 from network import AutoEncoderNetwork
 from termcolor import colored
 
 logger = logging.getLogger("ae_classify_demo")
-
-
-def percent_decrease(v1, v2):
-    """Compute percent difference.
-
-    old_value (v1) - new_value (v2)
-    -------------------------------  * 100%
-          | old_value (v1) |
-    """
-    return (v2 - v1) / (abs(v1) + 1e-10) * 100
 
 
 class AutoencoderClassifyDemo(object):
@@ -76,24 +66,19 @@ class AutoencoderClassifyDemo(object):
         logger.info("batch_size: {}".format(self.batch_size))
         logger.info("eval_freq: {}".format(self.eval_freq))
         logger.info("use_onevsall: {}".format(self.use_onevsall))
-        logger.info(
-            "use_batch_proportion: {}".format(self.use_batch_proportion))
+        logger.info("use_batch_proportion: {}".format(
+            self.use_batch_proportion))
         logger.info("sl_loss_weight: {}".format(sl_loss_weight))
 
         self.demo_memory, actions_ctr, total_rewards, total_steps = \
-            load_memory(
-                name=None,
-                demo_memory_folder=self.demo_memory_folder,
-                demo_ids=demo_ids,
-                imgs_normalized=False)
+            load_memory(name=None, demo_memory_folder=self.demo_memory_folder,
+                        demo_ids=demo_ids, imgs_normalized=False)
 
-        # Classification optimizer
-        self.action_freq = [
-            actions_ctr[a] for a in range(self.net.action_size)]
+        action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
 
         if self.use_batch_proportion:
             self.batch_proportion = compute_proportions(
-                self.batch_size, self.action_freq)
+                self.batch_size, action_freq)
             logger.info("batch_proportion: {}".format(self.batch_proportion))
 
         self.net.prepare_loss(sl_loss_weight=sl_loss_weight)
@@ -113,21 +98,21 @@ class AutoencoderClassifyDemo(object):
         max_idx, _ = max(total_rewards.items(), key=lambda a: a[1])
         size_max_idx_mem = len(self.demo_memory[max_idx])
         self.test_batch_si = np.zeros(
-            (size_max_idx_mem, 88, 88, self.demo_memory[max_idx].phi_length),
-            dtype=np.float32)
+            (size_max_idx_mem, self.net.in_shape[0], self.net.in_shape[1],
+             self.demo_memory[max_idx].phi_length), dtype=np.float32)
         self.test_batch_a = np.zeros(
             (size_max_idx_mem, self.net.action_size), dtype=np.float32)
 
         for i in range(size_max_idx_mem):
             s0, a0, _, _, _, _, _, _ = self.demo_memory[max_idx][i]
             if s0 is not None:
-                self.test_batch_si[i] = np.copy(
-                    cv2.resize(s0, (88, 88), interpolation=cv2.INTER_AREA))
+                self.test_batch_si[i] = cv2.resize(s0, self.net.in_shape[:-1],
+                                                   interpolation=cv2.INTER_AREA)
                 self.test_batch_a[i][a0] = 1
 
         self.combined_memory = ReplayMemoryReturns(
-            width=88,  # self.demo_memory[max_idx].width,
-            height=88,  # self.demo_memory[max_idx].height,
+            height=self.net.in_shape[0],
+            width=self.net.in_shape[1],
             max_steps=total_steps,
             phi_length=self.demo_memory[max_idx].phi_length,
             num_actions=self.demo_memory[max_idx].num_actions,
@@ -140,12 +125,14 @@ class AutoencoderClassifyDemo(object):
             exp_ret = ReplayMemoryReturns.compute_returns(
                 demo.rewards, demo.terminal, 0.99, clip=False)
             returns = np.append(returns, exp_ret)
+
             for i in range(demo.max_steps):
-                resize_img = cv2.resize(demo.imgs[i], (88, 88),
+                resize_img = cv2.resize(demo.imgs[i], self.net.in_shape[:-1],
                                         interpolation=cv2.INTER_AREA)
                 self.combined_memory.add(resize_img, demo.actions[i],
                                          demo.rewards[i], demo.terminal[i],
                                          demo.lives[i], demo.full_state[i])
+
             self.combined_memory.returns = returns
             demo.close()
             del demo
@@ -196,9 +183,10 @@ class AutoencoderClassifyDemo(object):
         best_model_reward_file = self.folder / 'model_best/best_model_reward'
         with best_model_reward_file.open('w') as f:
             f.write(str(self.best_model_reward))
-        best_saver.save(
-            sess, str(self.folder / 'model_best'
-            / '{}_checkpoint'.format(self.name.replace('-', '_'))))
+
+        best_file = self.folder / 'model_best'
+        best_file /= '{}_checkpoint'.format(self.name.replace('-', '_'))
+        best_saver.save(sess, str(best_file))
 
     def choose_action_with_high_confidence(self, pi_values, exclude_noop=True):
         """Return action with highest confidence.
@@ -330,8 +318,7 @@ class AutoencoderClassifyDemo(object):
                 file = self.folder / "ae_{0:07d}.png".format(i)
                 cv2.imwrite(str(file), side_by_side)
 
-    def train(self, sess, summary_op, summary_writer, exclude_bad_state_k=0,
-              best_saver=None):
+    def train(self, sess, summary_op, summary_writer, best_saver=None):
         """Train classification with human demonstration.
 
         This method either does classification training after autoencoder
@@ -342,8 +329,6 @@ class AutoencoderClassifyDemo(object):
         sess -- tf session
         summary_op -- tf summary operation
         summary_writer -- tf summary writer
-        exclude_bad_state_k -- exclude bad states from human demo k steps
-            from terminal, loss of life or negative reward
         best_saver -- tf saver for best model
         """
         self.max_val = -(sys.maxsize)
@@ -356,33 +341,41 @@ class AutoencoderClassifyDemo(object):
             if self.stop_requested:
                 break
 
-            summary = self.tf.Summary()
             if self.use_batch_proportion:
                 batch_si, batch_a, _, _, batch_returns = \
                     self.combined_memory.sample_proportional(
                         self.batch_size, self.batch_proportion)
             else:
                 batch_si, batch_a, _, _, batch_returns = \
-                    self.combined_memory.sample2(
-                        self.batch_size, k_bad_states=exclude_bad_state_k)
+                    self.combined_memory.sample2(self.batch_size)
 
             feed_dict = {self.net.s: batch_si, self.net.a: batch_a}
 
+            if self.net.use_denoising:
+                feed_dict[self.net.training] = True
             if self.net.use_sil:
                 feed_dict[self.net.returns] = batch_returns
 
             if self.net.sae:  # supervised autoencoder
-                train_loss, sl_loss, ae_loss, acc, max_value, _ = sess.run(
-                    [self.net.total_loss, self.net.sl_loss, self.net.ae_loss,
-                     self.net.accuracy, self.net.max_value,
-                     self.apply_gradients],
+                out = sess.run([
+                    self.net.total_loss,
+                    self.net.sl_loss,
+                    self.net.ae_loss,
+                    self.net.accuracy,
+                    self.net.max_value,
+                    self.apply_gradients],
                     feed_dict=feed_dict)
+                train_loss, sl_loss, ae_loss, acc, max_value, _ = out
             else:
                 ae_loss = 0
-                train_loss, sl_loss, acc, max_value, _ = sess.run(
-                    [self.net.total_loss, self.net.sl_loss, self.net.accuracy,
-                     self.net.max_value, self.apply_gradients],
+                out = sess.run(
+                    [self.net.total_loss,
+                     self.net.sl_loss,
+                     self.net.accuracy,
+                     self.net.max_value,
+                     self.apply_gradients],
                     feed_dict=feed_dict)
+                train_loss, sl_loss, acc, max_value, _ = out
 
             if max_value > self.max_val:
                 self.max_val = max_value
@@ -391,19 +384,17 @@ class AutoencoderClassifyDemo(object):
             if i % self.eval_freq == 0 or ae_percent_change > 2.5:
                 prev_ae_loss = ae_loss
 
-                summary.value.add(tag='SL_Loss', simple_value=float(sl_loss))
-                summary.value.add(tag='Train_Loss',
-                                  simple_value=float(train_loss))
-
                 test_acc = sess.run(
                     self.net.accuracy,
                     feed_dict={
                         self.net.s: self.test_batch_si,
                         self.net.a: self.test_batch_a})
-                accuracy_summary = self.tf.Summary()
-                accuracy_summary.value.add(tag='Accuracy',
-                                           simple_value=float(test_acc))
-                summary_writer.add_summary(accuracy_summary, i)
+
+                summary = self.tf.Summary()
+                summary.value.add(tag='SL_Loss', simple_value=float(sl_loss))
+                summary.value.add(tag='Train_Loss',
+                                  simple_value=float(train_loss))
+                summary.value.add(tag='Accuracy', simple_value=float(test_acc))
 
                 if self.net.sae:
                     summary.value.add(tag='AE_Train_Loss',
@@ -495,13 +486,12 @@ def ae_classify_demo(args):
             end_str += '_exclude_noop'
         if args.exclude_num_demo_ep > 0:
             end_str += '_exclude{}demoeps'.format(args.exclude_num_demo_ep)
-        if args.exclude_k_steps_bad_state > 0:
-            end_str += '_exclude{}badstate'.format(
-                args.exclude_k_steps_bad_state)
         if args.l2_beta > 0:
             end_str += '_l2beta{:.0E}'.format(args.l2_beta)
         if args.l1_beta > 0:
             end_str += '_l1beta{:.0E}'.format(args.l1_beta)
+        if args.grad_norm_clip is not None:
+            end_str += '_clipnorm{:.0E}'.format(args.grad_norm_clip)
         if args.use_batch_proportion:
             end_str += '_batchprop'
         if args.sae_classify_demo:
@@ -574,9 +564,10 @@ def ae_classify_demo(args):
         # Tensorflow defaults
         beta1 = 0.9
         beta2 = 0.999
+
     with tf.device(device):
         ae_opt = None
-        # RMS
+
         if args.optimizer == 'rms':
             if args.ae_classify_demo:
                 ae_opt = tf.train.RMSPropOptimizer(
@@ -587,8 +578,8 @@ def ae_classify_demo(args):
                 learning_rate=args.learn_rate,
                 decay=args.opt_alpha,
                 epsilon=args.opt_epsilon)
-        # Adam
-        else:
+
+        else:  # Adam
             if args.ae_classify_demo:
                 ae_opt = tf.train.AdamOptimizer(
                     learning_rate=args.learn_rate,
@@ -599,19 +590,15 @@ def ae_classify_demo(args):
                 beta1=beta1, beta2=beta2,
                 epsilon=args.opt_epsilon)
 
-    demo_ids = args.demo_ids
-    # TODO(should we use gradient clipping)
-    clip_norm = None  # if args.sae_classify_demo else args.grad_norm_clip
-
     ae_classify_demo = AutoencoderClassifyDemo(
         tf, network, args.gym_env, int(args.train_max_steps),
         args.batch_size, ae_opt, opt, eval_freq=args.eval_freq,
         demo_memory_folder=demo_memory_folder,
-        demo_ids=demo_ids,
+        demo_ids=args.demo_ids,
         folder=model_folder,
         exclude_num_demo_ep=args.exclude_num_demo_ep,
         use_onevsall=args.onevsall_mtl,
-        device=device, clip_norm=clip_norm,
+        device=device, clip_norm=args.grad_norm_clip,
         game_state=game_state,
         use_batch_proportion=args.use_batch_proportion,
         sl_loss_weight=args.sl_loss_weight)
@@ -624,7 +611,8 @@ def ae_classify_demo(args):
     sess.run(init)
 
     summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(str(model_folder / 'log'), sess.graph)
+    summary_writer = tf.summary.FileWriter(str(model_folder / 'log'),
+                                           sess.graph)
 
     # init or load checkpoint with saver
     with network.graph.as_default():
@@ -643,10 +631,8 @@ def ae_classify_demo(args):
         ae_classify_demo.train_autoencoder(sess, summary_op, summary_writer)
 
     # else:
-    ae_classify_demo.train(
-        sess, summary_op, summary_writer,
-        exclude_bad_state_k=args.exclude_k_steps_bad_state,
-        best_saver=best_saver)
+    ae_classify_demo.train(sess, summary_op, summary_writer,
+                           best_saver=best_saver)
 
     logger.info('Now saving data. Please wait')
     saver.save(sess, str(model_folder
@@ -659,13 +645,12 @@ def ae_classify_demo(args):
         sess, str(model_folder / 'transfer_model/all'
                   / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
-    # Remove fc2 weights
+    # Remove fc2/fc3 weights
     for param in transfer_params[:]:
-        if param.op.name == "net_-1/fc2_weights" \
-           or param.op.name == "net_-1/fc2_biases":
+        name = param.op.name
+        if name == "net_-1/fc2_weights" or name == "net_-1/fc2_biases":
             transfer_params.remove(param)
-        elif param.op.name == "net_-1/fc3_weights" \
-           or param.op.name == "net_-1/fc3_biases":
+        elif name == "net_-1/fc3_weights" or name == "net_-1/fc3_biases":
             transfer_params.remove(param)
 
     with network.graph.as_default():
@@ -676,8 +661,8 @@ def ae_classify_demo(args):
 
     # Remove fc1 weights
     for param in transfer_params[:]:
-        if param.op.name == "net_-1/fc1_weights" \
-           or param.op.name == "net_-1/fc1_biases":
+        name = param.op.name
+        if name == "net_-1/fc1_weights" or name == "net_-1/fc1_biases":
             transfer_params.remove(param)
 
     with network.graph.as_default():
@@ -689,8 +674,8 @@ def ae_classify_demo(args):
     # Remove conv3 weights
     if args.use_mnih_2015:
         for param in transfer_params[:]:
-            if param.op.name == "net_-1/conv3_weights" \
-               or param.op.name == "net_-1/conv3_biases":
+            name = param.op.name
+            if name == "net_-1/conv3_weights" or name == "net_-1/conv3_biases":
                 transfer_params.remove(param)
 
         with network.graph.as_default():
@@ -701,8 +686,8 @@ def ae_classify_demo(args):
 
     # Remove conv2 weights
     for param in transfer_params[:]:
-        if param.op.name == "net_-1/conv2_weights" \
-           or param.op.name == "net_-1/conv2_biases":
+        name = param.op.name
+        if name == "net_-1/conv2_weights" or name == "net_-1/conv2_biases":
             transfer_params.remove(param)
 
     with network.graph.as_default():
