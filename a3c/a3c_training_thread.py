@@ -24,7 +24,7 @@ class A3CTrainingThread(object):
     """Asynchronous Actor-Critic Training Thread Class."""
 
     log_interval = 100
-    performance_log_interval = 1000
+    perf_log_interval = 1000
     local_t_max = 20
     use_lstm = False
     action_size = -1
@@ -43,6 +43,7 @@ class A3CTrainingThread(object):
     clip_norm = 0.5
     use_grad_cam = False
     use_sil = False
+    log_idx = 1
 
     def __init__(self, thread_index, global_net, local_net,
                  initial_learning_rate, learning_rate_input, grad_applier,
@@ -52,7 +53,7 @@ class A3CTrainingThread(object):
         """Initialize A3CTrainingThread class."""
         assert self.action_size != -1
 
-        self.thread_index = thread_index
+        self.thread_idx = thread_index
         self.learning_rate_input = learning_rate_input
         self.max_global_time_step = max_global_time_step
         self.use_pretrained_model_as_advice = advice
@@ -60,7 +61,7 @@ class A3CTrainingThread(object):
         self.local_net = local_net
         self.sil_thread = sil_thread
 
-        logger.info("thread_index: {}".format(self.thread_index))
+        logger.info("thread_index: {}".format(self.thread_idx))
         logger.info("local_t_max: {}".format(self.local_t_max))
         logger.info("use_lstm: {}".format(
             colored(self.use_lstm, "green" if self.use_lstm else "red")))
@@ -359,7 +360,7 @@ class A3CTrainingThread(object):
 
         total_reward = episode_reward
         total_steps = episode_steps
-        log_data = (global_t, self.thread_index, total_reward, total_steps)
+        log_data = (global_t, self.thread_idx, total_reward, total_steps)
         logger.info("test: global_t={} worker={} final score={}"
                     " final steps={}".format(*log_data))
 
@@ -450,7 +451,7 @@ class A3CTrainingThread(object):
                                         "magenta")
                     steps_str = colored("steps={}".format(episode_steps),
                                         "blue")
-                    log_data = (global_t, self.thread_index, n_episodes,
+                    log_data = (global_t, self.thread_idx, n_episodes,
                                 score_str, steps_str, total_steps)
                     logger.debug("test: global_t={} worker={} trial={} {} {}"
                                  " total_steps={}".format(*log_data))
@@ -470,7 +471,7 @@ class A3CTrainingThread(object):
             total_reward = total_reward / n_episodes
             total_steps = total_steps // n_episodes
 
-        log_data = (global_t, self.thread_index, total_reward, total_steps,
+        log_data = (global_t, self.thread_idx, total_reward, total_steps,
                     n_episodes)
         logger.info("test: global_t={} worker={} final score={} final steps={}"
                     " # trials={}".format(*log_data))
@@ -536,7 +537,7 @@ class A3CTrainingThread(object):
                     model_action, confidence = self.pick_action_w_confidence(
                         model_pi, exclude_noop=False)
 
-                    if (model_action > self.shaping_actions \
+                    if (model_action > self.shaping_actions
                        and confidence >= self.advice_confidence):
                         action = model_action
                         self.advice_ctr += 1
@@ -562,7 +563,7 @@ class A3CTrainingThread(object):
             actions.append(action)
             values.append(value_)
 
-            if self.thread_index == 1 \
+            if self.thread_idx == self.log_idx \
                and self.local_t % self.log_interval == 0:
                 log_msg1 = "lg={}".format(np.array_str(
                     logits_, precision=4, suppress_small=True))
@@ -625,7 +626,7 @@ class A3CTrainingThread(object):
                 name = 'EpisodicLifeEnv'
                 if get_wrapper_by_name(env, name).was_real_done:
                     log_msg = "train: worker={} global_t={}".format(
-                        self.thread_index, global_t)
+                        self.thread_idx, global_t)
 
                     if self.use_pretrained_model_as_advice:
                         log_msg += " advice_ctr={}".format(self.advice_ctr)
@@ -749,8 +750,8 @@ class A3CTrainingThread(object):
         sess.run(self.apply_gradients, feed_dict=feed_dict)
 
         t = self.local_t - self.prev_local_t
-        if (self.thread_index == 1) and (t >= self.performance_log_interval):
-            self.prev_local_t += self.performance_log_interval
+        if (self.thread_idx == self.log_idx and t >= self.perf_log_interval):
+            self.prev_local_t += self.perf_log_interval
             elapsed_time = time.time() - self.start_time
             steps_per_sec = global_t / elapsed_time
             logger.info("Performance : {} STEPS in {:.0f} sec. {:.0f}"

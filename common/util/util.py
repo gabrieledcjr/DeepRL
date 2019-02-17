@@ -36,8 +36,8 @@ def transform_h_inv_log(z, eps=.6):
 
 def grad_cam(activations, gradients):
     # global average pooling
-    weights = np.mean(gradients, axis=(0, 1)) # 64
-    cam = np.zeros(activations.shape[0 : 2], dtype=np.float32) # 7, 7
+    weights = np.mean(gradients, axis=(0, 1))  # 64
+    cam = np.zeros(activations.shape[0:2], dtype=np.float32)  # 7, 7
 
     # Modified Grad-CAM
     # Summing and rectifying weighted activations across depth
