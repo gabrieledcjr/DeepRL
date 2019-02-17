@@ -672,9 +672,6 @@ class AutoEncoderNetwork(Network):
             # Supervised vars
             vars.extend([self.W_fc2, self.b_fc2])
 
-            if self.use_sil:
-                vars.extend([self.W_fc3, self.b_fc3])
-
             if not self.tied_weights:
                 # Decoder vars
                 vars.extend([
@@ -687,8 +684,8 @@ class AutoEncoderNetwork(Network):
             # train only output layer for classifier when using AE
             vars = [self.W_fc2, self.b_fc2]
 
-            if self.use_sil:
-                vars.extend([self.W_fc3, self.b_fc3])
+        if self.use_sil:
+            vars.extend([self.W_fc3, self.b_fc3])
 
         return vars
 
