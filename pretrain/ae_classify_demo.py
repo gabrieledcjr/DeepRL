@@ -350,7 +350,7 @@ class AutoencoderClassifyDemo(object):
         prev_ae_loss = 0
         train_max_steps = self.train_max_steps
         if not self.net.sae:
-            train_max_steps = 100000
+            train_max_steps = 50000
 
         for i in range(train_max_steps + 1):
             if self.stop_requested:
