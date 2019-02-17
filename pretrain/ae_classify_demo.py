@@ -39,7 +39,7 @@ class AutoencoderClassifyDemo(object):
 
     def __init__(self, tf, net, name, train_max_steps, batch_size,
                  ae_grad_applier, grad_applier, eval_freq=5000,
-                 demo_memory_folder='', demo_ids=None, folder=None,
+                 demo_memory_folder=None, demo_ids=None, folder=None,
                  exclude_num_demo_ep=0, use_onevsall=False,
                  device='/cpu:0', clip_norm=None, game_state=None,
                  use_batch_proportion=False, sl_loss_weight=1.0):
@@ -52,7 +52,6 @@ class AutoencoderClassifyDemo(object):
         self.train_max_steps = train_max_steps
         self.batch_size = batch_size
         self.eval_freq = eval_freq
-        self.demo_memory_folder = demo_memory_folder
         self.folder = folder
         self.tf = tf
         self.exclude_num_demo_ep = exclude_num_demo_ep
@@ -71,7 +70,7 @@ class AutoencoderClassifyDemo(object):
         logger.info("sl_loss_weight: {}".format(sl_loss_weight))
 
         self.demo_memory, actions_ctr, total_rewards, total_steps = \
-            load_memory(name=None, demo_memory_folder=self.demo_memory_folder,
+            load_memory(name=None, demo_memory_folder=demo_memory_folder,
                         demo_ids=demo_ids, imgs_normalized=False)
 
         action_freq = [actions_ctr[a] for a in range(self.net.action_size)]

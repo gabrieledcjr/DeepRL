@@ -47,7 +47,7 @@ class ClassifyDemo(object):
     """Use Supervised learning for learning features."""
 
     def __init__(self, tf, net, name, train_max_steps, batch_size,
-                 grad_applier, eval_freq=5000, demo_memory_folder='',
+                 grad_applier, eval_freq=5000, demo_memory_folder=None,
                  demo_ids=None, folder='', exclude_num_demo_ep=0,
                  use_onevsall=False, device='/cpu:0', clip_norm=None,
                  game_state=None, use_batch_proportion=False):
@@ -60,7 +60,6 @@ class ClassifyDemo(object):
         self.train_max_steps = train_max_steps
         self.batch_size = batch_size
         self.eval_freq = eval_freq
-        self.demo_memory_folder = demo_memory_folder
         self.folder = folder
         self.tf = tf
         self.exclude_num_demo_ep = exclude_num_demo_ep
@@ -78,7 +77,7 @@ class ClassifyDemo(object):
             self.use_batch_proportion))
 
         self.demo_memory, actions_ctr, total_rewards, total_steps = \
-            load_memory(name=None, demo_memory_folder=self.demo_memory_folder,
+            load_memory(name=None, demo_memory_folder=demo_memory_folder,
                         demo_ids=demo_ids, imgs_normalized=False)
 
         action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
@@ -448,6 +447,8 @@ def classify_demo(args):
         demo_memory_folder = args.demo_memory_folder
     else:
         demo_memory_folder = 'collected_demo/{}'.format(GYM_ENV_NAME)
+
+    demo_memory_folder = pathlib.Path(demo_memory_folder)
 
     if args.model_folder is not None:
         model_folder = '{}_{}'.format(GYM_ENV_NAME, args.model_folder)
