@@ -6,19 +6,19 @@ Examples:
         $ python3 pretrain/run_experiment.py
             --gym-env=PongNoFrameskip-v4
             --classify-demo --use-mnih-2015
-            --train-max-steps=150000 --batch_size=32
+            --train-max-steps=150000 --batch-size=32
 
     MTL one class vs. all classes
         $ python3 pretrain/run_experiment.py
             --gym-env=PongNoFrameskip-v4
             --classify-demo --onevsall-mtl --use-mnih-2015
-            --train-max-steps=150000 --batch_size=32
+            --train-max-steps=150000 --batch-size=32
 
     Autoencoder
         $ python3 pretrain/run_experiment.py
             --gym-env=PongNoFrameskip-v4
             --ae-classify-demo --use-mnih-2015
-            --train-max-steps=150000 --batch_size=32
+            --train-max-steps=150000 --batch-size=32
 """
 import argparse
 import coloredlogs
@@ -76,7 +76,7 @@ def main():
 
     parser.add_argument('--train-max-steps', type=float, default=10 * 10 ** 7,
                         help='maximum training steps')
-    parser.add_argument('--batch_size', type=int, default=20,
+    parser.add_argument('--batch-size', type=int, default=20,
                         help='batch size')
 
     parser.add_argument('--optimizer', type=str, default='rms',
