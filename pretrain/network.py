@@ -161,7 +161,7 @@ class MultiClassNetwork(Network):
     """Multi-class Classification Network."""
 
     def __init__(self, action_size, thread_index, device="/cpu:0",
-                 padding="VALID", in_shape=(84, 84, 4)):
+                 padding="VALID", in_shape=(84, 84, 4), use_sil=False):
         """Initialize MultiClassNetwork class."""
         Network.__init__(self, action_size, thread_index, device)
         self.graph = tf.Graph()
@@ -176,9 +176,12 @@ class MultiClassNetwork(Network):
             colored(self.l2_beta, "green" if self.l2_beta > 0. else "red")))
         logger.info("padding: {}".format(padding))
         logger.info("in_shape: {}".format(in_shape))
+        logger.info("use_sil: {}".format(
+            colored(use_sil, "green" if use_sil else "red")))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
         self.in_shape = in_shape
+        self.use_sil = use_sil
 
         with self.graph.as_default():
             # state (input)
@@ -232,13 +235,22 @@ class MultiClassNetwork(Network):
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
 
+                if self.use_sil:
+                    # weight for value output layer
+                    self.W_fc3, self.b_fc3 = self.fc_variable(
+                        [self.last_hidden_fc_output_size, 1], layer_name='fc3')
+                    tf.add_to_collection('transfer_params', self.W_fc3)
+                    tf.add_to_collection('transfer_params', self.b_fc3)
+
                 if self.use_mnih_2015:
                     h_conv1 = tf.nn.relu(self.conv2d(
                         self.s_n,  self.W_conv1, 4, padding=padding)
                         + self.b_conv1)
+
                     h_conv2 = tf.nn.relu(self.conv2d(
                         h_conv1, self.W_conv2, 2, padding=padding)
                         + self.b_conv2)
+
                     self.h_conv3 = tf.nn.relu(self.conv2d(
                         h_conv2, self.W_conv3, 1, padding=padding)
                         + self.b_conv3)
@@ -250,6 +262,7 @@ class MultiClassNetwork(Network):
                     h_conv1 = tf.nn.relu(self.conv2d(
                         self.s_n,  self.W_conv1, 4, padding=padding)
                         + self.b_conv1)
+
                     self.h_conv2 = tf.nn.relu(self.conv2d(
                         h_conv1, self.W_conv2, 2, padding=padding)
                         + self.b_conv2)
@@ -261,11 +274,17 @@ class MultiClassNetwork(Network):
                 # policy (output)
                 self.logits = tf.matmul(h_fc1, self.W_fc2) + self.b_fc2
                 self.pi = tf.nn.softmax(self.logits)
-
                 self.max_value = tf.reduce_max(self.logits, axis=None)
+
+                if self.use_sil:
+                    # value (output)
+                    self.v = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
+                    self.v0 = self.v[:, 0]
+
                 self.saver = tf.train.Saver()
 
-    def prepare_loss(self, class_weights=None):
+    def prepare_loss(self, class_weights=None, sl_loss_weight=1.0,
+                     critic_weight=0.01):
         """Prepare tf operations training loss."""
         with self.graph.as_default():
             with tf.device(self._device), tf.name_scope("Loss"):
@@ -273,7 +292,7 @@ class MultiClassNetwork(Network):
                 self.a = tf.placeholder(tf.float32,
                                         shape=[None, self.action_size])
 
-                unweighted_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                sl_xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
                     labels=self.a, logits=self.logits)
 
                 if class_weights is not None:
@@ -281,29 +300,45 @@ class MultiClassNetwork(Network):
                         class_weights, name='class_weights')
                     weights = tf.reduce_sum(
                         tf.multiply(class_weights, self.a), axis=1)
-                    loss = tf.multiply(
-                        unweighted_loss, weights, name='weighted_loss')
-                else:
-                    loss = unweighted_loss
+                    sl_xentropy = tf.multiply(
+                        sl_xentropy, weights, name='weighted_loss')
 
-                total_loss = tf.reduce_mean(loss)
+                if self.use_sil:
+                    self.returns = tf.placeholder(
+                        tf.float32, shape=[None], name="sil_loss")
+
+                    v_estimate = tf.squeeze(self.v)
+                    advs = self.returns - v_estimate
+                    clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
+                    sil_policy_loss = sl_xentropy \
+                        * tf.stop_gradient(clipped_advs)
+
+                    val_error = v_estimate - self.returns
+                    clipped_val = tf.maximum(val_error,
+                                             tf.zeros_like(val_error))
+                    sil_val_loss = tf.square(clipped_val) * 0.5
+
+                    self.sl_loss = tf.reduce_mean(sil_policy_loss) \
+                        * sl_loss_weight
+                    self.sl_loss += tf.reduce_mean(sil_val_loss) \
+                        * critic_weight
+                else:
+                    self.sl_loss = tf.reduce_mean(sl_xentropy)
+
+                self.total_loss = self.sl_loss
 
                 net_vars = self.get_vars_no_bias()
                 if self.l1_beta > 0:
-                    # https://github.com/tensorflow/models/blob/master/
-                    # inception/inception/slim/losses.py
                     l1_loss = tf.add_n(
                         [tf.reduce_sum(tf.abs(net_vars[i]))
                          for i in range(len(net_vars))]) * self.l1_beta
-                    total_loss += l1_loss
+                    self.total_loss += l1_loss
 
                 if self.l2_beta > 0:
                     l2_loss = tf.add_n(
                         [tf.nn.l2_loss(net_vars[i])
                          for i in range(len(net_vars))]) * self.l2_beta
-                    total_loss += l2_loss
-
-                self.total_loss = total_loss
+                    self.total_loss += l2_loss
 
     def run_policy(self, sess, s_t):
         """Infer network output based on input s_t."""
@@ -313,7 +348,7 @@ class MultiClassNetwork(Network):
     def get_vars(self):
         """Return list of variables in the network."""
         if self.use_mnih_2015:
-            return [
+            vars = [
                 self.W_conv1, self.b_conv1,
                 self.W_conv2, self.b_conv2,
                 self.W_conv3, self.b_conv3,
@@ -321,22 +356,32 @@ class MultiClassNetwork(Network):
                 self.W_fc2, self.b_fc2,
                 ]
         else:
-            return [
+            vars = [
                 self.W_conv1, self.b_conv1,
                 self.W_conv2, self.b_conv2,
                 self.W_fc1, self.b_fc1,
                 self.W_fc2, self.b_fc2,
                 ]
 
+        if self.use_sil:
+            vars.extend([self.W_fc3, self.b_fc3])
+
+        return vars
+
     def get_vars_no_bias(self):
         """Return list of variables in the network excluding bias."""
         if self.use_mnih_2015:
-            return [
+            vars = [
                 self.W_conv1, self.W_conv2,
                 self.W_conv3, self.W_fc1, self.W_fc2,
                 ]
         else:
-            return [self.W_conv1, self.W_conv2, self.W_fc1, self.W_fc2]
+            vars = [self.W_conv1, self.W_conv2, self.W_fc1, self.W_fc2]
+
+        if self.use_sil:
+            vars.extend([self.W_fc3])
+
+        return vars
 
     def load(self, sess=None, checkpoint=''):
         """Load existing model."""
@@ -546,18 +591,6 @@ class AutoEncoderNetwork(Network):
 
                 self.saver = tf.train.Saver()
 
-                # logger.info("h_conv1 ({}, {}, {})".format(
-                #     shape_conv1, shape_conv1, 32))
-                # logger.info("h_conv2 ({}, {}, {})".format(
-                #     shape_conv2, shape_conv2, 64))
-                # logger.info("h_conv3 ({}, {}, {})".format(
-                #     shape_conv3, shape_conv3, 64))
-                # logger.info("h_fc1 ({}, {})".format(
-                #     conv3_output_size, self.last_hidden_fc_output_size))
-                # logger.info("d_h_fc1 ({}, {})".format(
-                #     self.last_hidden_fc_output_size, conv3_output_size))
-                # logger.info("d_h_fc1_wchannels ({}, {}, {})".format(
-                #     shape_conv3, shape_conv3, 64))
                 logger.info("h_conv1 {}".format(h_conv1.get_shape()))
                 logger.info("h_conv2 {}".format(h_conv2.get_shape()))
                 logger.info("h_conv3 {}".format(self.h_conv3.get_shape()))
@@ -570,7 +603,7 @@ class AutoEncoderNetwork(Network):
                 logger.info("d_h_conv1 {}".format(
                     self.decoder_out.get_shape()))
 
-    def prepare_loss(self, sl_loss_weight=1.0):
+    def prepare_loss(self, sl_loss_weight=1.0, critic_weight=0.005):
         """Prepare tf operations training loss."""
         with self.graph.as_default():
             with tf.device(self._device), tf.name_scope("Loss"):
@@ -588,17 +621,18 @@ class AutoEncoderNetwork(Network):
                     v_estimate = tf.squeeze(self.v)
                     advs = self.returns - v_estimate
                     clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
-
-                    sil_policy_loss = sl_xentropy * tf.stop_gradient(clipped_advs)
-                    # sil_policy_loss = sl_xentropy * tf.stop_gradient(v_estimate)
+                    sil_policy_loss = sl_xentropy \
+                        * tf.stop_gradient(clipped_advs)
 
                     val_error = v_estimate - self.returns
-                    clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
-
+                    clipped_val = tf.maximum(val_error,
+                                             tf.zeros_like(val_error))
                     sil_val_loss = tf.square(clipped_val) * 0.5
-                    # sil_val_loss = tf.square(clipped_advs) * 0.5
-                    self.sl_loss = tf.reduce_mean(sil_policy_loss) * sl_loss_weight
-                    self.sl_loss += tf.reduce_mean(sil_val_loss) * 0.005
+
+                    self.sl_loss = tf.reduce_mean(sil_policy_loss) \
+                        * sl_loss_weight
+                    self.sl_loss += tf.reduce_mean(sil_val_loss) \
+                        * critic_weight
                 else:
                     self.sl_loss = tf.reduce_mean(sl_xentropy)
 

@@ -30,10 +30,11 @@ import sys
 
 from common.game_state import GameState
 from common.game_state import get_wrapper_by_name
-from common.replay_memory import ReplayMemory
+from common.replay_memory import ReplayMemoryReturns
 from common.util import compute_proportions
 from common.util import load_memory
 from common.util import LogFormatter
+from common.util import percent_decrease
 from common.util import solve_weight
 from network import MTLBinaryClassNetwork
 from network import MultiClassNetwork
@@ -82,6 +83,7 @@ class ClassifyDemo(object):
                         demo_ids=demo_ids, imgs_normalized=False)
 
         action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
+
         if self.use_batch_proportion:
             self.batch_proportion = compute_proportions(
                 self.batch_size, action_freq)
@@ -122,10 +124,8 @@ class ClassifyDemo(object):
         max_idx, _ = max(total_rewards.items(), key=lambda a: a[1])
         size_max_idx_mem = len(self.demo_memory[max_idx])
         self.test_batch_si = np.zeros(
-            (size_max_idx_mem, self.demo_memory[max_idx].height,
-             self.demo_memory[max_idx].width,
-             self.demo_memory[max_idx].phi_length),
-            dtype=np.float32)
+            (size_max_idx_mem, self.net.in_shape[0], self.net.in_shape[1],
+             self.demo_memory[max_idx].phi_length), dtype=np.float32)
 
         if self.use_onevsall:
             self.test_batch_a = np.zeros(
@@ -136,7 +136,8 @@ class ClassifyDemo(object):
 
         for i in range(size_max_idx_mem):
             s0, a0, _, _, _, _, _, _ = self.demo_memory[max_idx][i]
-            self.test_batch_si[i] = np.copy(s0)
+            self.test_batch_si[i] = cv2.resize(s0, self.net.in_shape[:-1],
+                                               interpolation=cv2.INTER_AREA)
             if self.use_onevsall:
                 for n_class in range(self.net._action_size):
                     if a0 == n_class:
@@ -146,21 +147,30 @@ class ClassifyDemo(object):
             else:
                 self.test_batch_a[i][a0] = 1
 
-        self.combined_memory = ReplayMemory(
-            width=self.demo_memory[max_idx].width,
-            height=self.demo_memory[max_idx].height,
+        self.combined_memory = ReplayMemoryReturns(
+            height=self.net.in_shape[0],
+            width=self.net.in_shape[1],
             max_steps=total_steps,
             phi_length=self.demo_memory[max_idx].phi_length,
             num_actions=self.demo_memory[max_idx].num_actions,
             wrap_memory=False,
             full_state_size=self.demo_memory[max_idx].full_state_size)
 
+        returns = np.array([], dtype=np.float32)
         for idx in list(self.demo_memory.keys()):
             demo = self.demo_memory[idx]
+            exp_ret = ReplayMemoryReturns.compute_returns(
+                demo.rewards, demo.terminal, 0.99, clip=False)
+            returns = np.append(returns, exp_ret)
+
             for i in range(demo.max_steps):
-                self.combined_memory.add(demo.imgs[i], demo.actions[i],
+                resize_img = cv2.resize(demo.imgs[i], self.net.in_shape[:-1],
+                                        interpolation=cv2.INTER_AREA)
+                self.combined_memory.add(resize_img, demo.actions[i],
                                          demo.rewards[i], demo.terminal[i],
                                          demo.lives[i], demo.full_state[i])
+
+            self.combined_memory.returns = returns
             demo.close()
             del demo
 
@@ -215,9 +225,10 @@ class ClassifyDemo(object):
         best_model_reward_file = self.folder / 'model_best/best_model_reward'
         with best_model_reward_file.open('w') as f:
             f.write(str(self.best_model_reward))
-        best_saver.save(
-            sess, str(self.folder / 'model_best'
-            / '{}_checkpoint'.format(self.name.replace('-', '_'))))
+
+        best_file = self.folder / 'model_best'
+        best_file /= '{}_checkpoint'.format(self.name.replace('-', '_'))
+        best_saver.save(sess, str(best_file))
 
     def choose_action_with_high_confidence(self, pi_values, exclude_noop=True):
         """Save best network model's parameters and reward to file.
@@ -292,8 +303,7 @@ class ClassifyDemo(object):
                     .format(*log_data))
         return log_data
 
-    def train(self, sess, summary_op, summary_writer, exclude_bad_state_k=0,
-              best_saver=None):
+    def train(self, sess, summary_op, summary_writer, best_saver=None):
         """Train classification with human demonstration.
 
         This method either does classification training after autoencoder
@@ -304,47 +314,58 @@ class ClassifyDemo(object):
         sess -- tf session
         summary_op -- tf summary operation
         summary_writer -- tf summary writer
-        exclude_bad_state_k -- exclude bad states from human demo k steps
-            from terminal, loss of life or negative reward
         best_saver -- tf saver for best model
         """
         self.max_val = -(sys.maxsize)
+        prev_loss = 0
 
         for i in range(self.train_max_steps + 1):
             if self.stop_requested:
                 break
 
             if self.use_batch_proportion:
-                batch_si, batch_a, _, _ = \
+                batch_si, batch_a, _, _, batch_returns = \
                     self.combined_memory.sample_proportional(
                         self.batch_size, self.batch_proportion)
             else:
-                batch_si, batch_a, _, _ = self.combined_memory.sample2(
-                    self.batch_size, k_bad_states=exclude_bad_state_k)
+                batch_si, batch_a, _, _, batch_returns = \
+                    self.combined_memory.sample2(self.batch_size)
 
-            train_loss, acc, max_value, _ = sess.run(
-                [self.net.total_loss, self.net.accuracy, self.net.max_value,
-                 self.apply_gradients],
-                feed_dict={self.net.s: batch_si, self.net.a: batch_a})
+            feed_dict = {self.net.s: batch_si, self.net.a: batch_a}
+
+            if self.net.use_sil:
+                feed_dict[self.net.returns] = batch_returns
+
+            train_loss, acc, max_value, _ = sess.run([
+                self.net.total_loss,
+                self.net.accuracy,
+                self.net.max_value,
+                self.apply_gradients],
+                feed_dict=feed_dict)
 
             if max_value > self.max_val:
                 self.max_val = max_value
 
-            summary = self.tf.Summary()
-            summary.value.add(tag='Train_Loss', simple_value=float(train_loss))
+            percent_change = percent_decrease(train_loss, prev_loss)
+            if i % self.eval_freq == 0 or percent_change > 2.5:
+                prev_loss = train_loss
 
-            if i % self.eval_freq == 0:
-                logger.debug(
-                    "i={0:} accuracy={1:.4f} loss={2:.4f} max_val={3:}"
-                    .format(i, acc, train_loss, self.max_val))
-                acc = sess.run(
+                test_acc = sess.run(
                     self.net.accuracy,
                     feed_dict={
                         self.net.s: self.test_batch_si,
                         self.net.a: self.test_batch_a})
+
+                summary = self.tf.Summary()
+                summary.value.add(tag='Train_Loss',
+                                  simple_value=float(train_loss))
                 summary.value.add(tag='Accuracy', simple_value=float(acc))
 
-                if i % (self.eval_freq * 10) == 0:
+                logger.debug("i={0:} train_acc={1:.4f} test_acc={2:.4f}"
+                             " loss={3:.4f} max_val={4:}".format(
+                              i, acc, test_acc, train_loss, self.max_val))
+
+                if False:
                     total_reward, total_steps, n_episodes = \
                         self.test_game(sess)
                     summary.value.add(tag='Reward', simple_value=total_reward)
@@ -354,12 +375,11 @@ class ClassifyDemo(object):
                     if total_reward >= self.best_model_reward:
                         self.save_best_model(total_reward, best_saver, sess)
 
-            summary_writer.add_summary(summary, i)
-            summary_writer.flush()
+                summary_writer.add_summary(summary, i)
+                summary_writer.flush()
 
     def train_onevsall(self, sess, summary_op, summary_writer,
-                       exclude_noop=False, exclude_bad_state_k=0,
-                       best_saver=None):
+                       exclude_noop=False, best_saver=None):
         """Train classification with human demonstration (one vs. all).
 
         This method either does classification training using one class versus
@@ -369,10 +389,10 @@ class ClassifyDemo(object):
         sess -- tf session
         summary_op -- tf summary operation
         summary_writer -- tf summary writer
-        exclude_bad_state_k -- exclude bad states from human demo k steps
-            from terminal, loss of life or negative reward
         best_saver -- tf saver for best model
         """
+        assert not self.net.use_sil
+
         self.max_val = [-(sys.maxsize) for _ in range(self.net.action_size)]
         train_class_ctr = [0 for _ in range(self.net.action_size)]
         for i in range(self.train_max_steps + 1):
@@ -388,9 +408,8 @@ class ClassifyDemo(object):
 
             # train action network branches with logistic regression
             batch_si, batch_a, _, _ = self.combined_memory.sample2(
-                self.batch_size, normalize=False,
-                k_bad_states=exclude_bad_state_k,
-                n_class=n_class, onevsall=True)
+                self.batch_size, normalize=False, n_class=n_class,
+                onevsall=True)
 
             train_loss, max_value, _ = sess.run(
                 [self.net.total_loss[n_class], self.net.max_value[n_class],
@@ -408,6 +427,7 @@ class ClassifyDemo(object):
                 logger.debug("i={0:} class={1:} loss={2:.4f} max_val={3:}"
                              .format(i, n_class, train_loss, self.max_val))
                 logger.debug("branch_ctrs={}".format(train_class_ctr))
+
                 for n in range(self.net.action_size):
                     acc = sess.run(
                         self.net.accuracy[n],
@@ -465,23 +485,26 @@ def classify_demo(args):
             end_str += '_mnih2015'
         if args.padding == 'SAME':
             end_str += '_same'
+        if args.optimizer == 'adam':
+            end_str += '_adam'
         if args.onevsall_mtl:
             end_str += '_onevsall_mtl'
         if args.exclude_noop:
             end_str += '_exclude_noop'
         if args.exclude_num_demo_ep > 0:
             end_str += '_exclude{}demoeps'.format(args.exclude_num_demo_ep)
-        if args.exclude_k_steps_bad_state > 0:
-            end_str += '_exclude{}badstate'.format(
-                args.exclude_k_steps_bad_state)
         if args.l2_beta > 0:
             end_str += '_l2beta{:.0E}'.format(args.l2_beta)
         if args.l1_beta > 0:
             end_str += '_l1beta{:.0E}'.format(args.l1_beta)
+        if args.grad_norm_clip is not None:
+            end_str += '_clipnorm{:.0E}'.format(args.grad_norm_clip)
         if args.weighted_cross_entropy:
             end_str += '_weighted_loss'
         if args.use_batch_proportion:
             end_str += '_batchprop'
+        if args.use_sil:
+            end_str += '_sil'
         model_folder += end_str
 
     if args.append_experiment_num is not None:
@@ -529,31 +552,50 @@ def classify_demo(args):
             action_size, -1, device, padding=args.padding,
             in_shape=input_shape)
 
-    logger.info("optimizer: RMSOptimizer")
+    logger.info("optimizer: {}".format(
+        'RMSPropOptimizer' if args.optimizer == 'rms' else 'AdamOptimizer'))
     logger.info("\tlearning_rate: {}".format(args.learn_rate))
-    logger.info("\tdecay: {}".format(args.opt_alpha))
     logger.info("\tepsilon: {}".format(args.opt_epsilon))
+    if args.optimizer == 'rms':
+        logger.info("\tdecay: {}".format(args.opt_alpha))
+    else:  # Adam
+        # Tensorflow defaults
+        beta1 = 0.9
+        beta2 = 0.999
+
     with tf.device(device):
         if args.onevsall_mtl:
             opt = []
             for n_optimizer in range(action_size):
-                opt.append(tf.train.RMSPropOptimizer(
+                if args.optimizer == 'rms':
+                    opt.append(tf.train.RMSPropOptimizer(
+                        learning_rate=args.learn_rate,
+                        decay=args.opt_alpha,
+                        epsilon=args.opt_epsilon))
+                else:
+                    opt.append(tf.train.AdamOptimizer(
+                        learning_rate=args.learn_rate,
+                        beta1=beta1, beta2=beta2,
+                        epsilon=args.opt_epsilon))
+
+        else:
+            if args.optimizer == 'rms':
+                opt = tf.train.RMSPropOptimizer(
                     learning_rate=args.learn_rate,
                     decay=args.opt_alpha,
-                    epsilon=args.opt_epsilon))
-        else:
-            opt = tf.train.RMSPropOptimizer(
-                learning_rate=args.learn_rate,
-                decay=args.opt_alpha,
-                epsilon=args.opt_epsilon)
+                    epsilon=args.opt_epsilon)
 
-    demo_ids = tuple(map(int, args.demo_ids.split(",")))
+            else:  # Adam
+                opt = tf.train.AdamOptimizer(
+                    learning_rate=args.learn_rate,
+                    beta1=beta1, beta2=beta2,
+                    epsilon=args.opt_epsilon)
 
     classify_demo = ClassifyDemo(
         tf, network, args.gym_env, int(args.train_max_steps),
         args.batch_size, opt, eval_freq=args.eval_freq,
         demo_memory_folder=demo_memory_folder,
-        demo_ids=demo_ids,
+        demo_ids=args.demo_ids,
         folder=model_folder,
         exclude_num_demo_ep=args.exclude_num_demo_ep,
         use_onevsall=args.onevsall_mtl,
@@ -570,7 +612,8 @@ def classify_demo(args):
     sess.run(init)
 
     summary_op = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(str(model_folder / 'log'), sess.graph)
+    summary_writer = tf.summary.FileWriter(str(model_folder / 'log'),
+                                           sess.graph)
 
     # init or load checkpoint with saver
     with network.graph.as_default():
@@ -586,16 +629,12 @@ def classify_demo(args):
     print('Press Ctrl+C to stop')
 
     if args.onevsall_mtl:
-        classify_demo.train_onevsall(
-            sess, summary_op, summary_writer,
-            exclude_noop=args.exclude_noop,
-            exclude_bad_state_k=args.exclude_k_steps_bad_state,
-            best_saver=best_saver)
+        classify_demo.train_onevsall(sess, summary_op, summary_writer,
+                                     exclude_noop=args.exclude_noop,
+                                     best_saver=best_saver)
     else:
-        classify_demo.train(
-            sess, summary_op, summary_writer,
-            exclude_bad_state_k=args.exclude_k_steps_bad_state,
-            best_saver=best_saver)
+        classify_demo.train(sess, summary_op, summary_writer,
+                            best_saver=best_saver)
 
     logger.info('Now saving data. Please wait')
     saver.save(sess, str(model_folder / '{}_checkpoint'.format(GYM_ENV_NAME)))
@@ -607,10 +646,12 @@ def classify_demo(args):
         sess, str(model_folder / 'transfer_model/all'
                   / '{}_transfer_params'.format(GYM_ENV_NAME)))
 
-    # Remove fc2 weights
+    # Remove fc2/fc3 weights
     for param in transfer_params[:]:
-        if param.op.name == "net_-1/fc2_weights" \
-           or param.op.name == "net_-1/fc2_biases":
+        name = param.op.name
+        if name == "net_-1/fc2_weights" or name == "net_-1/fc2_biases":
+            transfer_params.remove(param)
+        elif name == "net_-1/fc3_weights" or name == "net_-1/fc3_biases":
             transfer_params.remove(param)
 
     with network.graph.as_default():
@@ -621,8 +662,8 @@ def classify_demo(args):
 
     # Remove fc1 weights
     for param in transfer_params[:]:
-        if param.op.name == "net_-1/fc1_weights" \
-           or param.op.name == "net_-1/fc1_biases":
+        name = param.op.name
+        if name == "net_-1/fc1_weights" or name == "net_-1/fc1_biases":
             transfer_params.remove(param)
 
     with network.graph.as_default():
@@ -634,8 +675,8 @@ def classify_demo(args):
     # Remove conv3 weights
     if args.use_mnih_2015:
         for param in transfer_params[:]:
-            if param.op.name == "net_-1/conv3_weights" \
-               or param.op.name == "net_-1/conv3_biases":
+            name = param.op.name
+            if name == "net_-1/conv3_weights" or name == "net_-1/conv3_biases":
                 transfer_params.remove(param)
 
         with network.graph.as_default():
@@ -646,8 +687,8 @@ def classify_demo(args):
 
     # Remove conv2 weights
     for param in transfer_params[:]:
-        if param.op.name == "net_-1/conv2_weights" \
-           or param.op.name == "net_-1/conv2_biases":
+        name = param.op.name
+        if name == "net_-1/conv2_weights" or name == "net_-1/conv2_biases":
             transfer_params.remove(param)
 
     with network.graph.as_default():
