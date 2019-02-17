@@ -461,6 +461,7 @@ def run_a3c(args):
 
     lock = threading.Lock()
     ctr_lock = threading.Lock()
+    sil_lock = None
     if args.use_sil:
         sil_lock = threading.Lock()
 
@@ -518,7 +519,7 @@ def run_a3c(args):
             if global_t >= (args.max_time_step * args.max_time_step_fraction):
                 return
 
-            if parallel_idx == 0:
+            if shared_memory_sil is not None and parallel_idx == 0:
                 # SIL
                 with ctr_lock:
                     threads_ctr -= 1
@@ -541,9 +542,8 @@ def run_a3c(args):
                     threads_ctr += 1
 
                 if shared_memory_sil is not None and part_end:
-                    sil_lock.acquire()
-                    shared_memory_sil.extend(a3c_worker.episode)
-                    sil_lock.release()
+                    with sil_lock:
+                        shared_memory_sil.extend(a3c_worker.episode)
 
             with lock:
                 global_t += diff_global_t

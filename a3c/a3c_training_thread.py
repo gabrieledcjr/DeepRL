@@ -780,10 +780,10 @@ class A3CTrainingThread(object):
 
         if len(sil_memory) >= batch_size:
             for _ in range(4):
-                lock.acquire()
-                batch_state, batch_action, batch_returns = \
-                    sil_memory.sample(batch_size)
-                lock.release()
+                with lock:
+                    batch_state, batch_action, batch_returns = \
+                        sil_memory.sample(batch_size)
+
                 feed_dict = {
                     self.local_net.s: batch_state,
                     self.local_net.a_sil: batch_action,
