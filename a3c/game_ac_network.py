@@ -124,7 +124,7 @@ class GameACNetwork(ABC):
             # vf_loss = tf.maximum(vf_loss, tf.zeros_like(vf_loss))
             # vf_loss = tf.reduce_mean(tf.square(vf_loss) / 2.0)
             # self.total_loss_sil = pg_loss + vf_loss * critic_lr
-            self.total_loss_sil = sil_pg_loss - entropy * self.w_entropy \
+            self.total_loss_sil = sil_pg_loss - entropy * entropy_beta \
                 + sil_val_loss * critic_lr
 
     def build_grad_cam_grads(self):
