@@ -245,7 +245,7 @@ def run_a3c(args):
     shared_memory_sil = None
     if args.use_sil:
         shared_memory_sil = SILReplayMemory(
-            action_size, max_len=10**5, gamma=args.gamma,
+            action_size, max_len=250000, gamma=args.gamma,
             clip=False if args.unclipped_reward else True,
             height=input_shape[0], width=input_shape[1],
             phi_length=input_shape[2])

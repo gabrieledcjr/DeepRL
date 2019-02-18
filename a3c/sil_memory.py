@@ -92,10 +92,10 @@ class SILReplayMemory(object):
             # t(r=1 + sign(r) * 1.89) ~ 1
             rewards = np.clip(rewards, -1., 1.) * c + rewards
 
-        # if all zeros
-        if not np.any(rewards):
-            logger.info("episode all zeros")
-            rewards[-1] = -1. * c + -1.
+        # # if all zeros
+        # if not np.any(rewards):
+        #     logger.info("episode all zeros")
+        #     rewards[-1] = -1. * c + -1.
 
         for i in reversed(range(length)):
             if terminal[i]:
