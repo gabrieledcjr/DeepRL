@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import cv2
+import logging
 import numpy as np
 import random
 
 from common.util import transform_h
 from common.util import transform_h_inv
+
+logger = logging.getLogger("sil_memory")
 
 
 class SILReplayMemory(object):
@@ -88,6 +91,11 @@ class SILReplayMemory(object):
             # we add the constant c=sign(r) * 1.89 to ensure that
             # t(r=1 + sign(r) * 1.89) ~ 1
             rewards = np.clip(rewards, -1., 1.) * c + rewards
+
+        # if all zeros
+        if not np.any(rewards):
+            logger.info("episode all zeros")
+            rewards[-1] = -1. * c + -1.
 
         for i in reversed(range(length)):
             if terminal[i]:
