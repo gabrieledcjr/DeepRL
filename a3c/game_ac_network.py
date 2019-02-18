@@ -85,6 +85,12 @@ class GameACNetwork(ABC):
             self.returns = tf.placeholder(
                 tf.float32, shape=[None], name="returns")
 
+            mask = tf.where(
+                self.returns - tf.squeeze(self.v) > 0.0,
+                tf.ones_like(self.returns), tf.zeros_like(self.returns))
+            self.num_valid_samples = tf.reduce_sum(mask)
+            self.num_samples = tf.maximum(self.num_valid_samples, 64)
+
             neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
                 logits=self.logits, labels=self.a_sil)
 
@@ -92,14 +98,14 @@ class GameACNetwork(ABC):
             advs = self.returns - v_estimate
             clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
 
-            sil_pg_loss = tf.reduce_mean(
-                neglogpac * tf.stop_gradient(clipped_advs))
+            sil_pg_loss = tf.reduce_sum(
+                neglogpac * tf.stop_gradient(clipped_advs)) / self.num_samples
 
-            val_error = v_estimate - self.returns
+            val_error = self.returns - v_estimate
             clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
 
-            sil_val_loss = tf.reduce_mean(
-                tf.square(clipped_val) * 0.5)
+            sil_val_loss = tf.reduce_sum(
+                tf.square(clipped_val) * 0.5) / self.num_samples
 
             # pg_loss = tf.reduce_mean(neglogpac * self.advantage_sil)
             # vf_loss = self.cum_reward_sil - tf.squeeze(self.v)
