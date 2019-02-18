@@ -527,11 +527,12 @@ def run_a3c(args):
 
                 diff_global_t = 0
                 if shared_memory_sil.counter >= len(all_workers) - 1:
-                    shared_memory_sil.counter = 0
+                    with sil_lock:
+                        shared_memory_sil.counter = 0
+
                     sil_ctr = a3c_worker.sil_train(
                         sess, global_t, shared_memory_sil, sil_lock, sil_ctr,
                         batch_size=(len(all_workers)-1) * 32, m=4)
-
 
                 with ctr_lock:
                     threads_ctr += 1
@@ -543,12 +544,14 @@ def run_a3c(args):
                 diff_global_t, episode_end, part_end = a3c_worker.train(
                     sess, global_t, rewards)
 
+                with sil_lock:
+                    shared_memory_sil.counter += 1
+
                 with ctr_lock:
                     threads_ctr += 1
 
                 if shared_memory_sil is not None and part_end:
                     with sil_lock:
-                        shared_memory_sil.counter += 1
                         shared_memory_sil.extend(a3c_worker.episode)
 
             with lock:
