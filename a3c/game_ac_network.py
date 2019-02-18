@@ -101,7 +101,7 @@ class GameACNetwork(ABC):
             sil_pg_loss = tf.reduce_sum(
                 neglogpac * tf.stop_gradient(clipped_advs)) / self.num_samples
 
-            val_error = self.returns - v_estimate
+            val_error = v_estimate - self.returns
             clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
 
             sil_val_loss = tf.reduce_sum(
