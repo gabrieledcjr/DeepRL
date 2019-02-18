@@ -66,7 +66,7 @@ class GameACNetwork(ABC):
             self.total_loss = pg_loss - entropy * entropy_beta \
                 + vf_loss * critic_lr
 
-    def prepare_sil_loss(self, critic_lr=0.01):
+    def prepare_sil_loss(self, entropy_beta=0.01, critic_lr=0.01):
         """Prepare self-imitation loss.
 
         Keyword arguments:
@@ -75,6 +75,13 @@ class GameACNetwork(ABC):
         Reference:
         Based from A2C-SIL
         """
+        def cat_entropy(logits):
+            a0 = logits - tf.reduce_max(logits, 1, keepdims=True)
+            ea0 = tf.exp(a0)
+            z0 = tf.reduce_sum(ea0, 1, keepdims=True)
+            p0 = ea0 / z0
+            return tf.reduce_sum(p0 * (tf.log(z0) - a0), 1)
+
         with tf.name_scope("SIL_Loss"):
             # taken action (input for policy)
             self.a_sil = tf.placeholder(
@@ -96,13 +103,18 @@ class GameACNetwork(ABC):
 
             v_estimate = tf.squeeze(self.v)
             advs = self.returns - v_estimate
-            clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
+            # clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
+            clipped_advs = advs * mask
 
             sil_pg_loss = tf.reduce_sum(
                 neglogpac * tf.stop_gradient(clipped_advs)) / self.num_samples
 
+            entropy = tf.reduce_sum(cat_entropy(self.logits)) \
+                / self.num_samples
+
             val_error = v_estimate - self.returns
-            clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
+            # clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
+            clipped_val = val_error * mask
 
             sil_val_loss = tf.reduce_sum(
                 tf.square(clipped_val) * 0.5) / self.num_samples
@@ -112,7 +124,8 @@ class GameACNetwork(ABC):
             # vf_loss = tf.maximum(vf_loss, tf.zeros_like(vf_loss))
             # vf_loss = tf.reduce_mean(tf.square(vf_loss) / 2.0)
             # self.total_loss_sil = pg_loss + vf_loss * critic_lr
-            self.total_loss_sil = sil_pg_loss + sil_val_loss * critic_lr
+            self.total_loss_sil = sil_pg_loss - entropy * self.w_entropy \
+                + sil_val_loss * critic_lr
 
     def build_grad_cam_grads(self):
         """Compute gradients for Grad-CAM.
