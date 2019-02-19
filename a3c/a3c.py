@@ -249,7 +249,6 @@ def run_a3c(args):
             clip=False if args.unclipped_reward else True,
             height=input_shape[0], width=input_shape[1],
             phi_length=input_shape[2])
-        shared_memory_sil.counter = 0
 
         if demo_memory is not None:
             temp_memory = SILReplayMemory(
@@ -518,6 +517,8 @@ def run_a3c(args):
                 return
 
             if global_t >= (args.max_time_step * args.max_time_step_fraction):
+                if a3c_worker.sil_thread:
+                    logger.info("SIL: # of updates: {}".format(sil_ctr))
                 return
 
             if a3c_worker.sil_thread:
@@ -526,13 +527,10 @@ def run_a3c(args):
                     threads_ctr -= 1
 
                 diff_global_t = 0
-                # if shared_memory_sil.counter >= 4: #len(all_workers) - 1:
-                #     with sil_lock:
-                #         shared_memory_sil.counter = 0
 
                 sil_ctr = a3c_worker.sil_train(
                     sess, global_t, shared_memory_sil, sil_lock, sil_ctr,
-                    batch_size=512, m=4)
+                    batch_size=512)
 
                 with ctr_lock:
                     threads_ctr += 1
@@ -547,11 +545,9 @@ def run_a3c(args):
                 with ctr_lock:
                     threads_ctr += 1
 
-                if shared_memory_sil is not None:
+                if shared_memory_sil is not None and part_end:
                     with sil_lock:
-                        # shared_memory_sil.counter += 1
-                        if part_end:
-                            shared_memory_sil.extend(a3c_worker.episode)
+                        shared_memory_sil.extend(a3c_worker.episode)
 
             with lock:
                 global_t += diff_global_t

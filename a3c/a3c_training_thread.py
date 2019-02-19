@@ -769,7 +769,7 @@ class A3CTrainingThread(object):
         return diff_local_t, terminal_end, terminal_pseudo
 
     def sil_train(self, sess, global_t, sil_memory, lock, sil_ctr,
-                  batch_size=512, m=4):
+                  batch_size=512):
         """Self-imitation learning process."""
         assert not self.use_lstm
 
@@ -779,21 +779,20 @@ class A3CTrainingThread(object):
         cur_learning_rate = self._anneal_learning_rate(global_t)
 
         if len(sil_memory) >= batch_size:
-            for _ in range(m):
-                with lock:
-                    batch_state, batch_action, batch_returns = \
-                        sil_memory.sample(batch_size)
+            with lock:
+                batch_state, batch_action, batch_returns = \
+                    sil_memory.sample(batch_size)
 
-                feed_dict = {
-                    self.local_net.s: batch_state,
-                    self.local_net.a_sil: batch_action,
-                    self.local_net.returns: batch_returns,
-                    self.learning_rate_input: cur_learning_rate,
-                    }
-                sess.run(self.sil_apply_gradients, feed_dict=feed_dict)
-                sil_ctr += 1
+            feed_dict = {
+                self.local_net.s: batch_state,
+                self.local_net.a_sil: batch_action,
+                self.local_net.returns: batch_returns,
+                self.learning_rate_input: cur_learning_rate,
+                }
+            sess.run(self.sil_apply_gradients, feed_dict=feed_dict)
+            sil_ctr += 1
 
-                if sil_ctr % 1000 == 0:
-                    logger.info("SIL: # of updates: {}".format(sil_ctr))
+            if sil_ctr % 1000 == 0:
+                logger.info("SIL: # of updates: {}".format(sil_ctr))
 
         return sil_ctr
