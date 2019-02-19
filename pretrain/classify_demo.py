@@ -510,6 +510,7 @@ def classify_demo(args):
 
     input_shape = (args.input_shape, args.input_shape, 4)
     if args.onevsall_mtl:
+        assert not args.use_sil  # Does not support SIL
         MTLBinaryClassNetwork.use_mnih_2015 = args.use_mnih_2015
         MTLBinaryClassNetwork.l1_beta = args.l1_beta
         MTLBinaryClassNetwork.l2_beta = args.l2_beta
@@ -522,7 +523,7 @@ def classify_demo(args):
         MultiClassNetwork.use_gpu = not args.cpu_only
         network = MultiClassNetwork(
             action_size, -1, device, padding=args.padding,
-            in_shape=input_shape)
+            in_shape=input_shape, use_sil=args.use_sil)
 
     logger.info("optimizer: {}".format(
         'RMSPropOptimizer' if args.optimizer == 'rms' else 'AdamOptimizer'))
