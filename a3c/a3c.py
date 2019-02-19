@@ -530,7 +530,7 @@ def run_a3c(args):
 
                 sil_ctr = a3c_worker.sil_train(
                     sess, global_t, shared_memory_sil, sil_lock, sil_ctr,
-                    batch_size=512)
+                    batch_size=args.batch_size)
 
                 with ctr_lock:
                     threads_ctr += 1

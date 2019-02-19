@@ -108,8 +108,10 @@ def main():
     parser.set_defaults(test_model=False)
 
     parser.add_argument('--use-sil', action='store_true',
-                        help='self imitation learning loss')
+                        help='self imitation learning loss (SIL)')
     parser.set_defaults(use_sil=False)
+    parser.add_argument('--batch-size', type=int, default=512,
+                        help='SIL batch size')
 
     args = parser.parse_args()
 
