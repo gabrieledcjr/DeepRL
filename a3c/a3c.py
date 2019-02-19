@@ -303,7 +303,8 @@ def run_a3c(args):
             pretrained_model_sess=pretrained_model_sess,
             advice=is_advice,
             reward_shaping=is_reward_shape,
-            sil_thread=sil_thread)
+            sil_thread=sil_thread,
+            batch_size=args.batch_size if sil_thread else None)
 
         all_workers.append(a3c_worker)
 

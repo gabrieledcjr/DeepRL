@@ -49,7 +49,7 @@ class A3CTrainingThread(object):
                  initial_learning_rate, learning_rate_input, grad_applier,
                  max_global_time_step, device=None, pretrained_model=None,
                  pretrained_model_sess=None, advice=False,
-                 reward_shaping=False, sil_thread=False):
+                 reward_shaping=False, sil_thread=False, batch_size=None):
         """Initialize A3CTrainingThread class."""
         assert self.action_size != -1
 
@@ -60,6 +60,8 @@ class A3CTrainingThread(object):
         self.use_pretrained_model_as_reward_shaping = reward_shaping
         self.local_net = local_net
         self.sil_thread = sil_thread
+        if self.sil_thread:
+            self.batch_size = batch_size
 
         logger.info("thread_index: {}".format(self.thread_idx))
         logger.info("local_t_max: {}".format(self.local_t_max))
@@ -104,9 +106,13 @@ class A3CTrainingThread(object):
                 self.local_net.total_loss, var_refs)
 
             if self.sil_thread:
+                min_batch_size = max(self.batch_size // 8, self.batch_size)
+                logger.info("batch_size: {}".format(self.batch_size))
+                logger.info("min_batch_size: {}".format(min_batch_size))
                 self.local_net.prepare_sil_loss(critic_lr=0.01)
                 self.sil_gradients = tf.gradients(
-                    self.local_net.total_loss_sil, var_refs)
+                    self.local_net.total_loss_sil, var_refs,
+                    min_batch_size=min_batch_size)
 
         global_vars = global_net.get_vars
         if self.finetune_upper_layers_only:
@@ -162,14 +168,7 @@ class A3CTrainingThread(object):
            or self.use_pretrained_model_as_reward_shaping:
             assert self.pretrained_model is not None
 
-        if self.use_sil:
-            # self.sil_memory = SILReplayMemory(
-            #     self.action_size, max_len=62500, gamma=self.gamma,
-            #     clip=True if self.reward_type == 'CLIP' else False,
-            #     height=self.local_net.in_shape[0],
-            #     width=self.local_net.in_shape[1],
-            #     phi_length=self.local_net.in_shape[2])
-
+        if self.use_sil and not self.sil_thread:
             self.episode = SILReplayMemory(
                 self.action_size, max_len=None, gamma=self.gamma,
                 clip=True if self.reward_type == 'CLIP' else False,
@@ -768,8 +767,7 @@ class A3CTrainingThread(object):
         diff_local_t = self.local_t - start_local_t
         return diff_local_t, terminal_end, terminal_pseudo
 
-    def sil_train(self, sess, global_t, sil_memory, lock, sil_ctr,
-                  batch_size=512):
+    def sil_train(self, sess, global_t, sil_memory, lock, sil_ctr):
         """Self-imitation learning process."""
         assert not self.use_lstm
 
@@ -778,10 +776,10 @@ class A3CTrainingThread(object):
 
         cur_learning_rate = self._anneal_learning_rate(global_t)
 
-        if len(sil_memory) >= batch_size:
+        if len(sil_memory) >= self.batch_size:
             with lock:
                 batch_state, batch_action, batch_returns = \
-                    sil_memory.sample(batch_size)
+                    sil_memory.sample(self.batch_size)
 
             feed_dict = {
                 self.local_net.s: batch_state,

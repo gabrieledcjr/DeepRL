@@ -65,7 +65,8 @@ class GameACNetwork(ABC):
             self.total_loss = pg_loss - entropy * entropy_beta \
                 + vf_loss * critic_lr
 
-    def prepare_sil_loss(self, entropy_beta=0.01, critic_lr=0.01):
+    def prepare_sil_loss(self, entropy_beta=0.01, critic_lr=0.01,
+                         min_batch_size=64):
         """Prepare self-imitation loss.
 
         Keyword arguments:
@@ -95,7 +96,8 @@ class GameACNetwork(ABC):
                 self.returns - tf.squeeze(self.v) > 0.0,
                 tf.ones_like(self.returns), tf.zeros_like(self.returns))
             self.num_valid_samples = tf.reduce_sum(mask)
-            self.num_samples = tf.maximum(self.num_valid_samples, 64)
+            self.num_samples = tf.maximum(self.num_valid_samples,
+                                          min_batch_size)
 
             neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
                 logits=self.logits, labels=self.a_sil)
