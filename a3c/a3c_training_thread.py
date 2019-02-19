@@ -494,7 +494,7 @@ class A3CTrainingThread(object):
         if self.use_lstm:
             self.local_net.reset_state()
 
-        if self.use_sil:
+        if self.use_sil and not self.sil_thread:
             # ensure no states left from a non-terminating episode
             self.episode.reset()
         return (total_reward, total_steps, n_episodes)
