@@ -109,10 +109,10 @@ class A3CTrainingThread(object):
                 min_batch_size = max(self.batch_size // 8, self.batch_size)
                 logger.info("batch_size: {}".format(self.batch_size))
                 logger.info("min_batch_size: {}".format(min_batch_size))
-                self.local_net.prepare_sil_loss(critic_lr=0.01)
+                self.local_net.prepare_sil_loss(critic_lr=0.01,
+                                                min_batch_size=min_batch_size)
                 self.sil_gradients = tf.gradients(
-                    self.local_net.total_loss_sil, var_refs,
-                    min_batch_size=min_batch_size)
+                    self.local_net.total_loss_sil, var_refs)
 
         global_vars = global_net.get_vars
         if self.finetune_upper_layers_only:
