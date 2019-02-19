@@ -106,7 +106,9 @@ class A3CTrainingThread(object):
                 self.local_net.total_loss, var_refs)
 
             if self.sil_thread:
-                min_batch_size = max(self.batch_size // 8, self.batch_size)
+                min_batch_size = self.batch_size // 8
+                if min_batch_size <= 1:
+                    min_batch_size = self.batch_size
                 logger.info("batch_size: {}".format(self.batch_size))
                 logger.info("min_batch_size: {}".format(min_batch_size))
                 self.local_net.prepare_sil_loss(critic_lr=0.01,
