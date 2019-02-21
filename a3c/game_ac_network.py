@@ -115,7 +115,7 @@ class GameACNetwork(ABC):
 
             val_error = v_estimate - self.returns
             # clipped_val = tf.maximum(val_error, tf.zeros_like(val_error))
-            clipped_val = val_error * mask
+            clipped_val = val_error * tf.stop_gradient(mask)
 
             sil_val_loss = tf.reduce_sum(
                 tf.square(clipped_val) * 0.5) / self.num_samples

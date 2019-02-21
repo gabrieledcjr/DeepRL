@@ -105,7 +105,7 @@ class SILReplayMemory(object):
                     returns[i] = rewards[i] + gamma * returns[i+1]
                 else:
                     # apply transformed expected return
-                    exp_r_t = transform_h_inv(gamma * returns[i+1])
+                    exp_r_t = gamma * transform_h_inv(returns[i+1])
                     returns[i] = transform_h(rewards[i] + exp_r_t)
         return returns
 
