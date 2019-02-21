@@ -90,7 +90,7 @@ class SILReplayMemory(object):
             # raw rewards at range (-1, 1). To address this down scaled reward,
             # we add the constant c=sign(r) * 1.89 to ensure that
             # t(r=1 + sign(r) * 1.89) ~ 1
-            rewards = np.clip(rewards, -1., 1.) * c + rewards
+            rewards = np.sign(rewards) * c + rewards
 
         # # if all zeros
         # if not np.any(rewards):
