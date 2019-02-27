@@ -30,6 +30,7 @@ from common.util import load_memory
 from common.util import prepare_dir
 from game_ac_network import GameACFFNetwork
 from game_ac_network import GameACLSTMNetwork
+from queue import Queue
 from sil_memory import SILReplayMemory
 
 logger = logging.getLogger("a3c")
@@ -94,6 +95,8 @@ def run_a3c(args):
 
         if args.use_sil:
             end_str += '_sil'
+            if args.priority_memory:
+                end_str += '_prioritymem'
 
         folder += end_str
 
@@ -242,13 +245,13 @@ def run_a3c(args):
     else:
         A3CTrainingThread.reward_type = "CLIP"
 
-    shared_memory_sil = None
+    shared_memory = None
     if args.use_sil:
-        shared_memory_sil = SILReplayMemory(
-            action_size, max_len=250000, gamma=args.gamma,
+        shared_memory = SILReplayMemory(
+            action_size, max_len=100000, gamma=args.gamma,
             clip=False if args.unclipped_reward else True,
             height=input_shape[0], width=input_shape[1],
-            phi_length=input_shape[2])
+            phi_length=input_shape[2], priority=args.priority_memory)
 
         if demo_memory is not None:
             temp_memory = SILReplayMemory(
@@ -264,14 +267,14 @@ def run_a3c(args):
                     temp_memory.add_item(s0, a0, r1, t1)
 
                     if t1:  # terminal
-                        shared_memory_sil.extend(temp_memory)
+                        shared_memory.extend(temp_memory)
 
                 if len(temp_memory) > 0:
                     logger.warning("Disregard {} states in"
                                    " demo_memory {}".format(
                                     len(temp_memory), idx))
                     temp_memory.reset()
-            logger.info("SIL: memory size {}".format(len(shared_memory_sil)))
+            logger.info("SIL: memory size {}".format(len(shared_memory)))
 
             del temp_memory
 
@@ -461,11 +464,6 @@ def run_a3c(args):
         prepare_dir(folder / 'frames', empty=True)
 
     lock = threading.Lock()
-    ctr_lock = threading.Lock()
-    sil_lock = None
-    if args.use_sil:
-        sil_lock = threading.Lock()
-
     test_lock = False
     if global_t == 0:
         test_lock = True
@@ -479,13 +477,11 @@ def run_a3c(args):
 
     last_temp_global_t = global_t
     ispretrain_markers = [False] * args.parallel_size
-    threads_ctr = args.parallel_size
 
-    def train_function(parallel_idx):
+    def train_function(parallel_idx, threads_ctr, ep_queue, net_updates):
         nonlocal global_t, pretrain_global_t, pretrain_epoch, \
-            rewards, test_lock, lock, sil_lock, next_global_t, next_save_t, \
-            threads_ctr, last_temp_global_t, ispretrain_markers, \
-            shared_memory_sil
+            rewards, test_lock, lock, next_global_t, next_save_t, \
+            last_temp_global_t, ispretrain_markers, shared_memory
 
         a3c_worker = all_workers[parallel_idx]
         a3c_worker.set_summary_writer(summary_writer)
@@ -511,7 +507,14 @@ def run_a3c(args):
         start_time = time.time() - wall_t
         a3c_worker.set_start_time(start_time)
         episode_end = True
-        sil_ctr = 0
+
+        if a3c_worker.sil_thread:
+            # TODO: add as command-line parameters later
+            sil_ctr = 0
+            sil_interval = 0  # bigger number => slower SIL updates
+            m_repeat = 4
+            min_mem = args.batch_size * m_repeat
+            sil_train = args.load_memory and len(shared_memory) >= min_mem
 
         while True:
             if stop_requested:
@@ -523,31 +526,56 @@ def run_a3c(args):
                 return
 
             if a3c_worker.sil_thread:
-                # SIL
-                with ctr_lock:
-                    threads_ctr -= 1
+                if net_updates.qsize() >= sil_interval \
+                   and len(shared_memory) >= min_mem:
+                    sil_train = True
+
+                if sil_train:
+                    sil_train = False
+                    threads_ctr.get()
+                    sil_ctr = a3c_worker.sil_train(
+                        sess, global_t, shared_memory, sil_ctr, m=m_repeat)
+                    threads_ctr.put(1)
+                    with net_updates.mutex:
+                        net_updates.queue.clear()
+
+                # Adding episodes to SIL memory is centralize to ensure
+                # sampling and updating of priorities does not become a problem
+                # since we add new episodes to SIL at once and during
+                # SIL training it is guaranteed that SIL memory is untouched.
+                max = 16
+                while not ep_queue.empty():
+                    data = ep_queue.get()
+                    a3c_worker.episode.set_data(*data)
+                    shared_memory.extend(a3c_worker.episode)
+                    max -= 1
+                    # This ensures that SIL has a chance to train
+                    if max <= 0:
+                        break
+
+                # at sil_interval=0, this will never be executed,
+                # this is considered fast SIL (no intervals between updates)
+                if not sil_train and len(shared_memory) >= min_mem:
+                    # No training, just updating priorities
+                    a3c_worker.sil_update_priorities(
+                        sess, shared_memory, m=m_repeat)
 
                 diff_global_t = 0
 
-                sil_ctr = a3c_worker.sil_train(
-                    sess, global_t, shared_memory_sil, sil_lock, sil_ctr)
-
-                with ctr_lock:
-                    threads_ctr += 1
-
             else:
-                with ctr_lock:
-                    threads_ctr -= 1
+                threads_ctr.get()
 
-                diff_global_t, episode_end, part_end = a3c_worker.train(
-                    sess, global_t, rewards)
+                train_out = a3c_worker.train(sess, global_t, rewards)
+                diff_global_t, episode_end, part_end = train_out
 
-                with ctr_lock:
-                    threads_ctr += 1
+                threads_ctr.put(1)
 
-                if shared_memory_sil is not None and part_end:
-                    with sil_lock:
-                        shared_memory_sil.extend(a3c_worker.episode)
+                if args.use_sil:
+                    net_updates.put(1)
+                    if part_end:
+                        ep_queue.put(a3c_worker.episode.get_data())
+                        # net_updates.put(1)
+                        a3c_worker.episode.reset()
 
             with lock:
                 global_t += diff_global_t
@@ -556,7 +584,7 @@ def run_a3c(args):
                     next_global_t = next_t(global_t, args.eval_freq)
 
                     # wait for all threads to finish before testing
-                    while not stop_requested and threads_ctr < len(all_workers):
+                    while not stop_requested and threads_ctr.qsize() < len(all_workers):
                         time.sleep(0.01)
 
                     step_t = int(next_global_t - args.eval_freq)
@@ -595,8 +623,16 @@ def run_a3c(args):
             best_saver.save(sess, str(best_checkpt_file))
 
     train_threads = []
+    threads_ctr = Queue()
     for i in range(args.parallel_size):
-        worker_thread = threading.Thread(target=train_function, args=(i,))
+        threads_ctr.put(1)
+    episodes_queue = None
+    net_updates = None
+    if args.use_sil:
+        episodes_queue = Queue()
+        net_updates = Queue()
+    for i in range(args.parallel_size):
+        worker_thread = threading.Thread(target=train_function, args=(i, threads_ctr, episodes_queue, net_updates,))
         train_threads.append(worker_thread)
 
     signal.signal(signal.SIGINT, signal_handler)

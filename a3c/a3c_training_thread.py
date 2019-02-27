@@ -94,25 +94,40 @@ class A3CTrainingThread(object):
         logger.info("sil_thread: {}".format(
             colored(self.sil_thread, "green" if self.sil_thread else "red")))
 
+        reward_clipped = True if self.reward_type == 'CLIP' else False
+        local_vars = self.local_net.get_vars
+        if self.finetune_upper_layers_only:
+            local_vars = self.local_net.get_vars_upper
+
         with tf.device(device):
             self.local_net.prepare_loss(
                 entropy_beta=self.entropy_beta, critic_lr=0.5)
-            local_vars = self.local_net.get_vars
-            if self.finetune_upper_layers_only:
-                local_vars = self.local_net.get_vars_upper
             var_refs = [v._ref() for v in local_vars()]
 
             self.gradients = tf.gradients(
                 self.local_net.total_loss, var_refs)
 
             if self.sil_thread:
-                min_batch_size = self.batch_size // 8
-                if min_batch_size <= 1:
-                    min_batch_size = self.batch_size
-                logger.info("batch_size: {}".format(self.batch_size))
-                logger.info("min_batch_size: {}".format(min_batch_size))
-                self.local_net.prepare_sil_loss(critic_lr=0.01,
-                                                min_batch_size=min_batch_size)
+                # TODO: add as command-line parameters later
+                critic_lr = 0.5
+                entropy_beta = 0
+                w_loss = 1
+
+                min_batch_size = 1
+                if reward_clipped:
+                    min_batch_size = int(np.ceil(self.batch_size / 16) * 2)
+                    critic_lr = 0.01
+
+                logger.info("sil batch_size: {}".format(self.batch_size))
+                logger.info("sil min_batch_size: {}".format(min_batch_size))
+                logger.info("sil w_loss: {}".format(critic_lr))
+                logger.info("sil critic_lr: {}".format(critic_lr))
+                logger.info("sil entropy_beta: {}".format(entropy_beta))
+                self.local_net.prepare_sil_loss(entropy_beta=entropy_beta,
+                                                w_loss=w_loss,
+                                                critic_lr=critic_lr,
+                                                min_batch_size=min_batch_size,
+                                                clip_reward=reward_clipped)
                 self.sil_gradients = tf.gradients(
                     self.local_net.total_loss_sil, var_refs)
 
@@ -131,10 +146,14 @@ class A3CTrainingThread(object):
                 if self.clip_norm is not None:
                     self.sil_gradients, grad_norm = tf.clip_by_global_norm(
                         self.sil_gradients, self.clip_norm)
-                self.sil_gradients = list(
+                sil_gradients_global = list(
                     zip(self.sil_gradients, global_vars()))
+                sil_gradients_local = list(
+                    zip(self.sil_gradients, local_vars()))
                 self.sil_apply_gradients = grad_applier.apply_gradients(
-                    self.sil_gradients)
+                    sil_gradients_global)
+                self.sil_apply_gradients_local = grad_applier.apply_gradients(
+                    sil_gradients_local)
 
         self.sync = self.local_net.sync_from(
             global_net, upper_layers_only=self.finetune_upper_layers_only)
@@ -170,10 +189,10 @@ class A3CTrainingThread(object):
            or self.use_pretrained_model_as_reward_shaping:
             assert self.pretrained_model is not None
 
-        if self.use_sil and not self.sil_thread:
+        if self.use_sil:  # and not self.sil_thread:
             self.episode = SILReplayMemory(
                 self.action_size, max_len=None, gamma=self.gamma,
-                clip=True if self.reward_type == 'CLIP' else False,
+                clip=reward_clipped,
                 height=self.local_net.in_shape[0],
                 width=self.local_net.in_shape[1],
                 phi_length=self.local_net.in_shape[2])
@@ -769,30 +788,66 @@ class A3CTrainingThread(object):
         diff_local_t = self.local_t - start_local_t
         return diff_local_t, terminal_end, terminal_pseudo
 
-    def sil_train(self, sess, global_t, sil_memory, lock, sil_ctr):
+    def sil_train(self, sess, global_t, sil_memory, sil_ctr, m=4):
         """Self-imitation learning process."""
         assert not self.use_lstm
 
         # copy weights from shared to local
         sess.run(self.sync)
-
         cur_learning_rate = self._anneal_learning_rate(global_t)
 
-        if len(sil_memory) >= self.batch_size:
-            with lock:
-                batch_state, batch_action, batch_returns = \
-                    sil_memory.sample(self.batch_size)
+        for _ in range(m):
+            sample = sil_memory.sample(self.batch_size, beta=0.4)
+            index_list, batch, weights = sample
+            batch_state, batch_action, batch_returns = batch
 
             feed_dict = {
                 self.local_net.s: batch_state,
                 self.local_net.a_sil: batch_action,
                 self.local_net.returns: batch_returns,
+                self.local_net.weights: weights,
                 self.learning_rate_input: cur_learning_rate,
                 }
-            sess.run(self.sil_apply_gradients, feed_dict=feed_dict)
+            fetch = [
+                self.local_net.clipped_advs,
+                self.sil_apply_gradients,
+                self.sil_apply_gradients_local,
+                ]
+            adv, _, _ = sess.run(fetch, feed_dict=feed_dict)
+            sil_memory.set_weights(index_list, adv)
             sil_ctr += 1
 
-            if sil_ctr % 1000 == 0:
-                logger.info("SIL: # of updates: {}".format(sil_ctr))
+            if sil_ctr % 100 == 0:
+                # copy weights from shared to local
+                log_data = (sil_ctr, len(sil_memory))
+                logger.info("SIL: sil_ctr={}"
+                            " sil_memory_size={}".format(*log_data))
+                logger.info("advantage: {}".format(adv))
+                # logger.info("returns: {}".format(batch_returns))
 
         return sil_ctr
+
+    def sil_update_priorities(self, sess, sil_memory, m=4):
+        """Self-imitation update priorities."""
+        assert not self.use_lstm
+
+        # copy weights from shared to local
+        sess.run(self.sync)
+
+        # start_time = time.time()
+        for _ in range(m):
+            sample = sil_memory.sample(self.batch_size, beta=0.4)
+            index_list, batch, _ = sample
+            batch_state, batch_action, batch_returns = batch
+
+            feed_dict = {
+                self.local_net.s: batch_state,
+                self.local_net.a_sil: batch_action,
+                self.local_net.returns: batch_returns,
+                }
+            fetch = self.local_net.clipped_advs
+            adv = sess.run(fetch, feed_dict=feed_dict)
+            sil_memory.set_weights(index_list, adv)
+        # log_data = (m, batchsize, (time.time() - start_time))
+        # logger.info("SIL: priority updates at m={} size={}"
+        #             " --- {} seconds".format(*log_data))

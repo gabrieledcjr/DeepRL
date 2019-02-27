@@ -4,8 +4,10 @@ import logging
 import numpy as np
 import random
 
+from common.replay_memory import PrioritizedReplayBuffer
 from common.util import transform_h
 from common.util import transform_h_inv
+from copy import deepcopy
 
 logger = logging.getLogger("sil_memory")
 
@@ -13,13 +15,18 @@ logger = logging.getLogger("sil_memory")
 class SILReplayMemory(object):
 
     def __init__(self, num_actions, max_len=None, gamma=0.99, clip=False,
-                 height=84, width=84, phi_length=4):
+                 height=84, width=84, phi_length=4, priority=False):
+        if priority:
+            self.buff = PrioritizedReplayBuffer(max_len, alpha=0.6)
+        else:
+            self.states = []
+            self.actions = []
+            self.rewards = []
+            self.terminal = []
+            self.returns = []
+
+        self.priority = priority
         self.num_actions = num_actions
-        self.states = []
-        self.actions = []
-        self.rewards = []
-        self.terminal = []
-        self.returns = []
         self.maxlen = max_len
         self.gamma = gamma
         self.clip = clip
@@ -30,6 +37,7 @@ class SILReplayMemory(object):
     def add_item(self, s, a, rew, t):
         """Use only for episode memory."""
         assert len(self.returns) == 0
+        assert not self.priority
         if np.shape(s) != self.shape():
             s = cv2.resize(s, (self.height, self.width),
                            interpolation=cv2.INTER_AREA)
@@ -38,8 +46,23 @@ class SILReplayMemory(object):
         self.rewards.append(rew)
         self.terminal.append(t)
 
+    def get_data(self):
+        """Get data."""
+        return (deepcopy(self.states),
+                deepcopy(self.actions),
+                deepcopy(self.rewards),
+                deepcopy(self.terminal))
+
+    def set_data(self, s, a, r, t):
+        """Set data."""
+        self.states = s
+        self.actions = a
+        self.rewards = r
+        self.terminal = t
+
     def reset(self):
         """Reset memory."""
+        assert not self.priority
         self.states.clear()
         self.actions.clear()
         self.rewards.clear()
@@ -52,29 +75,30 @@ class SILReplayMemory(object):
 
     def extend(self, x):
         """Use only in SIL memory."""
-        self.states.extend(x.states)
-        self.actions.extend(x.actions)
-        self.rewards.extend(x.rewards)
-
         assert x.terminal[-1]  # assert that last state is a terminal state
         x_returns = self.__class__.compute_returns(
             x.rewards, x.terminal, self.gamma, self.clip)
 
-        self.returns.extend(x_returns)
-        self.terminal.extend(x.terminal)
+        if self.priority:
+            data = zip(x.states, x.actions, x_returns)
+            for feature in data:
+                self.buff.add(*feature)
+        else:
+            self.states.extend(x.states)
+            self.actions.extend(x.actions)
+            self.returns.extend(x_returns)
 
-        if len(self) > self.maxlen:
-            st_slice = len(self) - self.maxlen
-            self.states = self.states[st_slice:]
-            self.actions = self.actions[st_slice:]
-            self.rewards = self.rewards[st_slice:]
-            self.returns = self.returns[st_slice:]
-            self.terminal = self.terminal[st_slice:]
-            assert len(self) == self.maxlen
+            if len(self) > self.maxlen:
+                st_slice = len(self) - self.maxlen
+                self.states = self.states[st_slice:]
+                self.actions = self.actions[st_slice:]
+                self.returns = self.returns[st_slice:]
+                assert len(self) == self.maxlen
+
+            assert len(self) == len(self.returns) <= self.maxlen
 
         x.reset()
         assert len(x) == 0
-        assert len(self) == len(self.returns) <= self.maxlen
 
     @staticmethod
     def compute_returns(rewards, terminal, gamma, clip=False, c=1.89):
@@ -111,34 +135,47 @@ class SILReplayMemory(object):
 
     def __len__(self):
         """Return length of memory using states."""
+        if self.priority:
+            return len(self.buff)
         return len(self.states)
 
-    def sample(self, batch_size):
+    def sample(self, batch_size, beta=0.4):
         """Return a random batch sample from the memory."""
-        assert len(self.states) >= batch_size
-
-        if len(self.returns) == 0:
-            returns = self.__class__.compute_returns(
-                self.rewards, self.terminal, self.gamma, self.clip)
-            self.returns.extend(returns)
+        assert len(self) >= batch_size
 
         shape = (batch_size, self.height, self.width, self.phi_length)
         states = np.zeros(shape, dtype=np.uint8)
         actions = np.zeros((batch_size, self.num_actions), dtype=np.float32)
         returns = np.zeros(batch_size, dtype=np.float32)
 
-        random_indices = random.sample(range(0, len(self.states)), batch_size)
-        for i, rand_i in enumerate(random_indices):
-            states[i] = np.copy(self.states[rand_i])
-            actions[i][self.actions[rand_i]] = 1  # one-hot vector
-            returns[i] = self.returns[rand_i]
+        if self.priority:
+            sample = self.buff.sample(batch_size, beta)
+            states, acts, returns, weights, idxes = sample
+            for i, a in enumerate(acts):
+                actions[i][a] = 1  # one-hot vector
+            batch = (states, actions, returns)
+        else:
+            weights = np.ones(batch_size, dtype=np.float32)
+            idxes = random.sample(range(0, len(self.states)), batch_size)
+            for i, rand_i in enumerate(idxes):
+                states[i] = np.copy(self.states[rand_i])
+                actions[i][self.actions[rand_i]] = 1  # one-hot vector
+                returns[i] = self.returns[rand_i]
 
-        return states, actions, returns
+            batch = (states, actions, returns)
+
+        return idxes, batch, weights
+
+    def set_weights(self, indexes, priors):
+        """Set weights of the samples according to index."""
+        if self.priority:
+            self.buff.update_priorities(indexes, priors)
 
     def __del__(self):
         """Clean up."""
-        del self.states
-        del self.actions
-        del self.rewards
-        del self.terminal
-        del self.returns
+        if not self.priority:
+            del self.states
+            del self.actions
+            del self.rewards
+            del self.terminal
+            del self.returns
