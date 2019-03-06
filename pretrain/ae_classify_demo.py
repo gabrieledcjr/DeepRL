@@ -24,7 +24,6 @@ import sys
 from common.game_state import GameState
 from common.game_state import get_wrapper_by_name
 from common.replay_memory import ReplayMemoryReturns
-from common.util import compute_proportions
 from common.util import load_memory
 from common.util import LogFormatter
 from common.util import percent_decrease
@@ -42,7 +41,7 @@ class AutoencoderClassifyDemo(object):
                  demo_memory_folder=None, demo_ids=None, folder=None,
                  exclude_num_demo_ep=0, use_onevsall=False,
                  device='/cpu:0', clip_norm=None, game_state=None,
-                 use_batch_proportion=False, sl_loss_weight=1.0):
+                 sampling_type=None, sl_loss_weight=1.0, reward_constant=0):
         """Initialize AutoencoderClassifyDemo class."""
         assert demo_ids is not None
         assert game_state is not None
@@ -59,28 +58,25 @@ class AutoencoderClassifyDemo(object):
         self.stop_requested = False
         self.game_state = game_state
         self.best_model_reward = -(sys.maxsize)
-        self.use_batch_proportion = use_batch_proportion
+        self.sampling_type = sampling_type
 
         logger.info("train_max_steps: {}".format(self.train_max_steps))
         logger.info("batch_size: {}".format(self.batch_size))
         logger.info("eval_freq: {}".format(self.eval_freq))
         logger.info("use_onevsall: {}".format(self.use_onevsall))
-        logger.info("use_batch_proportion: {}".format(
-            self.use_batch_proportion))
+        logger.info("sampling_type: {}".format(self.sampling_type))
         logger.info("sl_loss_weight: {}".format(sl_loss_weight))
+        logger.info("clip_norm: {}".format(clip_norm))
+        logger.info("reward_constant: {}".format(reward_constant))
 
-        self.demo_memory, actions_ctr, total_rewards, total_steps = \
+        self.demo_memory, acts_ctr, total_rewards, total_steps = \
             load_memory(name=None, demo_memory_folder=demo_memory_folder,
                         demo_ids=demo_ids, imgs_normalized=False)
 
-        action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
+        self.action_dist = [acts_ctr[a] for a in range(self.net.action_size)]
 
-        if self.use_batch_proportion:
-            self.batch_proportion = compute_proportions(
-                self.batch_size, action_freq)
-            logger.info("batch_proportion: {}".format(self.batch_proportion))
-
-        self.net.prepare_loss(sl_loss_weight=sl_loss_weight)
+        self.net.prepare_loss(sl_loss_weight=sl_loss_weight,
+                              val_weight=0.5 * sl_loss_weight)
         self.net.prepare_evaluate()
         self.apply_gradients = self.prepare_compute_gradients(
             grad_applier, device, clip_norm=clip_norm)
@@ -105,8 +101,8 @@ class AutoencoderClassifyDemo(object):
         for i in range(size_max_idx_mem):
             s0, a0, _, _, _, _, _, _ = self.demo_memory[max_idx][i]
             if s0 is not None:
-                self.test_batch_si[i] = cv2.resize(s0, self.net.in_shape[:-1],
-                                                   interpolation=cv2.INTER_AREA)
+                self.test_batch_si[i] = cv2.resize(
+                    s0, self.net.in_shape[:-1], interpolation=cv2.INTER_AREA)
                 self.test_batch_a[i][a0] = 1
 
         self.combined_memory = ReplayMemoryReturns(
@@ -122,7 +118,8 @@ class AutoencoderClassifyDemo(object):
         for idx in list(self.demo_memory.keys()):
             demo = self.demo_memory[idx]
             exp_ret = ReplayMemoryReturns.compute_returns(
-                demo.rewards, demo.terminal, 0.99, clip=False)
+                demo.rewards, demo.terminal, 0.99, clip=False,
+                c=reward_constant)
             returns = np.append(returns, exp_ret)
 
             for i in range(demo.max_steps):
@@ -213,7 +210,10 @@ class AutoencoderClassifyDemo(object):
         episode_steps = 0
         n_episodes = 0
         while max_steps > 0:
-            model_pi = self.net.run_policy(sess, self.game_state.s_t)
+            state = cv2.resize(self.game_state.s_t,
+                               self.net.in_shape[:-1],
+                               interpolation=cv2.INTER_AREA)
+            model_pi = self.net.run_policy(sess, state)
             action, confidence = self.choose_action_with_high_confidence(
                 model_pi, exclude_noop=False)
 
@@ -238,8 +238,8 @@ class AutoencoderClassifyDemo(object):
                     steps_str = colored("steps={}".format(
                         episode_steps), "blue")
                     log_data = (n_episodes, score_str, steps_str, total_steps)
-                    # logger.debug("test: trial={} {} {} total_steps={}"
-                    #              .format(*log_data))
+                    logger.debug("test: trial={} {} {} total_steps={}"
+                                 .format(*log_data))
                     total_reward += episode_reward
                     total_steps += episode_steps
                     episode_reward = 0
@@ -273,19 +273,16 @@ class AutoencoderClassifyDemo(object):
             if self.stop_requested:
                 break
 
-            if self.use_batch_proportion:
-                batch_si, _, _, _, batch_returns = \
-                    self.combined_memory.sample_proportional(
-                        self.batch_size, self.batch_proportion)
-            else:
-                batch_si, _, _, _, batch_returns = \
-                    self.combined_memory.sample2(self.batch_size)
+            batch_si, _, _, _, batch_returns = \
+                self.combined_memory.sample_nowrap(self.batch_size,
+                                                   self.action_dist,
+                                                   type=self.sampling_type)
 
             feed_dict = {self.net.s: batch_si}
 
             if self.net.use_denoising:
                 feed_dict[self.net.training] = True
-            if self.net.use_sil:
+            if self.net.use_slv:
                 feed_dict[self.net.returns] = batch_returns
 
             ae_loss, _ = sess.run(
@@ -340,19 +337,16 @@ class AutoencoderClassifyDemo(object):
             if self.stop_requested:
                 break
 
-            if self.use_batch_proportion:
-                batch_si, batch_a, _, _, batch_returns = \
-                    self.combined_memory.sample_proportional(
-                        self.batch_size, self.batch_proportion)
-            else:
-                batch_si, batch_a, _, _, batch_returns = \
-                    self.combined_memory.sample2(self.batch_size)
+            batch_si, batch_a, _, _, batch_returns = \
+                self.combined_memory.sample_nowrap(self.batch_size,
+                                                   self.action_dist,
+                                                   type=self.sampling_type)
 
             feed_dict = {self.net.s: batch_si, self.net.a: batch_a}
 
             if self.net.use_denoising:
                 feed_dict[self.net.training] = True
-            if self.net.use_sil:
+            if self.net.use_slv:
                 feed_dict[self.net.returns] = batch_returns
 
             if self.net.sae:  # supervised autoencoder
@@ -408,17 +402,6 @@ class AutoencoderClassifyDemo(object):
                                  " loss={3:.8f} max_val={4:.4f}".format(
                                   i, acc, test_acc, train_loss, self.max_val))
 
-                # if i % (self.eval_freq * 10) == 0:
-                if False:
-                    total_reward, total_steps, n_episodes = \
-                        self.test_game(sess)
-                    summary.value.add(tag='Reward', simple_value=total_reward)
-                    summary.value.add(tag='Steps', simple_value=total_steps)
-                    summary.value.add(tag='Episodes', simple_value=n_episodes)
-
-                    if total_reward >= self.best_model_reward:
-                        self.save_best_model(total_reward, best_saver, sess)
-
                 summary_writer.add_summary(summary, i)
                 summary_writer.flush()
 
@@ -436,6 +419,15 @@ class AutoencoderClassifyDemo(object):
                     side_by_side = np.hstack((first_stack, out_stack))
                     file = self.folder / "sae_{0:07d}.png".format(i)
                     cv2.imwrite(str(file), side_by_side)
+
+        # Test final network on how well it plays the actual game
+        total_reward, total_steps, n_episodes = self.test_game(sess)
+        summary.value.add(tag='Reward', simple_value=total_reward)
+        summary.value.add(tag='Steps', simple_value=total_steps)
+        summary.value.add(tag='Episodes', simple_value=n_episodes)
+
+        # if total_reward >= self.best_model_reward:
+        #     self.save_best_model(total_reward, best_saver, sess)
 
 
 def ae_classify_demo(args):
@@ -491,22 +483,22 @@ def ae_classify_demo(args):
             end_str += '_l1beta{:.0E}'.format(args.l1_beta)
         if args.grad_norm_clip is not None:
             end_str += '_clipnorm{:.0E}'.format(args.grad_norm_clip)
-        if args.use_batch_proportion:
-            end_str += '_batchprop'
+        if args.sampling_type is not None:
+            end_str += '_{}'.format(args.sampling_type)
         if args.sae_classify_demo:
             end_str += '_sae'
             args.ae_classify_demo = False
-            if args.sl_loss_weight < 1:
-                end_str += '_slweight{:.0E}'.format(args.sl_loss_weight)
         else:
             end_str += '_ae'
             args.sae_classify_demo = False
+        if args.use_slv:
+            end_str += '_slv'
+        if args.sl_loss_weight < 1:
+            end_str += '_slweight{:.0E}'.format(args.sl_loss_weight)
         if args.use_denoising:
             end_str += '_noise{:.0E}'.format(args.noise_factor)
         if args.tied_weights:
             end_str += '_tied'
-        if args.use_sil:
-            end_str += '_sil'
         if args.loss_function == 'bce':
             end_str += '_bce'
         else:
@@ -551,7 +543,7 @@ def ae_classify_demo(args):
         in_shape=(args.input_shape, args.input_shape, 4),
         sae=args.sae_classify_demo, tied_weights=args.tied_weights,
         use_denoising=args.use_denoising, noise_factor=args.noise_factor,
-        loss_function=args.loss_function, use_sil=args.use_sil)
+        loss_function=args.loss_function, use_slv=args.use_slv)
 
     logger.info("optimizer: {}".format(
         'RMSPropOptimizer' if args.optimizer == 'rms' else 'AdamOptimizer'))
@@ -572,22 +564,26 @@ def ae_classify_demo(args):
                 ae_opt = tf.train.RMSPropOptimizer(
                     learning_rate=args.learn_rate,
                     decay=args.opt_alpha,
-                    epsilon=args.opt_epsilon)
+                    epsilon=args.opt_epsilon,
+                    )
             opt = tf.train.RMSPropOptimizer(
                 learning_rate=args.learn_rate,
                 decay=args.opt_alpha,
-                epsilon=args.opt_epsilon)
+                epsilon=args.opt_epsilon,
+                )
 
         else:  # Adam
             if args.ae_classify_demo:
                 ae_opt = tf.train.AdamOptimizer(
                     learning_rate=args.learn_rate,
                     beta1=beta1, beta2=beta2,
-                    epsilon=args.opt_epsilon)
+                    epsilon=args.opt_epsilon,
+                    )
             opt = tf.train.AdamOptimizer(
                 learning_rate=args.learn_rate,
                 beta1=beta1, beta2=beta2,
-                epsilon=args.opt_epsilon)
+                epsilon=args.opt_epsilon,
+                )
 
     ae_classify_demo = AutoencoderClassifyDemo(
         tf, network, args.gym_env, int(args.train_max_steps),
@@ -599,8 +595,10 @@ def ae_classify_demo(args):
         use_onevsall=args.onevsall_mtl,
         device=device, clip_norm=args.grad_norm_clip,
         game_state=game_state,
-        use_batch_proportion=args.use_batch_proportion,
-        sl_loss_weight=args.sl_loss_weight)
+        sampling_type=args.sampling_type,
+        sl_loss_weight=args.sl_loss_weight,
+        reward_constant=args.reward_constant,
+        )
 
     # prepare session
     sess = tf.Session(config=config, graph=network.graph)

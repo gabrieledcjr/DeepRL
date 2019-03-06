@@ -237,6 +237,7 @@ def run_a3c(args):
     A3CTrainingThread.use_grad_cam = args.use_grad_cam
     A3CTrainingThread.use_sil = args.use_sil
     A3CTrainingThread.log_idx = 1 if args.use_sil else 0
+    A3CTrainingThread.reward_constant = args.reward_constant
 
     if args.unclipped_reward:
         A3CTrainingThread.reward_type = "RAW"
@@ -251,14 +252,16 @@ def run_a3c(args):
             action_size, max_len=100000, gamma=args.gamma,
             clip=False if args.unclipped_reward else True,
             height=input_shape[0], width=input_shape[1],
-            phi_length=input_shape[2], priority=args.priority_memory)
+            phi_length=input_shape[2], priority=args.priority_memory,
+            reward_constant=args.reward_constant)
 
         if demo_memory is not None:
             temp_memory = SILReplayMemory(
                 action_size, max_len=10**5, gamma=args.gamma,
                 clip=False if args.unclipped_reward else True,
                 height=input_shape[0], width=input_shape[1],
-                phi_length=input_shape[2])
+                phi_length=input_shape[2],
+                reward_constant=args.reward_constant)
 
             for idx in list(demo_memory.keys()):
                 demo = demo_memory[idx]
@@ -274,8 +277,9 @@ def run_a3c(args):
                                    " demo_memory {}".format(
                                     len(temp_memory), idx))
                     temp_memory.reset()
-            logger.info("SIL: memory size {}".format(len(shared_memory)))
 
+            # log memory information
+            shared_memory.log()
             del temp_memory
 
     n_shapers = args.parallel_size  # int(args.parallel_size * .25)
@@ -322,7 +326,7 @@ def run_a3c(args):
             end_str = ''
             if args.use_mnih_2015:
                 end_str += '_mnih2015'
-            end_str += '_l2beta1E-04_batchprop'  # TODO: make this an argument
+            end_str += '_l2beta1E-04_oversample'  # TODO(make this an argument)
             transfer_folder += end_str
 
         transfer_folder = pathlib.Path(transfer_folder)
@@ -390,7 +394,7 @@ def run_a3c(args):
                     global_network.b_conv3,
                     ]
 
-            if '_sil' in str(transfer_folder):
+            if '_slv' in str(transfer_folder):
                 transfer_var_list += [
                     global_network.W_fc3,
                     global_network.b_fc3,
@@ -509,7 +513,7 @@ def run_a3c(args):
         episode_end = True
 
         if a3c_worker.sil_thread:
-            # TODO: add as command-line parameters later
+            # TODO(add as command-line parameters later)
             sil_ctr = 0
             sil_interval = 0  # bigger number => slower SIL updates
             m_repeat = 4

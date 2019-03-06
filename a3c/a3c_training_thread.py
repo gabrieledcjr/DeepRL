@@ -44,6 +44,7 @@ class A3CTrainingThread(object):
     use_grad_cam = False
     use_sil = False
     log_idx = 1
+    reward_constant = 0
 
     def __init__(self, thread_index, global_net, local_net,
                  initial_learning_rate, learning_rate_input, grad_applier,
@@ -108,15 +109,15 @@ class A3CTrainingThread(object):
                 self.local_net.total_loss, var_refs)
 
             if self.sil_thread:
-                # TODO: add as command-line parameters later
+                # TODO(add as command-line parameters later)
                 critic_lr = 0.5
                 entropy_beta = 0
-                w_loss = 1
+                w_loss = 1.0
 
                 min_batch_size = 1
-                if reward_clipped:
-                    min_batch_size = int(np.ceil(self.batch_size / 16) * 2)
-                    critic_lr = 0.01
+                # if reward_clipped:
+                #     min_batch_size = int(np.ceil(self.batch_size / 16) * 2)
+                #     critic_lr = 0.01
 
                 logger.info("sil batch_size: {}".format(self.batch_size))
                 logger.info("sil min_batch_size: {}".format(min_batch_size))
@@ -126,8 +127,7 @@ class A3CTrainingThread(object):
                 self.local_net.prepare_sil_loss(entropy_beta=entropy_beta,
                                                 w_loss=w_loss,
                                                 critic_lr=critic_lr,
-                                                min_batch_size=min_batch_size,
-                                                clip_reward=reward_clipped)
+                                                min_batch_size=min_batch_size)
                 self.sil_gradients = tf.gradients(
                     self.local_net.total_loss_sil, var_refs)
 
@@ -195,7 +195,8 @@ class A3CTrainingThread(object):
                 clip=reward_clipped,
                 height=self.local_net.in_shape[0],
                 width=self.local_net.in_shape[1],
-                phi_length=self.local_net.in_shape[2])
+                phi_length=self.local_net.in_shape[2],
+                reward_constant=self.reward_constant)
 
     def _anneal_learning_rate(self, global_time_step):
         learning_rate = self.initial_learning_rate \

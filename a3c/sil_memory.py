@@ -15,7 +15,9 @@ logger = logging.getLogger("sil_memory")
 class SILReplayMemory(object):
 
     def __init__(self, num_actions, max_len=None, gamma=0.99, clip=False,
-                 height=84, width=84, phi_length=4, priority=False):
+                 height=84, width=84, phi_length=4, priority=False,
+                 reward_constant=0):
+        """Initialize SILReplayMemory class."""
         if priority:
             self.buff = PrioritizedReplayBuffer(max_len, alpha=0.6)
         else:
@@ -33,6 +35,18 @@ class SILReplayMemory(object):
         self.height = height
         self.width = width
         self.phi_length = phi_length
+        self.reward_constant = reward_constant
+
+    def log(self):
+        """Log memory information."""
+        logger.info("priority: {}".format(self.priority))
+        logger.info("maxlen: {}".format(self.maxlen))
+        logger.info("gamma: {}".format(self.gamma))
+        logger.info("clip: {}".format(self.clip))
+        logger.info("h x w: {} x {}".format(self.height, self.width))
+        logger.info("phi_length: {}".format(self.phi_length))
+        logger.info("reward_constant: {}".format(self.reward_constant))
+        logger.info("memory size: {}".format(self.__len__()))
 
     def add_item(self, s, a, rew, t):
         """Use only for episode memory."""
@@ -77,7 +91,7 @@ class SILReplayMemory(object):
         """Use only in SIL memory."""
         assert x.terminal[-1]  # assert that last state is a terminal state
         x_returns = self.__class__.compute_returns(
-            x.rewards, x.terminal, self.gamma, self.clip)
+            x.rewards, x.terminal, self.gamma, self.clip, self.reward_constant)
 
         if self.priority:
             data = zip(x.states, x.actions, x_returns)

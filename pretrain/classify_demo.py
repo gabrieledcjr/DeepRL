@@ -31,7 +31,6 @@ import sys
 from common.game_state import GameState
 from common.game_state import get_wrapper_by_name
 from common.replay_memory import ReplayMemoryReturns
-from common.util import compute_proportions
 from common.util import load_memory
 from common.util import LogFormatter
 from common.util import percent_decrease
@@ -50,7 +49,7 @@ class ClassifyDemo(object):
                  grad_applier, eval_freq=5000, demo_memory_folder=None,
                  demo_ids=None, folder='', exclude_num_demo_ep=0,
                  use_onevsall=False, device='/cpu:0', clip_norm=None,
-                 game_state=None, use_batch_proportion=False):
+                 game_state=None, sampling_type=None, reward_constant=0):
         """Initialize ClassifyDemo class."""
         assert demo_ids is not None
         assert game_state is not None
@@ -67,28 +66,24 @@ class ClassifyDemo(object):
         self.stop_requested = False
         self.game_state = game_state
         self.best_model_reward = -(sys.maxsize)
-        self.use_batch_proportion = use_batch_proportion
+        self.sampling_type = sampling_type
 
         logger.info("train_max_steps: {}".format(self.train_max_steps))
         logger.info("batch_size: {}".format(self.batch_size))
         logger.info("eval_freq: {}".format(self.eval_freq))
         logger.info("use_onevsall: {}".format(self.use_onevsall))
-        logger.info("use_batch_proportion: {}".format(
-            self.use_batch_proportion))
+        logger.info("sampling_type: {}".format(
+            self.sampling_type))
+        logger.info("clip_norm: {}".format(clip_norm))
+        logger.info("reward_constant: {}".format(reward_constant))
 
-        self.demo_memory, actions_ctr, total_rewards, total_steps = \
+        self.demo_memory, acts_ctr, total_rewards, total_steps = \
             load_memory(name=None, demo_memory_folder=demo_memory_folder,
                         demo_ids=demo_ids, imgs_normalized=False)
 
-        action_freq = [actions_ctr[a] for a in range(self.net.action_size)]
+        self.action_dist = [acts_ctr[a] for a in range(self.net.action_size)]
 
-        if self.use_batch_proportion:
-            self.batch_proportion = compute_proportions(
-                self.batch_size, action_freq)
-            logger.info("batch_proportion: {}".format(self.batch_proportion))
-
-        self.net.prepare_loss(sl_loss_weight=1.0, critic_weight=0.01)
-
+        self.net.prepare_loss(sl_loss_weight=1.0, val_weight=0.5)
         self.net.prepare_evaluate()
         self.apply_gradients = self.prepare_compute_gradients(
             grad_applier, device, clip_norm=clip_norm)
@@ -132,7 +127,8 @@ class ClassifyDemo(object):
         for idx in list(self.demo_memory.keys()):
             demo = self.demo_memory[idx]
             exp_ret = ReplayMemoryReturns.compute_returns(
-                demo.rewards, demo.terminal, 0.99, clip=False)
+                demo.rewards, demo.terminal, 0.99, clip=False,
+                c=reward_constant)
             returns = np.append(returns, exp_ret)
 
             for i in range(demo.max_steps):
@@ -229,7 +225,10 @@ class ClassifyDemo(object):
         episode_steps = 0
         n_episodes = 0
         while max_steps > 0:
-            model_pi = self.net.run_policy(sess, self.game_state.s_t)
+            state = cv2.resize(self.game_state.s_t,
+                               self.net.in_shape[:-1],
+                               interpolation=cv2.INTER_AREA)
+            model_pi = self.net.run_policy(sess, state)
             action, confidence = self.choose_action_with_high_confidence(
                 model_pi, exclude_noop=False)
 
@@ -254,8 +253,8 @@ class ClassifyDemo(object):
                     steps_str = colored("steps={}".format(
                         episode_steps), "blue")
                     log_data = (n_episodes, score_str, steps_str, total_steps)
-                    # logger.debug("test: trial={} {} {} total_steps={}"
-                    #              .format(*log_data))
+                    logger.debug("test: trial={} {} {} total_steps={}"
+                                 .format(*log_data))
                     total_reward += episode_reward
                     total_steps += episode_steps
                     episode_reward = 0
@@ -295,17 +294,14 @@ class ClassifyDemo(object):
             if self.stop_requested:
                 break
 
-            if self.use_batch_proportion:
-                batch_si, batch_a, _, _, batch_returns = \
-                    self.combined_memory.sample_proportional(
-                        self.batch_size, self.batch_proportion)
-            else:
-                batch_si, batch_a, _, _, batch_returns = \
-                    self.combined_memory.sample2(self.batch_size)
+            batch_si, batch_a, _, _, batch_returns = \
+                self.combined_memory.sample_nowrap(self.batch_size,
+                                                   self.action_dist,
+                                                   type=self.sampling_type)
 
             feed_dict = {self.net.s: batch_si, self.net.a: batch_a}
 
-            if self.net.use_sil:
+            if self.net.use_slv:
                 feed_dict[self.net.returns] = batch_returns
 
             train_loss, acc, max_value, _ = sess.run([
@@ -337,18 +333,17 @@ class ClassifyDemo(object):
                              " loss={3:.4f} max_val={4:}".format(
                               i, acc, test_acc, train_loss, self.max_val))
 
-                if False:
-                    total_reward, total_steps, n_episodes = \
-                        self.test_game(sess)
-                    summary.value.add(tag='Reward', simple_value=total_reward)
-                    summary.value.add(tag='Steps', simple_value=total_steps)
-                    summary.value.add(tag='Episodes', simple_value=n_episodes)
-
-                    if total_reward >= self.best_model_reward:
-                        self.save_best_model(total_reward, best_saver, sess)
-
                 summary_writer.add_summary(summary, i)
                 summary_writer.flush()
+
+        # Test final network on how well it plays the actual game
+        total_reward, total_steps, n_episodes = self.test_game(sess)
+        summary.value.add(tag='Reward', simple_value=total_reward)
+        summary.value.add(tag='Steps', simple_value=total_steps)
+        summary.value.add(tag='Episodes', simple_value=n_episodes)
+
+        # if total_reward >= self.best_model_reward:
+        #     self.save_best_model(total_reward, best_saver, sess)
 
     def train_onevsall(self, sess, summary_op, summary_writer,
                        exclude_noop=False, best_saver=None):
@@ -363,7 +358,7 @@ class ClassifyDemo(object):
         summary_writer -- tf summary writer
         best_saver -- tf saver for best model
         """
-        assert not self.net.use_sil
+        assert not self.net.use_slv
 
         self.max_val = [-(sys.maxsize) for _ in range(self.net.action_size)]
         train_class_ctr = [0 for _ in range(self.net.action_size)]
@@ -473,10 +468,10 @@ def classify_demo(args):
             end_str += '_l1beta{:.0E}'.format(args.l1_beta)
         if args.grad_norm_clip is not None:
             end_str += '_clipnorm{:.0E}'.format(args.grad_norm_clip)
-        if args.use_batch_proportion:
-            end_str += '_batchprop'
-        if args.use_sil:
-            end_str += '_sil'
+        if args.sampling_type is not None:
+            end_str += '_{}'.format(args.sampling_type)
+        if args.use_slv:
+            end_str += '_slv'
         model_folder += end_str
 
     if args.append_experiment_num is not None:
@@ -510,7 +505,7 @@ def classify_demo(args):
 
     input_shape = (args.input_shape, args.input_shape, 4)
     if args.onevsall_mtl:
-        assert not args.use_sil  # Does not support SIL
+        assert not args.use_slv  # Does not support SLV
         MTLBinaryClassNetwork.use_mnih_2015 = args.use_mnih_2015
         MTLBinaryClassNetwork.l1_beta = args.l1_beta
         MTLBinaryClassNetwork.l2_beta = args.l2_beta
@@ -523,7 +518,7 @@ def classify_demo(args):
         MultiClassNetwork.use_gpu = not args.cpu_only
         network = MultiClassNetwork(
             action_size, -1, device, padding=args.padding,
-            in_shape=input_shape, use_sil=args.use_sil)
+            in_shape=input_shape, use_slv=args.use_slv)
 
     logger.info("optimizer: {}".format(
         'RMSPropOptimizer' if args.optimizer == 'rms' else 'AdamOptimizer'))
@@ -544,25 +539,29 @@ def classify_demo(args):
                     opt.append(tf.train.RMSPropOptimizer(
                         learning_rate=args.learn_rate,
                         decay=args.opt_alpha,
-                        epsilon=args.opt_epsilon))
+                        epsilon=args.opt_epsilon,
+                        ))
                 else:
                     opt.append(tf.train.AdamOptimizer(
                         learning_rate=args.learn_rate,
                         beta1=beta1, beta2=beta2,
-                        epsilon=args.opt_epsilon))
+                        epsilon=args.opt_epsilon,
+                        ))
 
         else:
             if args.optimizer == 'rms':
                 opt = tf.train.RMSPropOptimizer(
                     learning_rate=args.learn_rate,
                     decay=args.opt_alpha,
-                    epsilon=args.opt_epsilon)
+                    epsilon=args.opt_epsilon,
+                    )
 
             else:  # Adam
                 opt = tf.train.AdamOptimizer(
                     learning_rate=args.learn_rate,
                     beta1=beta1, beta2=beta2,
-                    epsilon=args.opt_epsilon)
+                    epsilon=args.opt_epsilon,
+                    )
 
     classify_demo = ClassifyDemo(
         tf, network, args.gym_env, int(args.train_max_steps),
@@ -574,7 +573,9 @@ def classify_demo(args):
         use_onevsall=args.onevsall_mtl,
         device=device, clip_norm=args.grad_norm_clip,
         game_state=game_state,
-        use_batch_proportion=args.use_batch_proportion)
+        sampling_type=args.sampling_type,
+        reward_constant=args.reward_constant,
+        )
 
     # prepare session
     sess = tf.Session(config=config, graph=network.graph)

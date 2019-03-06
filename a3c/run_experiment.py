@@ -115,6 +115,9 @@ def main():
     parser.add_argument('--transformed-bellman', action='store_true',
                         help='use transformed bellman equation')
     parser.set_defaults(transformed_bellman=False)
+    parser.add_argument('--reward-constant', type=float, default=2.0,
+                        help='value added to all non-zero rewards when using'
+                             ' transformed bellman operator')
 
     parser.add_argument('--load-pretrained-model', action='store_true')
     parser.set_defaults(load_pretrained_model=False)

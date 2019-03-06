@@ -92,18 +92,6 @@ def generate_image_for_cam_video(state_img, cam_img, global_t, img_index, action
 
     return vcat_title_camstate
 
-def compute_proportions(batch_size, action_distribution):
-    num_nonzeros = np.count_nonzero(action_distribution)
-    max_action_index = np.argmax(action_distribution)
-    each_action, remainder = divmod(batch_size, num_nonzeros)
-    proportions = [each_action] * len(action_distribution)
-    for index, n_actions in enumerate(action_distribution):
-        if n_actions == 0:
-            proportions[index] = 0
-    if remainder > 0:
-        proportions[max_action_index] += remainder
-    return proportions
-
 def solve_weight(numbers):
     # https://stackoverflow.com/questions/38363764/
     # class-weight-for-imbalance-data-in-python-scikit-learns-logistic-regression

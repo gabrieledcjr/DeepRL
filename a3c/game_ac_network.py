@@ -65,9 +65,8 @@ class GameACNetwork(ABC):
             self.total_loss = pg_loss - entropy * entropy_beta \
                 + vf_loss * critic_lr
 
-    def prepare_sil_loss(self, entropy_beta=0.01, w_loss=1.0, critic_lr=0.01,
-                         min_batch_size=1, clip=1.0, max_nlogp=5,
-                         clip_reward=False):
+    def prepare_sil_loss(self, entropy_beta=0, w_loss=1.0, critic_lr=0.5,
+                         min_batch_size=1):
         """Prepare self-imitation loss.
 
         Keyword arguments:
@@ -97,78 +96,39 @@ class GameACNetwork(ABC):
             self.weights = tf.placeholder(tf.float32, shape=[None],
                                           name="memory_weights")
 
-            if clip_reward:
-                # Original implementation from A2C-SIL github
-                mask = tf.where(
-                    self.returns - tf.squeeze(self.v) > 0.0,
-                    tf.ones_like(self.returns), tf.zeros_like(self.returns))
-                self.num_valid_samples = tf.reduce_sum(mask)
-                self.num_samples = tf.maximum(self.num_valid_samples,
-                                              min_batch_size)
+            # Our implementation with no reward clipping
+            mask = tf.where(
+                self.returns - tf.squeeze(self.v) > 0.0,
+                tf.ones_like(self.returns), tf.zeros_like(self.returns))
+            self.num_valid_samples = tf.reduce_sum(mask)
+            self.num_samples = tf.maximum(self.num_valid_samples,
+                                          min_batch_size)
 
-                neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
-                    logits=self.logits, labels=self.a_sil)
+            neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
+                logits=self.logits, labels=self.a_sil)
 
-                clipped_nlogp = tf.stop_gradient(
-                    tf.minimum(neglogpac, max_nlogp) - neglogpac) + neglogpac
+            v_estimate = tf.squeeze(self.v)
 
-                v_estimate = tf.squeeze(self.v)
+            advs = self.returns - v_estimate
+            self.clipped_advs = tf.stop_gradient(
+                tf.maximum(tf.zeros_like(advs), advs))
 
-                # From A2C-SIL github
-                self.clipped_advs = tf.stop_gradient(
-                    tf.clip_by_value(self.returns - v_estimate, 0.0, clip))
+            sil_pg_loss = self.weights * neglogpac * self.clipped_advs
+            sil_pg_loss = tf.reduce_sum(sil_pg_loss) / self.num_samples
 
-                sil_pg_loss = self.weights * clipped_nlogp * self.clipped_advs
-                sil_pg_loss = tf.reduce_sum(sil_pg_loss) / self.num_samples
+            entropy = self.weights * cat_entropy(self.logits) * mask
+            entropy = tf.reduce_sum(entropy) / self.num_samples
 
-                entropy = self.weights * cat_entropy(self.logits) * mask
-                entropy = tf.reduce_sum(entropy) / self.num_samples
+            val_error = v_estimate - self.returns
+            delta = tf.stop_gradient(
+                tf.minimum(val_error, tf.zeros_like(self.returns)) * mask)
+            sil_val_loss = self.weights * val_error * delta
+            sil_val_loss = tf.reduce_sum(sil_val_loss) / self.num_samples
+            sil_val_loss *= 0.5
 
-                delta = tf.stop_gradient(
-                    tf.clip_by_value(v_estimate - self.returns, -clip, 0)
-                    * mask)
-                sil_val_loss = self.weights * v_estimate * delta
-                sil_val_loss = tf.reduce_sum(sil_val_loss) / self.num_samples
-                sil_val_loss *= 0.5
-
-                self.total_loss_sil = sil_pg_loss \
-                    - entropy * entropy_beta + sil_val_loss * critic_lr
-                self.total_loss_sil *= w_loss
-
-            else:
-                # Our implementation with no reward clipping
-                mask = tf.where(
-                    self.returns - tf.squeeze(self.v) > 0.0,
-                    tf.ones_like(self.returns), tf.zeros_like(self.returns))
-                self.num_valid_samples = tf.reduce_sum(mask)
-                self.num_samples = tf.maximum(self.num_valid_samples,
-                                              min_batch_size)
-
-                neglogpac = tf.nn.softmax_cross_entropy_with_logits_v2(
-                    logits=self.logits, labels=self.a_sil)
-
-                v_estimate = tf.squeeze(self.v)
-
-                advs = self.returns - v_estimate
-                self.clipped_advs = tf.stop_gradient(
-                    tf.maximum(tf.zeros_like(advs), advs))
-
-                sil_pg_loss = self.weights * neglogpac * self.clipped_advs
-                sil_pg_loss = tf.reduce_sum(sil_pg_loss) / self.num_samples
-
-                entropy = self.weights * cat_entropy(self.logits) * mask
-                entropy = tf.reduce_sum(entropy) / self.num_samples
-
-                val_error = v_estimate - self.returns
-                delta = tf.stop_gradient(
-                    tf.minimum(val_error, tf.zeros_like(self.returns)) * mask)
-                sil_val_loss = self.weights * val_error * delta
-                sil_val_loss = tf.reduce_sum(sil_val_loss) / self.num_samples
-                sil_val_loss *= 0.5
-
-                self.total_loss_sil = sil_pg_loss - entropy * entropy_beta \
-                    + sil_val_loss * critic_lr
-                self.total_loss_sil *= w_loss
+            self.total_loss_sil = sil_pg_loss - entropy * entropy_beta \
+                + sil_val_loss * critic_lr
+            self.total_loss_sil *= w_loss
 
     def build_grad_cam_grads(self):
         """Compute gradients for Grad-CAM.
@@ -315,7 +275,7 @@ class GameACNetwork(ABC):
                 logger.info("    {} loaded".format(var.op.name))
                 sleep(1)
 
-            if transfer_all and '_sil' not in str(folder):
+            if transfer_all and '_slv' not in str(folder):
                 # scale down last layer if it's transferred
                 logger.info("Normalizing output layer with max value"
                             " {}...".format(transfer_max_output_val))

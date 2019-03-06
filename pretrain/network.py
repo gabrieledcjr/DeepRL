@@ -156,12 +156,33 @@ class Network(ABC):
             feed_dict={self.s: [state], self.a: [action]})
         return activations[0], gradients[0]
 
+    def prepare_slv_loss(self, sl_xentropy, sl_loss_weight, val_weight):
+        """Prepare self-imitation loss."""
+        self.returns = tf.placeholder(
+            tf.float32, shape=[None], name="sil_loss")
+
+        v_estimate = tf.squeeze(self.v)
+        advs = self.returns - v_estimate
+        clipped_advs = tf.stop_gradient(
+            tf.maximum(tf.zeros_like(advs), advs))
+
+        sl_loss = sl_xentropy
+        # sl_loss = sl_xentropy * clipped_advs
+
+        val_loss = tf.squared_difference(
+            tf.squeeze(self.v), self.returns) / 2.0
+
+        loss = tf.reduce_mean(sl_loss) * sl_loss_weight
+        loss += tf.reduce_mean(val_loss) * val_weight
+
+        return sl_loss, val_loss, loss
+
 
 class MultiClassNetwork(Network):
     """Multi-class Classification Network."""
 
     def __init__(self, action_size, thread_index, device="/cpu:0",
-                 padding="VALID", in_shape=(84, 84, 4), use_sil=False):
+                 padding="VALID", in_shape=(84, 84, 4), use_slv=False):
         """Initialize MultiClassNetwork class."""
         Network.__init__(self, action_size, thread_index, device)
         self.graph = tf.Graph()
@@ -176,12 +197,12 @@ class MultiClassNetwork(Network):
             colored(self.l2_beta, "green" if self.l2_beta > 0. else "red")))
         logger.info("padding: {}".format(padding))
         logger.info("in_shape: {}".format(in_shape))
-        logger.info("use_sil: {}".format(
-            colored(use_sil, "green" if use_sil else "red")))
+        logger.info("use_slv: {}".format(
+            colored(use_slv, "green" if use_slv else "red")))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
         self.in_shape = in_shape
-        self.use_sil = use_sil
+        self.use_slv = use_slv
 
         with self.graph.as_default():
             # state (input)
@@ -235,7 +256,7 @@ class MultiClassNetwork(Network):
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
 
-                if self.use_sil:
+                if self.use_slv:
                     # weight for value output layer
                     self.W_fc3, self.b_fc3 = self.fc_variable(
                         [self.last_hidden_fc_output_size, 1], layer_name='fc3')
@@ -276,14 +297,15 @@ class MultiClassNetwork(Network):
                 self.pi = tf.nn.softmax(self.logits)
                 self.max_value = tf.reduce_max(self.logits, axis=None)
 
-                if self.use_sil:
+                if self.use_slv:
                     # value (output)
                     self.v = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
                     self.v0 = self.v[:, 0]
 
                 self.saver = tf.train.Saver()
 
-    def prepare_loss(self, sl_loss_weight=1.0, critic_weight=0.01):
+    def prepare_loss(self, sl_loss_weight=1.0, val_weight=0.01,
+                     min_batch_size=4):
         """Prepare tf operations training loss."""
         with self.graph.as_default():
             with tf.device(self._device), tf.name_scope("Loss"):
@@ -294,25 +316,10 @@ class MultiClassNetwork(Network):
                 sl_xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
                     labels=self.a, logits=self.logits)
 
-                if self.use_sil:
-                    self.returns = tf.placeholder(
-                        tf.float32, shape=[None], name="sil_loss")
-
-                    v_estimate = tf.squeeze(self.v)
-                    advs = self.returns - v_estimate
-                    clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
-                    sil_policy_loss = sl_xentropy \
-                        * tf.stop_gradient(clipped_advs)
-
-                    val_error = v_estimate - self.returns
-                    clipped_val = tf.maximum(val_error,
-                                             tf.zeros_like(val_error))
-                    sil_val_loss = tf.square(clipped_val) * 0.5
-
-                    self.sl_loss = tf.reduce_mean(sil_policy_loss) \
-                        * sl_loss_weight
-                    self.sl_loss += tf.reduce_mean(sil_val_loss) \
-                        * critic_weight
+                if self.use_slv:
+                    sl_loss, val_loss, self.sl_loss = \
+                        self.prepare_slv_loss(sl_xentropy, sl_loss_weight,
+                                              val_weight)
                 else:
                     self.sl_loss = tf.reduce_mean(sl_xentropy)
 
@@ -354,7 +361,7 @@ class MultiClassNetwork(Network):
                 self.W_fc2, self.b_fc2,
                 ]
 
-        if self.use_sil:
+        if self.use_slv:
             vars.extend([self.W_fc3, self.b_fc3])
 
         return vars
@@ -369,7 +376,7 @@ class MultiClassNetwork(Network):
         else:
             vars = [self.W_conv1, self.W_conv2, self.W_fc1, self.W_fc2]
 
-        if self.use_sil:
+        if self.use_slv:
             vars.extend([self.W_fc3])
 
         return vars
@@ -398,7 +405,7 @@ class AutoEncoderNetwork(Network):
     def __init__(self, action_size, thread_index, device="/cpu:0",
                  padding="SAME", in_shape=(84, 84, 4), sae=False,
                  tied_weights=False, use_denoising=False, noise_factor=0.5,
-                 loss_function='mse', use_sil=False):
+                 loss_function='mse', use_slv=False):
         """Initialize AutoEncoderNetwork class."""
         Network.__init__(self, action_size, thread_index, device)
         assert self.use_mnih_2015
@@ -419,8 +426,8 @@ class AutoEncoderNetwork(Network):
             logger.info("noise_factor: {}".format(noise_factor))
         logger.info("loss_function: {}".format(loss_function))
         logger.info("in_shape: {}".format(in_shape))
-        logger.info("use_sil: {}".format(
-            colored(use_sil, "green" if use_sil else "red")))
+        logger.info("use_slv: {}".format(
+            colored(use_slv, "green" if use_slv else "red")))
         scope_name = "net_" + str(self._thread_index)
         self.last_hidden_fc_output_size = 512
         self.sae = sae  # supervised auto-encoder
@@ -428,7 +435,7 @@ class AutoEncoderNetwork(Network):
         self.use_denoising = use_denoising
         self.loss_function = loss_function
         self.in_shape = in_shape
-        self.use_sil = use_sil
+        self.use_slv = use_slv
 
         with self.graph.as_default():
             # state (input)
@@ -490,7 +497,7 @@ class AutoEncoderNetwork(Network):
                 tf.add_to_collection('transfer_params', self.W_fc2)
                 tf.add_to_collection('transfer_params', self.b_fc2)
 
-                if self.use_sil:
+                if self.use_slv:
                     # weight for value output layer
                     self.W_fc3, self.b_fc3 = self.fc_variable(
                         [self.last_hidden_fc_output_size, 1], layer_name='fc3')
@@ -536,7 +543,7 @@ class AutoEncoderNetwork(Network):
                 self.pi = tf.nn.softmax(self.logits)
                 self.max_value = tf.reduce_max(self.logits, axis=None)
 
-                if self.use_sil:
+                if self.use_slv:
                     # value (output)
                     self.v = tf.matmul(h_fc1, self.W_fc3) + self.b_fc3
                     self.v0 = self.v[:, 0]
@@ -594,7 +601,7 @@ class AutoEncoderNetwork(Network):
                 logger.info("d_h_conv1 {}".format(
                     self.decoder_out.get_shape()))
 
-    def prepare_loss(self, sl_loss_weight=1.0, critic_weight=0.005):
+    def prepare_loss(self, sl_loss_weight=1.0, val_weight=0.05):
         """Prepare tf operations training loss."""
         with self.graph.as_default():
             with tf.device(self._device), tf.name_scope("Loss"):
@@ -605,25 +612,10 @@ class AutoEncoderNetwork(Network):
                 sl_xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
                     labels=self.a, logits=self.logits)
 
-                if self.use_sil:
-                    self.returns = tf.placeholder(
-                        tf.float32, shape=[None], name="sil_loss")
-
-                    v_estimate = tf.squeeze(self.v)
-                    advs = self.returns - v_estimate
-                    clipped_advs = tf.maximum(advs, tf.zeros_like(advs))
-                    sil_policy_loss = sl_xentropy \
-                        * tf.stop_gradient(clipped_advs)
-
-                    val_error = v_estimate - self.returns
-                    clipped_val = tf.maximum(val_error,
-                                             tf.zeros_like(val_error))
-                    sil_val_loss = tf.square(clipped_val) * 0.5
-
-                    self.sl_loss = tf.reduce_mean(sil_policy_loss) \
-                        * sl_loss_weight
-                    self.sl_loss += tf.reduce_mean(sil_val_loss) \
-                        * critic_weight
+                if self.use_slv:
+                    sl_loss, val_loss, self.sl_loss = \
+                        self.prepare_slv_loss(sl_xentropy, sl_loss_weight,
+                                              val_weight)
                 else:
                     self.sl_loss = tf.reduce_mean(sl_xentropy)
 
@@ -640,10 +632,10 @@ class AutoEncoderNetwork(Network):
 
                 self.ae_loss = tf.reduce_mean(ae_error)
                 if self.sae:  # supervised auto-encoder
-                    if self.use_sil:
+                    if self.use_slv:
                         self.total_loss = tf.reduce_mean(
-                            (sil_policy_loss * sl_loss_weight)
-                            + (sil_val_loss * 0.005) + ae_error)
+                            (sl_loss * sl_loss_weight)
+                            + (val_loss * val_weight) + ae_error)
                     else:
                         self.total_loss = tf.reduce_mean(
                             (sl_xentropy * sl_loss_weight) + ae_error)
@@ -709,7 +701,7 @@ class AutoEncoderNetwork(Network):
             # train only output layer for classifier when using AE
             vars = [self.W_fc2, self.b_fc2]
 
-        if self.use_sil:
+        if self.use_slv:
             vars.extend([self.W_fc3, self.b_fc3])
 
         return vars
@@ -736,7 +728,7 @@ class AutoEncoderNetwork(Network):
             # train only output layer for classifier when using AE
             vars = [self.W_fc2]
 
-        if self.use_sil:
+        if self.use_slv:
             vars.extend([self.W_fc3])
 
         return vars

@@ -118,8 +118,8 @@ def main():
         '--exclude-num-demo-ep', type=int, default=0,
         help='exclude number of demo episodes from classification training')
 
-    parser.add_argument('--use-batch-proportion', action='store_true')
-    parser.set_defaults(use_batch_proportion=False)
+    parser.add_argument('--sampling-type', type=str, default=None,
+                        help='None, oversample, proportional')
 
     parser.add_argument('--onevsall-mtl', action='store_true')
     parser.set_defaults(onevsall_mtl=False)
@@ -132,9 +132,13 @@ def main():
     parser.add_argument('--use-grad-cam', action='store_true')
     parser.set_defaults(use_grad_cam=False)
 
-    parser.add_argument('--use-sil', action='store_true',
-                        help='self imitation learning loss')
-    parser.set_defaults(use_sil=False)
+    parser.add_argument('--use-slv', action='store_true',
+                        help='supervised loss with value loss')
+    parser.set_defaults(use_slv=False)
+
+    parser.add_argument('--reward-constant', type=float, default=2.0,
+                        help='value added to all non-zero rewards when using'
+                             ' transformed bellman operator')
 
     args = parser.parse_args()
 
