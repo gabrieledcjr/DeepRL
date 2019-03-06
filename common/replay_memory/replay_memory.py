@@ -246,10 +246,12 @@ class ReplayMemory(object):
         return self.get_item(key, check_terminal=False)
 
     def __str__(self):
+        """Output string info about the class."""
         specs = "Replay memory:\n"
         specs += "  size:{}\n".format(self.size)
         specs += "  max_steps:{}\n".format(self.max_steps)
         specs += "  imgs shape:{}\n".format(np.shape(self.imgs))
+        specs += "  wrap memory:{}\n".format(self.wrap_memory)
         return specs
 
     def sample_sequential(self, batch_size):
@@ -295,6 +297,7 @@ class ReplayMemory(object):
         return states, actions, rewards, terminals
 
     def create_index_array_per_action(self):
+        """Cluster indices for each action into an array."""
         assert not self.wrap_memory
         self.array_per_action = defaultdict(list)
         for index in range(len(self)):
@@ -303,70 +306,43 @@ class ReplayMemory(object):
                 continue
             self.array_per_action[a0].append(index)
 
-    def sample_proportional(self, batch_size, batch_proportion, onevsall=False,
-                            n_class=None):
-        """Return a proportional random sample."""
-        assert not self.wrap_memory
-        assert batch_size == sum(batch_proportion)
+    def random_batch_actions(self, batch_size, action_distribution, type=None):
+        """Sample proportional or oversample.
 
-        if self.array_per_action is None:
-            self.create_index_array_per_action()
+        Types:
+        oversample -- sampling equally from all actions
+        proportional -- sample based on proportion to the action distribution
+        None -- randomly sample from any action
+        """
+        assert type == 'oversample' or type == 'proportional'
 
+        a = range(len(action_distribution))
+        if type == 'oversample':
+            num_nonzeros = np.count_nonzero(action_distribution)
+            mask = np.clip(action_distribution, 0, 1)
+            proportions = np.ones(len(action_distribution), dtype=np.float32)
+            proportions /= num_nonzeros
+            proportions *= mask
+        else:
+            # Proportional
+            proportions = action_distribution / np.sum(action_distribution)
+
+        sample = np.random.choice(a, size=batch_size, p=proportions)
+        return sample
+
+    def _sample_by_indices(self, batch_size, onevsall=False, n_class=None):
         # Allocate the response.
         st_shape = (batch_size, self.height, self.width, self.phi_length)
         states = np.zeros(st_shape, dtype=np.uint8)
         rewards = np.zeros(batch_size, dtype=np.float32)
         terminals = np.zeros(batch_size, dtype=np.int)
+        returns = np.zeros(batch_size, dtype=np.float32)
 
         if onevsall:
             actions = np.zeros((batch_size, 2), dtype=np.float32)
         else:
             actions = np.zeros((batch_size, self.num_actions),
-                               dtype=np.float32)
-
-        count = 0
-        for action, proportion in enumerate(batch_proportion):
-            i = 0
-            while i < proportion:
-                index = random.choice(self.array_per_action[action])
-                s0, a0, l0, fs0, s1, r1, t1, l1 = self.get_item(index)
-                assert action == a0
-
-                if s0 is None or s1 is None:
-                    continue
-
-                # Add the state transition to the response.
-                states[count] = np.copy(s0)
-                if onevsall:
-                    if a0 == n_class:
-                        actions[count][0] = 1
-                    else:
-                        actions[count][1] = 1
-                else:
-                    actions[count][a0] = 1  # convert to one-hot vector
-                rewards[count] = r1
-                terminals[count] = t1
-                i += 1
-                count += 1
-
-        return states, actions, rewards, terminals
-
-    def sample2(self, batch_size, onevsall=False, n_class=None):
-        """Return a random sample."""
-        assert not self.wrap_memory
-
-        # Allocate the response.
-        st_shape = (batch_size, self.height, self.width, self.phi_length)
-        states = np.zeros(st_shape, dtype=np.uint8)
-        rewards = np.zeros(batch_size, dtype=np.float32)
-        terminals = np.zeros(batch_size, dtype=np.int)
-        # lives = np.zeros(batch_size, dtype=np.int)
-
-        if onevsall:
-            actions = np.zeros((batch_size, 2), dtype=np.float32)
-        else:
-            actions = np.zeros((batch_size, self.num_actions),
-                               dtype=np.float32)
+                               dtype=np.float3)
 
         # Randomly choose a time step from the replay memory
         # within requested batch_size
@@ -381,6 +357,7 @@ class ReplayMemory(object):
             s0, a0, l0, fs0, s1, r1, t1, l1 = self.get_item(index)
             if s0 is None or s1 is None:
                 continue
+
             # Add the state transition to the response.
             states[count] = np.copy(s0)
             if onevsall:
@@ -392,12 +369,72 @@ class ReplayMemory(object):
                 actions[count][a0] = 1  # convert to one-hot vector
             rewards[count] = r1
             terminals[count] = t1
+            returns[count] = self.returns.take(index + self.phi_length)
             count += 1
 
-        return states, actions, rewards, terminals
+        return states, actions, rewards, terminals, returns
+
+    def _sample_by_actions(self, batch_size, action_distribution, type=None,
+                           onevsall=False, n_class=None):
+        # Allocate the response.
+        st_shape = (batch_size, self.height, self.width, self.phi_length)
+        states = np.zeros(st_shape, dtype=np.uint8)
+        rewards = np.zeros(batch_size, dtype=np.float32)
+        terminals = np.zeros(batch_size, dtype=np.int)
+        returns = np.zeros(batch_size, dtype=np.float32)
+
+        if onevsall:
+            actions = np.zeros((batch_size, 2), dtype=np.float32)
+        else:
+            actions = np.zeros((batch_size, self.num_actions),
+                               dtype=np.float32)
+
+        random_actions = self.random_batch_actions(batch_size,
+                                                   action_distribution,
+                                                   type=type)
+
+        count = 0
+        while count < batch_size:
+            action = random_actions[count]
+            index = random.choice(self.array_per_action[action])
+            s0, a0, l0, fs0, s1, r1, t1, l1 = self.get_item(index)
+            assert action == a0
+
+            if s0 is None or s1 is None:
+                continue
+
+            # Add the state transition to the response.
+            states[count] = np.copy(s0)
+            if onevsall:
+                if a0 == n_class:
+                    actions[count][0] = 1
+                else:
+                    actions[count][1] = 1
+            else:
+                actions[count][a0] = 1  # convert to one-hot vector
+            rewards[count] = r1
+            terminals[count] = t1
+            returns[count] = self.returns.take(index + self.phi_length)
+            count += 1
+
+        return states, actions, rewards, terminals, returns
+
+    def sample_nowrap(self, batch_size, action_distribution, type=None,
+                      onevsall=False, n_class=None):
+        """Return a random sample based on the type in a no wrap memory."""
+        assert not self.wrap_memory
+
+        if self.array_per_action is None:
+            self.create_index_array_per_action()
+
+        if type is None:
+            return self._sample_by_indices(batch_size, onevsall, n_class)
+
+        return self._sample_by_actions(batch_size, action_distribution, type,
+                                       onevsall, n_class)
 
     def sample(self, batch_size, onevsall=False, n_class=None, reward_type=''):
-        """Return a random sample."""
+        """Return a random sample in a wrap memory."""
         assert self.wrap_memory
 
         # Allocate the response.
