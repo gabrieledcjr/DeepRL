@@ -277,8 +277,8 @@ class GameACNetwork(ABC):
 
             if transfer_all and '_slv' not in str(folder):
                 # scale down last layer if it's transferred
-                logger.info("Normalizing output layer with max value"
-                            " {}...".format(transfer_max_output_val))
+                # logger.info("Normalizing output layer with max value"
+                #            " {}...".format(transfer_max_output_val))
                 # W_fc2_norm = tf.div(self.W_fc2, transfer_max_output_val)
                 # b_fc2_norm = tf.div(self.b_fc2, transfer_max_output_val)
 
@@ -297,7 +297,7 @@ class GameACNetwork(ABC):
                     self.b_fc2.assign(b_fc2_norm),
                     ])
 
-                if '_sil' in str(folder):
+                if '_slv' in str(folder):
                     logger.info("Normalizing fc3 output layer...")
                     maxW = tf.abs(tf.reduce_max(self.W_fc3))
                     minW = tf.abs(tf.reduce_min(self.W_fc3))
