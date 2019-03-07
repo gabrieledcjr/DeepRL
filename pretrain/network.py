@@ -166,8 +166,8 @@ class Network(ABC):
         clipped_advs = tf.stop_gradient(
             tf.maximum(tf.zeros_like(advs), advs))
 
-        sl_loss = sl_xentropy
-        # sl_loss = sl_xentropy * clipped_advs
+        # sl_loss = sl_xentropy
+        sl_loss = sl_xentropy * clipped_advs
 
         val_loss = tf.squared_difference(
             tf.squeeze(self.v), self.returns) / 2.0
