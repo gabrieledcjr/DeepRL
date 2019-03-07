@@ -473,9 +473,9 @@ class A3CTrainingThread(object):
                         episode_buffer = []
                     n_episodes += 1
                     score_str = colored("score={}".format(episode_reward),
-                                        "magenta")
+                                        "yellow")
                     steps_str = colored("steps={}".format(episode_steps),
-                                        "blue")
+                                        "cyan")
                     log_data = (global_t, self.thread_idx, n_episodes,
                                 score_str, steps_str, total_steps)
                     logger.debug("test: global_t={} worker={} trial={} {} {}"

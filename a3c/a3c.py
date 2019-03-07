@@ -159,7 +159,7 @@ def run_a3c(args):
     rewards = {'train': {}, 'eval': {}}
     best_model_reward = -(sys.maxsize)
 
-    stop_requested = False
+    stop_req = False
 
     game_state = GameState(env_id=args.gym_env)
     action_size = game_state.env.action_space.n
@@ -468,9 +468,6 @@ def run_a3c(args):
         prepare_dir(folder / 'frames', empty=True)
 
     lock = threading.Lock()
-    test_lock = False
-    if global_t == 0:
-        test_lock = True
 
     def next_t(current_t, freq):
         return np.ceil((current_t + 0.00001) / freq) * freq
@@ -478,34 +475,34 @@ def run_a3c(args):
     next_global_t = next_t(global_t, args.eval_freq)
     next_save_t = next_t(
         global_t, (args.max_time_step * args.max_time_step_fraction) // 5)
+    step_t = 0
 
     last_temp_global_t = global_t
     ispretrain_markers = [False] * args.parallel_size
 
-    def train_function(parallel_idx, threads_ctr, ep_queue, net_updates):
-        nonlocal global_t, pretrain_global_t, pretrain_epoch, \
-            rewards, test_lock, lock, next_global_t, next_save_t, \
+    def train_function(parallel_idx, th_ctr, ep_queue, net_updates):
+        nonlocal global_t, step_t, pretrain_global_t, pretrain_epoch, \
+            rewards, lock, next_global_t, next_save_t, \
             last_temp_global_t, ispretrain_markers, shared_memory
 
         a3c_worker = all_workers[parallel_idx]
         a3c_worker.set_summary_writer(summary_writer)
 
-        # Evaluate model before training
-        if not stop_requested and global_t == 0:
-            with lock:
-                if parallel_idx == 0:
-                    rewards['eval'][global_t] = all_workers[0].testing(
-                        sess, args.eval_max_steps, global_t, folder,
-                        demo_memory_cam=demo_memory_cam)
-                    checkpt_file = folder / 'model_checkpoints'
-                    checkpt_file /= '{}_checkpoint'.format(GYM_ENV_NAME)
-                    saver.save(sess, str(checkpt_file), global_step=global_t)
-                    save_best_model(rewards['eval'][global_t][0])
-                    test_lock = False
+        with lock:
+            # Evaluate model before training
+            if not stop_req and global_t == 0 and step_t == 0:
+                rewards['eval'][step_t] = a3c_worker.testing(
+                    sess, args.eval_max_steps, global_t, folder,
+                    demo_memory_cam=demo_memory_cam)
+                checkpt_file = folder / 'model_checkpoints'
+                checkpt_file /= '{}_checkpoint'.format(GYM_ENV_NAME)
+                saver.save(sess, str(checkpt_file), global_step=global_t)
+                save_best_model(rewards['eval'][global_t][0])
+                step_t = 1
 
-            # all threads wait until evaluation finishes
-            while not stop_requested and test_lock:
-                time.sleep(0.01)
+            # # all threads wait until evaluation finishes
+            # while not stop_req and test_flag:
+            #     time.sleep(0.01)
 
         # set start_time
         start_time = time.time() - wall_t
@@ -521,7 +518,7 @@ def run_a3c(args):
             sil_train = args.load_memory and len(shared_memory) >= min_mem
 
         while True:
-            if stop_requested:
+            if stop_req:
                 return
 
             if global_t >= (args.max_time_step * args.max_time_step_fraction):
@@ -536,10 +533,10 @@ def run_a3c(args):
 
                 if sil_train:
                     sil_train = False
-                    threads_ctr.get()
+                    th_ctr.get()
                     sil_ctr = a3c_worker.sil_train(
                         sess, global_t, shared_memory, sil_ctr, m=m_repeat)
-                    threads_ctr.put(1)
+                    th_ctr.put(1)
                     with net_updates.mutex:
                         net_updates.queue.clear()
 
@@ -567,18 +564,17 @@ def run_a3c(args):
                 diff_global_t = 0
 
             else:
-                threads_ctr.get()
+                th_ctr.get()
 
                 train_out = a3c_worker.train(sess, global_t, rewards)
                 diff_global_t, episode_end, part_end = train_out
 
-                threads_ctr.put(1)
+                th_ctr.put(1)
 
                 if args.use_sil:
                     net_updates.put(1)
                     if part_end:
                         ep_queue.put(a3c_worker.episode.get_data())
-                        # net_updates.put(1)
                         a3c_worker.episode.reset()
 
             with lock:
@@ -586,9 +582,10 @@ def run_a3c(args):
 
                 if global_t > next_global_t:
                     next_global_t = next_t(global_t, args.eval_freq)
+                    step_t = int(next_global_t - args.eval_freq)
 
                     # wait for all threads to finish before testing
-                    while not stop_requested and threads_ctr.qsize() < len(all_workers):
+                    while not stop_req and th_ctr.qsize() < len(all_workers):
                         time.sleep(0.01)
 
                     step_t = int(next_global_t - args.eval_freq)
@@ -598,7 +595,8 @@ def run_a3c(args):
                     save_best_model(rewards['eval'][step_t][0])
 
             if global_t > next_save_t:
-                freq = (args.max_time_step * args.max_time_step_fraction) // 5
+                freq = (args.max_time_step * args.max_time_step_fraction)
+                freq = freq // 5
                 next_save_t = next_t(global_t, freq)
                 checkpt_file = folder / 'model_checkpoints'
                 checkpt_file /= '{}_checkpoint'.format(GYM_ENV_NAME)
@@ -606,11 +604,11 @@ def run_a3c(args):
                            write_meta_graph=False)
 
     def signal_handler(signal, frame):
-        nonlocal stop_requested
+        nonlocal stop_req
         logger.info('You pressed Ctrl+C!')
-        stop_requested = True
+        stop_req = True
 
-        if stop_requested and global_t == 0:
+        if stop_req and global_t == 0:
             sys.exit(1)
 
     def save_best_model(test_reward):
@@ -627,16 +625,18 @@ def run_a3c(args):
             best_saver.save(sess, str(best_checkpt_file))
 
     train_threads = []
-    threads_ctr = Queue()
+    th_ctr = Queue()
     for i in range(args.parallel_size):
-        threads_ctr.put(1)
+        th_ctr.put(1)
     episodes_queue = None
     net_updates = None
     if args.use_sil:
         episodes_queue = Queue()
         net_updates = Queue()
     for i in range(args.parallel_size):
-        worker_thread = threading.Thread(target=train_function, args=(i, threads_ctr, episodes_queue, net_updates,))
+        worker_thread = threading.Thread(
+            target=train_function,
+            args=(i, th_ctr, episodes_queue, net_updates,))
         train_threads.append(worker_thread)
 
     signal.signal(signal.SIGINT, signal_handler)
