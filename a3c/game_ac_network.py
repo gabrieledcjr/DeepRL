@@ -275,7 +275,7 @@ class GameACNetwork(ABC):
                 logger.info("    {} loaded".format(var.op.name))
                 sleep(1)
 
-            if transfer_all and '_slv' not in str(folder):
+            if transfer_all:
                 # scale down last layer if it's transferred
                 # logger.info("Normalizing output layer with max value"
                 #            " {}...".format(transfer_max_output_val))
@@ -297,22 +297,22 @@ class GameACNetwork(ABC):
                     self.b_fc2.assign(b_fc2_norm),
                     ])
 
-                if '_slv' in str(folder):
-                    logger.info("Normalizing fc3 output layer...")
-                    maxW = tf.abs(tf.reduce_max(self.W_fc3))
-                    minW = tf.abs(tf.reduce_min(self.W_fc3))
-                    maxAbsW = tf.maximum(maxW, minW)
-                    W_fc3_norm = tf.div(self.W_fc3, maxAbsW)
-
-                    maxb = tf.abs(tf.reduce_max(self.b_fc3))
-                    minb = tf.abs(tf.reduce_min(self.b_fc3))
-                    maxAbsb = tf.maximum(maxb, minb)
-                    b_fc3_norm = tf.div(self.b_fc3, maxAbsb)
-
-                    sess.run([
-                        self.W_fc3.assign(W_fc3_norm),
-                        self.b_fc3.assign(b_fc3_norm),
-                        ])
+                # if '_slv' in str(folder):
+                #     logger.info("Normalizing fc3 output layer...")
+                #     maxW = tf.abs(tf.reduce_max(self.W_fc3))
+                #     minW = tf.abs(tf.reduce_min(self.W_fc3))
+                #     maxAbsW = tf.maximum(maxW, minW)
+                #     W_fc3_norm = tf.div(self.W_fc3, maxAbsW)
+                #
+                #     maxb = tf.abs(tf.reduce_max(self.b_fc3))
+                #     minb = tf.abs(tf.reduce_min(self.b_fc3))
+                #     maxAbsb = tf.maximum(maxb, minb)
+                #     b_fc3_norm = tf.div(self.b_fc3, maxAbsb)
+                #
+                #     sess.run([
+                #         self.W_fc3.assign(W_fc3_norm),
+                #         self.b_fc3.assign(b_fc3_norm),
+                #         ])
 
                 logger.info("Output layer(s) normalized")
 
