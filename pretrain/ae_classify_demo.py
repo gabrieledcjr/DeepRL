@@ -75,8 +75,10 @@ class AutoencoderClassifyDemo(object):
 
         self.action_dist = [acts_ctr[a] for a in range(self.net.action_size)]
 
-        self.net.prepare_loss(sl_loss_weight=sl_loss_weight,
-                              val_weight=0.5 * sl_loss_weight)
+        # self.net.prepare_loss(sl_loss_weight=sl_loss_weight,
+        #                       val_weight=0.5 * sl_loss_weight)
+        self.net.prepare_loss(sl_loss_weight=1.0,
+                              val_weight=0.005)
         self.net.prepare_evaluate()
         self.apply_gradients = self.prepare_compute_gradients(
             grad_applier, device, clip_norm=clip_norm)
