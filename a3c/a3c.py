@@ -119,7 +119,7 @@ def run_a3c(args):
                 name=None,
                 demo_memory_folder=demo_memory_folder,
                 demo_ids=args.demo_ids,
-                imgs_normalized=False)
+                )
 
     demo_memory_cam = None
     if args.load_demo_cam:
@@ -127,7 +127,7 @@ def run_a3c(args):
             name=None,
             demo_memory_folder=demo_memory_folder,
             demo_ids=args.demo_cam_id,
-            imgs_normalized=False)
+            )
 
         demo_cam = demo_cam[int(args.demo_cam_id)]
         demo_memory_cam = np.zeros(

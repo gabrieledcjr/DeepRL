@@ -79,7 +79,7 @@ class ClassifyDemo(object):
 
         self.demo_memory, acts_ctr, total_rewards, total_steps = \
             load_memory(name=None, demo_memory_folder=demo_memory_folder,
-                        demo_ids=demo_ids, imgs_normalized=False)
+                        demo_ids=demo_ids)
 
         self.action_dist = [acts_ctr[a] for a in range(self.net.action_size)]
 

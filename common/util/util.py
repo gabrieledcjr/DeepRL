@@ -104,7 +104,7 @@ def solve_weight(numbers):
 
     return solved
 
-def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normalized=False, rewards_propagated=False):
+def load_memory(name=None, demo_memory_folder=None, demo_ids=None):
     assert demo_ids is not None
     assert demo_memory_folder is not None
 
@@ -114,8 +114,6 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
     logger.info("Loading data from memory")
     logger.info("memory_folder: {}".format(demo_memory_folder))
     logger.info("demo_ids: {}".format(demo_ids))
-    logger.info("imgs_normalized: {}".format(imgs_normalized))
-    logger.info("rewards_propagated: {}".format(rewards_propagated))
 
     conn = sqlite3.connect(
         str(demo_memory_folder / 'demo.db'),
@@ -140,8 +138,6 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
         folder = demo_memory_folder / 'data' / hostname / str(datetime_collected)
         replay_memory = ReplayMemory()
         replay_memory.load(name=name, folder=folder)
-        if imgs_normalized:
-            replay_memory.normalize_images()
         total_steps += replay_memory.max_steps
 
         actions_count = np.unique(replay_memory.actions, return_counts=True)
@@ -149,12 +145,6 @@ def load_memory(name=None, demo_memory_folder=None, demo_ids=None, imgs_normaliz
             action_distribution[action] += actions_count[1][index]
 
         replay_buffers[demo_id] = replay_memory
-
-    if rewards_propagated:
-        for i in range(len(replay_buffers)):
-            logger.error("DO NOT USE!!! Needs fixing! Should end experiment")
-            #replay_buffers[i].propagate_rewards(normalize=True, exclude_outlier=exclude_outlier_reward, max_reward=max_reward_norm)
-            replay_buffers[i].propagate_rewards(clip=True)
 
     logger.info("replay_buffers size: {}".format(len(replay_buffers)))
     logger.info("total_rewards: {}".format(dict.__repr__(total_rewards)))
