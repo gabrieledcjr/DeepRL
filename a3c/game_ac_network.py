@@ -113,16 +113,19 @@ class GameACNetwork(ABC):
             self.clipped_advs = tf.stop_gradient(
                 tf.maximum(tf.zeros_like(advs), advs))
 
-            sil_pg_loss = self.weights * neglogpac * self.clipped_advs
+            # sil_pg_loss = self.weights * neglogpac * self.clipped_advs
+            sil_pg_loss = neglogpac * self.clipped_advs
             sil_pg_loss = tf.reduce_sum(sil_pg_loss) / self.num_samples
 
-            entropy = self.weights * cat_entropy(self.logits) * mask
+            # entropy = self.weights * cat_entropy(self.logits) * mask
+            entropy = cat_entropy(self.logits) * mask
             entropy = tf.reduce_sum(entropy) / self.num_samples
 
             val_error = v_estimate - self.returns
             delta = tf.stop_gradient(
                 tf.minimum(val_error, tf.zeros_like(self.returns)) * mask)
-            sil_val_loss = self.weights * val_error * delta
+            # sil_val_loss = self.weights * val_error * delta
+            sil_val_loss = val_error * delta
             sil_val_loss = tf.reduce_sum(sil_val_loss) / self.num_samples
             sil_val_loss *= 0.5
 
