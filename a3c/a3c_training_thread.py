@@ -110,7 +110,7 @@ class A3CTrainingThread(object):
 
             if self.sil_thread:
                 # TODO(add as command-line parameters later)
-                critic_lr = 0.05
+                critic_lr = 0.1
                 entropy_beta = 0
                 w_loss = 1.0
 
