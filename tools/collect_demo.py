@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
-import numpy as np
-import time
-import random
-import sqlite3
-import os
-import coloredlogs, logging
-import cv2
+import coloredlogs
 import datetime
+import logging
+import numpy as np
+import pathlib
+import sqlite3
+import time
 
-from tkinter import Tk, messagebox
 from collections import deque
-from common.util import prepare_dir, get_action_index, make_movie
-from common.replay_memory import ReplayMemory
 from common.game_state.atari_wrapper import get_wrapper_by_name
+from common.replay_memory import ReplayMemory
+from common.util import get_action_index
+from common.util import make_movie
+from common.util import prepare_dir
+from tkinter import messagebox
+from tkinter import Tk
 
 logger = logging.getLogger("collect_demo")
 
+
 class CollectDemonstration(object):
 
-    def __init__(
-        self, game_state, resized_height, resized_width, phi_length, name,
-        folder='', create_movie=False, hertz=60.0, skip=4):
-        """ Initialize collection of demo """
-        assert folder != ''
+    def __init__(self, game_state, resized_height, resized_width, phi_length,
+                 name, folder=None, create_movie=False, hertz=60.0, skip=4):
+        """Initialize collection of demo."""
+        assert folder is not None
         self.game_state = game_state
         self.resized_h = resized_height
         self.resized_w = resized_width
@@ -33,18 +35,18 @@ class CollectDemonstration(object):
 
         # Create or connect to database
         self.conn = sqlite3.connect(
-            self.main_folder + '/demo.db',
-            detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+            str(self.main_folder / 'demo.db'),
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
         self.db = self.conn.cursor()
         self._create_table()
 
         if "SpaceInvaders" in self.game_state.env.spec.id and skip == 4:
-            self._skip = 3 # NIPS (makes laser always visible)
+            self._skip = 3  # NIPS (makes laser always visible)
         else:
             self._skip = skip
 
         self.create_movie = create_movie
-        self.obs_buffer = np.zeros((2, 84 , 84), dtype=np.uint8)
+        self.obs_buffer = np.zeros((2, 84, 84), dtype=np.uint8)
 
     def _create_table(self):
         # Create table if doesn't exist
@@ -73,15 +75,12 @@ class CollectDemonstration(object):
 
     def insert_data_to_db(self, demos=None):
         assert demos is not None
-        # self.db.executemany(
-        #     '''INSERT OR REPLACE INTO
-        #        demo_samples(data_path, env_id, total_reward, memory_size, start_time, end_time, duration, total_steps)
-        #        VALUES(?,?,?,?,?,?,?,?)''', demos)
         self.db.executemany(
             '''INSERT INTO demo_samples
-               (datetime_collected, env_id, episodic_life, frameskip, total_reward, 
-                memory_size, start_time, end_time, 
-                duration, time_limit, total_steps, log_file, hostname, demo_speed_hz)
+               (datetime_collected, env_id, episodic_life, frameskip,
+                total_reward, memory_size, start_time, end_time,
+                duration, time_limit, total_steps, log_file, hostname,
+                demo_speed_hz)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', demos)
         self.conn.commit()
 
@@ -104,7 +103,8 @@ class CollectDemonstration(object):
         self.state_input = np.roll(self.state_input, -1, axis=3)
         self.state_input[0, :, :, -1] = observation
 
-    def run_episodes(self, num_episodes, minutes_limit=5, demo_type=0, model_net=None, log_file='', hostname=None):
+    def run_episodes(self, num_episodes, minutes_limit=5, demo_type=0,
+                     model_net=None, log_file='', hostname=None):
         assert hostname is not None
         rewards = []
         steps = []
@@ -125,14 +125,20 @@ class CollectDemonstration(object):
                 wrap_memory=False,
                 full_state_size=self.game_state.clone_full_state().shape[0])
 
-            datetime_collected = datetime.datetime.today().strftime('%Y%m%d_%H%M%S')
-            self.folder = self.main_folder + '/data/{}/{}/'.format(hostname, datetime_collected)
+            datetime_collected = datetime.datetime.today().strftime(
+                '%Y%m%d_%H%M%S')
+            self.folder = self.main_folder / 'data'
+            self.folder /= hostname
+            self.folder /= datetime_collected
             prepare_dir(self.folder, empty=True)
 
-            total_reward, total_steps, start_time, end_time, duration, mem_size = self.run(
-                minutes_limit=minutes_limit, episode=episode, num_episodes=num_episodes,
-                demo_type=demo_type, model_net=model_net, replay_memory=replay_memory,
+            results = self.run(
+                minutes_limit=minutes_limit, episode=episode,
+                num_episodes=num_episodes, demo_type=demo_type,
+                model_net=model_net, replay_memory=replay_memory,
                 total_memory=np.sum(mem_sizes))
+            total_reward, total_steps, start_time = results[:3]
+            end_time, duration, mem_size = results[3:]
 
             rewards.append(total_reward)
             steps.append(total_steps)
@@ -141,7 +147,8 @@ class CollectDemonstration(object):
             del replay_memory
 
             self.insert_data_to_db([(
-                datetime_collected, self.name, 1 if self.game_state.episode_life else 0, self._skip,
+                datetime_collected, self.name,
+                1 if self.game_state.episode_life else 0, self._skip,
                 total_reward, mem_size, start_time, end_time,
                 str(duration), str(datetime.time(minute=minutes_limit)),
                 total_steps, log_file, hostname, self.hertz)])
@@ -152,7 +159,8 @@ class CollectDemonstration(object):
 
         logger.debug("steps / episode: {}".format(steps))
         logger.debug("reward / episode: {}".format(rewards))
-        logger.debug("mean steps: {} / mean reward: {}".format(np.mean(steps), np.mean(rewards)))
+        logger.debug("mean steps: {} / mean reward: {}".format(
+            np.mean(steps), np.mean(rewards)))
         total_duration = durations[0]
         logger.debug("duration / episode:")
         logger.debug("    {}".format(durations[0]))
@@ -285,16 +293,18 @@ class CollectDemonstration(object):
         if self.create_movie:
             time_per_step = 0.0167
             make_movie(
-                movie_images, self.folder+"demo",
+                movie_images, str(self.folder / "demo"),
                 duration=len(movie_images)*time_per_step,
                 true_image=True, salience=False)
 
         return total_reward, t, start_time, end_time, duration, replay_memory.size
 
+
 def test_collect(env_id):
     from common.game_state import GameState
     game_state = GameState(env_id=env_id, display=True, human_demo=True)
     test_folder = "demo_samples/{}_test".format(env_id.replace('-', '_'))
+    test_folder = pathlib.Path(test_folder)
     prepare_dir(test_folder, empty=True)
     collect_demo = CollectDemonstration(
         game_state,
