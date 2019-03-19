@@ -2,21 +2,22 @@
 """
 https://github.com/dbobrenko/reinforcement-learning-notes/blob/master/notes/dqn-agent.md
 """
+import cv2
 import gym
 import logging
-import pyglet
-import cv2
-import threading
 import numpy as np
+import pygame
+import pyglet
+import threading
 
-from time import sleep
 from gym import spaces
+from time import sleep
 
 logger = logging.getLogger("atari_wrapper")
 
+
 class AtariWrapper(gym.Wrapper):
-    """
-    Sets the frame skip in ale and overrides step function
+    """Sets the frame skip in ale and overrides step function
     in order to speed up game simulation
     Should only be used for Deterministic and NoFrameskip version of Atari gym
     """
@@ -33,7 +34,6 @@ class AtariWrapper(gym.Wrapper):
         # self.unwrapped.seed()
 
         logger.info("ALE lives: {}".format(self.unwrapped.ale.lives()))
-        #logger.info("frameskip: {} / {}".format(self.unwrapped.ale.getInt('frame_skip'.encode('utf-8')), self.unwrapped.frameskip))
         logger.info("ALE frameskip: {} / {}".format(self.unwrapped.ale.getInt('frame_skip'.encode('utf-8')), self.unwrapped.frameskip))
         logger.info("ALE repeat_action_probability: {}".format(self.unwrapped.ale.getFloat('repeat_action_probability'.encode('utf-8'))))
         logger.info("Gym action_space: {}".format(self.env.action_space))
@@ -69,8 +69,10 @@ class AtariWrapper(gym.Wrapper):
 
         return obs
 
+
 class FireResetEnv(gym.Wrapper):
     """Take action on reset for environments that are fixed until firing."""
+
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
@@ -89,6 +91,7 @@ class FireResetEnv(gym.Wrapper):
 
     def step(self, ac):
         return self.env.step(ac)
+
 
 class MaxAndSkipEnv(gym.Wrapper):
     def __init__(self, env, skip=4):
@@ -118,6 +121,7 @@ class MaxAndSkipEnv(gym.Wrapper):
 
     def reset(self, **kwargs):
         return self.env.reset(**kwargs)
+
 
 class EpisodicLifeEnv(gym.Wrapper):
     def __init__(self, env):
@@ -156,10 +160,22 @@ class EpisodicLifeEnv(gym.Wrapper):
         self.lives = self.env.unwrapped.ale.lives()
         return obs
 
+
 class HumanDemoEnv(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
         logger.info("HumanDemoEnv: {}".format(True))
+
+        pygame.init()
+        pygame.joystick.init()
+        # Get count of joysticks
+        joystick_count = pygame.joystick.get_count()
+        if joystick_count > 0:
+            joystick = pygame.joystick.Joystick(0)
+            joystick.init()
+            # Get the name from the OS for the controller/joystick
+            name = joystick.get_name()
+            logger.info("Joystick: {}".format(name))
 
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
@@ -205,13 +221,44 @@ class HumanDemoEnv(gym.Wrapper):
 
         return keys_to_action
 
+    def joy_mapping(self, hat=(0,0), fire=0):
+        key = []
+        if hat[1] == 1:
+            key.append(self.key.UP)
+        elif hat[1] == -1:
+            key.append(self.key.DOWN)
+        if hat[0] == 1:
+            key.append(self.key.RIGHT)
+        elif hat[0] == -1:
+            key.append(self.key.LEFT)
+        if fire:
+            key.append(self.key.SPACE)
+        key = tuple(sorted(key))
+        return key
+
     def update_human_agent_action(self):
         while not self.stop_thread:
-            key = []
-            for k in [self.key.UP, self.key.DOWN, self.key.LEFT, self.key.RIGHT, self.key.SPACE]:
-                if self.keys[k]:
-                    key.append(k)
-            key = tuple(sorted(key))
+            for event in pygame.event.get():  # User did something
+                # Possible joystick actions:
+                # JOYAXISMOTION JOYBALLMOTION
+                # JOYBUTTONDOWN JOYBUTTONUP JOYHATMOTION
+                if event.type == pygame.JOYBUTTONDOWN:
+                    pass
+                if event.type == pygame.JOYBUTTONUP:
+                    pass
+
+            if pygame.joystick.get_count() > 0:
+                joystick = pygame.joystick.Joystick(0)
+                joystick.init()
+                hat = joystick.get_hat(0)
+                button_A = joystick.get_button(0)
+                key = self.joy_mapping(hat, button_A)
+            else:
+                key = []
+                for k in [self.key.UP, self.key.DOWN, self.key.LEFT, self.key.RIGHT, self.key.SPACE]:
+                    if self.keys[k]:
+                        key.append(k)
+                key = tuple(sorted(key))
             action = self.action_map.get(key, 0)
             self.human_agent_action = action
             sleep(0.001)
@@ -248,6 +295,7 @@ class WarpFrame(gym.ObservationWrapper):
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
         return frame[:, :]
+
 
 class ScaledFloatFrame(gym.ObservationWrapper):
     def __init__(self, env):

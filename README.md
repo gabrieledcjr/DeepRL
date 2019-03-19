@@ -11,7 +11,7 @@ sudo apt-get install python3-tk
 pip3 install gym atari_py coloredlogs
     termcolor pyglet tables matplotlib
     numpy opencv-python moviepy scipy
-    scikit-image
+    scikit-image pygame
 ```
 
 ## Human Demonstration
