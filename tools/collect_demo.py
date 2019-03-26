@@ -22,7 +22,8 @@ logger = logging.getLogger("collect_demo")
 class CollectDemonstration(object):
 
     def __init__(self, game_state, resized_height, resized_width, phi_length,
-                 name, folder=None, create_movie=False, hertz=60.0, skip=4):
+                 name, folder=None, create_movie=False, hertz=60.0, skip=4,
+                 pause_onstart=True):
         """Initialize collection of demo."""
         assert folder is not None
         self.game_state = game_state
@@ -32,6 +33,7 @@ class CollectDemonstration(object):
         self.name = name
         self.main_folder = folder
         self.hertz = hertz
+        self.pause_onstart = pause_onstart
 
         # Create or connect to database
         self.conn = sqlite3.connect(
@@ -197,13 +199,14 @@ class CollectDemonstration(object):
         # loss_life = self.game_state.loss_life
         # gain_life = self.game_state.gain_life and not loss_life
 
-        root = Tk()
-        root.withdraw()
+        if self.pause_onstart:
+            root = Tk()
+            root.withdraw()
 
-        messagebox.showinfo(
-            self.name,
-            "Start episode {} of {}. total memory={}. "
-            "Press OK to start playing".format(episode, num_episodes, total_memory))
+            messagebox.showinfo(
+                self.name,
+                "Start episode {} of {}. total memory={}. "
+                "Press OK to start playing".format(episode, num_episodes, total_memory))
 
         # regular game
         start_time = datetime.datetime.now()
