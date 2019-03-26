@@ -171,6 +171,7 @@ class HumanDemoEnv(gym.Wrapper):
 
         pygame.init()
         pygame.joystick.init()
+        self.clock = pygame.time.Clock()
         # Get count of joysticks
         joystick_count = pygame.joystick.get_count()
         self.valid_joy = False
@@ -220,7 +221,7 @@ class HumanDemoEnv(gym.Wrapper):
             for keyword, key in KEYWORD_TO_KEY.items():
                 if keyword in action_meaning:
                     keys.append(key)
-            keys = tuple(sorted(keys))
+            keys = tuple(keys)
 
             assert keys not in keys_to_action
             keys_to_action[keys] = action_id
@@ -265,12 +266,15 @@ class HumanDemoEnv(gym.Wrapper):
                 if self.keys[k]:
                     key.append(k)
 
-            key = tuple(sorted(key))
+            # key = tuple(sorted(key))
+            key = tuple(key)
 
             action = self.action_map.get(key, 0)
+            # if len(key) > 0:
+            #     logger.warning("{} {}".format(action, self.unwrapped.get_action_meanings()[action]))
             self.human_agent_action = action
-            sleep(0.001)
-        pygame.init()
+            # sleep(0.001)
+            self.clock.tick(1200)
 
     def close(self):
         self.stop_thread = True
