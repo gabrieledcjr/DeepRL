@@ -31,7 +31,8 @@ class AtariWrapper(gym.Wrapper):
 
         # set frame skip in ALE
         # self.unwrapped.ale.setInt('frame_skip'.encode('utf-8'), self.unwrapped.frameskip)
-        # self.unwrapped.seed()
+        self.unwrapped.ale.setBool('sound'.encode('utf-8'), True)
+        self.unwrapped.seed()
 
         logger.info("ALE lives: {}".format(self.unwrapped.ale.lives()))
         logger.info("ALE frameskip: {} / {}".format(self.unwrapped.ale.getInt('frame_skip'.encode('utf-8')), self.unwrapped.frameskip))
@@ -164,23 +165,28 @@ class EpisodicLifeEnv(gym.Wrapper):
 class HumanDemoEnv(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
+
+        logger.info("ALE sound: {}".format(self.unwrapped.ale.getBool('sound'.encode('utf-8'))))
         logger.info("HumanDemoEnv: {}".format(True))
 
         pygame.init()
         pygame.joystick.init()
         # Get count of joysticks
         joystick_count = pygame.joystick.get_count()
+        self.valid_joy = False
         if joystick_count > 0:
             joystick = pygame.joystick.Joystick(0)
             joystick.init()
             # Get the name from the OS for the controller/joystick
             name = joystick.get_name()
+            if "Xbox" in name:
+                self.valid_joy = True
             logger.info("Joystick: {}".format(name))
 
         self.key = pyglet.window.key
         self.keys = self.key.KeyStateHandler()
         self.env.render(mode='human')
-        self.env.unwrapped.viewer.window.set_size(110+300, 210+300)
+        self.env.unwrapped.viewer.window.set_size(110+500, 210+500)
         self.env.unwrapped.viewer.window.push_handlers(self.keys)
 
         self.human_agent_action = 0
@@ -233,7 +239,7 @@ class HumanDemoEnv(gym.Wrapper):
             key.append(self.key.LEFT)
         if fire:
             key.append(self.key.SPACE)
-        key = tuple(sorted(key))
+
         return key
 
     def update_human_agent_action(self):
@@ -247,21 +253,24 @@ class HumanDemoEnv(gym.Wrapper):
                 if event.type == pygame.JOYBUTTONUP:
                     pass
 
-            if pygame.joystick.get_count() > 0:
+            key = []
+            if self.valid_joy and pygame.joystick.get_count() > 0:
                 joystick = pygame.joystick.Joystick(0)
                 joystick.init()
                 hat = joystick.get_hat(0)
                 button_A = joystick.get_button(0)
                 key = self.joy_mapping(hat, button_A)
-            else:
-                key = []
-                for k in [self.key.UP, self.key.DOWN, self.key.LEFT, self.key.RIGHT, self.key.SPACE]:
-                    if self.keys[k]:
-                        key.append(k)
-                key = tuple(sorted(key))
+
+            for k in [self.key.UP, self.key.DOWN, self.key.LEFT, self.key.RIGHT, self.key.SPACE]:
+                if self.keys[k]:
+                    key.append(k)
+
+            key = tuple(sorted(key))
+
             action = self.action_map.get(key, 0)
             self.human_agent_action = action
             sleep(0.001)
+        pygame.init()
 
     def close(self):
         self.stop_thread = True
