@@ -31,7 +31,7 @@ def main():
 
     parser.add_argument('--append-experiment-num', type=str, default=None)
     parser.add_argument('--num-episodes', type=int, default=5, help='number of episodes')
-    parser.add_argument('--demo-time-limit', type=int, default=5, help='time limit per episode')
+    parser.add_argument('--demo-time-limit', type=int, default=20, help='time limit per episode')
     parser.add_argument('--create-movie', action='store_true')
     parser.set_defaults(create_movie=False)
     parser.add_argument('--demo-memory-folder', type=str, default=None)
@@ -41,6 +41,8 @@ def main():
 
     parser.add_argument('--multi-game', action='store_true')
     parser.set_defaults(multi_game=False)
+
+    parser.add_argument('--test-time-limit', type=int, default=5, help='time limit when testing')
 
     args = parser.parse_args()
 

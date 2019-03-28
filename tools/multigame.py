@@ -8,8 +8,10 @@ python3 DeepRL/tools/get_demo.py --multi-game --num-episodes=1
 import gym
 import numpy as np
 import pygame
+import time
 
 from getdemo import get_demo
+from getdemo import test_demo
 
 
 def multi_game(args):
@@ -21,7 +23,7 @@ def multi_game(args):
     games = ['Asteroids', 'BattleZone', 'Breakout', 'Hero', 'MsPacman', 'Enduro']
 
     display_width = 300 * len(games)
-    display_height = 450
+    display_height = 500
 
     gameDisplay = pygame.display.set_mode((display_width, display_height))
 
@@ -44,8 +46,8 @@ def multi_game(args):
     def put_image(img, x, y):
         gameDisplay.blit(img, (x, y))
 
-    def text_objects(text, font):
-        textSurface = font.render(text, True, black)
+    def text_objects(text, font, color=black):
+        textSurface = font.render(text, True, color)
         return textSurface, textSurface.get_rect()
 
     def draw_start(num=0):
@@ -63,11 +65,18 @@ def multi_game(args):
         TextRect.center = (loc[num] / 2, 435)
         gameDisplay.blit(TextSurf, TextRect)
 
+    def draw_status(status="RECORDING DATA", color=(255, 0, 0)):
+        largeText = pygame.font.Font('freesansbold.ttf', 30)
+        TextSurf, TextRect = text_objects(status, largeText, color)
+        TextRect.center = (display_width / 2, 470)
+        gameDisplay.blit(TextSurf, TextRect)
+
     x = (display_width * 0)
     y = (display_height * 0)
 
     game_num = 0
     quit = False
+    test_only = True
     while not quit:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -80,19 +89,31 @@ def multi_game(args):
             draw_start(game_num)
             pygame.draw.rect(gameDisplay, white, pygame.Rect(0, 0, (300*(1+i)), 420), 5)
 
+        if test_only:
+            draw_status("TESTING ONLY, DATA NOT RECORDED", (255, 140, 0))
+        else:
+            draw_status("RECORDING DATA", (255, 0, 0))
+
         if pygame.joystick.get_count() > 0:
             joystick = pygame.joystick.Joystick(0)
             joystick.init()
             hat = joystick.get_hat(0)
             start = joystick.get_button(0)
+            status = joystick.get_button(7)
             if hat[0] == 1:
                 game_num += 1
                 game_num = 0 if game_num == len(games) else game_num
             elif hat[0] == -1:
                 game_num -= 1
                 game_num = len(games)-1 if game_num < 0 else game_num
+            if status:
+                test_only = not test_only
+                time.sleep(0.2)
             if start:
-                get_demo(args, game=games[game_num], pause_onstart=False)
+                if test_only:
+                    test_demo(args, game=games[game_num], pause_onstart=False)
+                else:
+                    get_demo(args, game=games[game_num], pause_onstart=False)
                 pygame.init()
                 pygame.display.set_caption('Atari 2600')
 

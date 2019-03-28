@@ -277,6 +277,9 @@ class CollectDemonstration(object):
                 rew = 0
 
                 if terminal or (self.game_state.episode_life and get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done):
+                    root = Tk()
+                    root.withdraw()
+                    messagebox.showinfo(self.name, "Times up!" if terminal else "Game ended!")
                     break
 
                 if self.game_state.terminal:
@@ -301,6 +304,61 @@ class CollectDemonstration(object):
                 true_image=True, salience=False)
 
         return total_reward, t, start_time, end_time, duration, replay_memory.size
+
+    def test(self, minutes_limit=5):
+        timeout = 60 * minutes_limit
+        t = 0
+        terminal = False
+
+        # re-initialize game for evaluation
+        self.game_state.reset(hard_reset=True)
+
+        if self.pause_onstart:
+            root = Tk()
+            root.withdraw()
+
+            messagebox.showinfo(self.name, "Press OK to start playing")
+
+        # regular game
+        start_time = datetime.datetime.now()
+        timeout_start = time.time()
+
+        dtm = time.time()
+        pulse = 1.0 / self.hertz
+
+        while True:
+            dtm += pulse
+            delay = dtm - time.time()
+            if delay > 0:
+                time.sleep(delay)  # 60 hz
+            else:
+                dtm = time.time()
+
+            if not terminal:
+                action = self.game_state.env.human_agent_action
+
+            self.game_state.step(action)
+            t += 1
+
+            terminal = True if (time.time() > timeout_start + timeout) else False
+
+            # add memory every 4th frame even if demo uses skip=1
+            if self.game_state.get_episode_frame_number() % self._skip == 0 or terminal or self.game_state.terminal:
+                if terminal or (self.game_state.episode_life and get_wrapper_by_name(self.game_state.env, 'EpisodicLifeEnv').was_real_done):
+                    root = Tk()
+                    root.withdraw()
+                    messagebox.showinfo(self.name, "Times up!" if terminal else "Game ended!")
+                    break
+
+                if self.game_state.terminal:
+                    self.game_state.reset(hard_reset=False)
+                    continue
+
+            self.game_state.update()
+
+        end_time = datetime.datetime.now()
+        duration = end_time - start_time
+        logger.info("Duration: {}".format(duration))
 
 
 def test_collect(env_id):

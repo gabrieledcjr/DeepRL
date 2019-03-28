@@ -60,10 +60,44 @@ def get_demo(args, game=None, pause_onstart=True):
         hertz=args.hz,
         skip=args.skip,
         pause_onstart=pause_onstart)
+
     collect_demo.run_episodes(
         args.num_episodes,
         minutes_limit=args.demo_time_limit,
         demo_type=0,
         log_file=log_file,
         hostname=hostname)
+    game_state.close()
+
+
+def test_demo(args, game=None, pause_onstart=True):
+    gym_env = args.gym_env
+    if game is not None:
+        gym_env = game + 'NoFrameskip-v4'
+
+    if args.demo_memory_folder is not None:
+        demo_memory_folder = 'collected_demo/{}'.format(args.demo_memory_folder)
+    else:
+        demo_memory_folder = 'collected_demo/{}'.format(gym_env.replace('-', '_'))
+
+    if args.append_experiment_num is not None:
+        demo_memory_folder += '_' + args.append_experiment_num
+
+    demo_memory_folder = pathlib.Path(demo_memory_folder)
+
+    episode_life = not args.not_episodic_life
+
+    game_state = GameState(env_id=gym_env, display=True, human_demo=True,
+                           episode_life=episode_life)
+    collect_demo = CollectDemonstration(
+        game_state,
+        84, 84, 4,
+        gym_env,
+        folder=demo_memory_folder,
+        create_movie=args.create_movie,
+        hertz=args.hz,
+        skip=args.skip,
+        pause_onstart=pause_onstart)
+
+    collect_demo.test(minutes_limit=args.test_time_limit)
     game_state.close()
