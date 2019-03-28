@@ -180,7 +180,7 @@ class HumanDemoEnv(gym.Wrapper):
             joystick.init()
             # Get the name from the OS for the controller/joystick
             name = joystick.get_name()
-            if "Xbox" in name:
+            if "Xbox" in name or "Sony" in name:
                 self.valid_joy = True
             logger.info("Joystick: {}".format(name))
 
